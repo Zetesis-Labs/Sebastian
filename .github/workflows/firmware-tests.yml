@@ -39,4 +39,23 @@ jobs:
             echo "9e3dcef9d6f6d552df641a12addc9e443a69b7cbdad85492ec677acd55b7de9b  /tmp/zig.tar.xz" | sha256sum -c - &&
             mkdir -p /tmp/zig &&
             tar -xJf /tmp/zig.tar.xz -C /tmp/zig &&
-            "$(find /tmp/zig -maxdepth 2 -type f -name zig | head -1)" test core_test.zig
+            ZIG="$(find /tmp/zig -maxdepth 2 -type f -name zig | head -1)" &&
+            "$ZIG" test core_test.zig &&
+            "$ZIG" fmt --check main core_test.zig build.zig
+
+  esp-idf-build:
+    # Validate the full ESP-IDF build/link on PRs too — pages.yml only builds on
+    # push to main, so a PR could break the link/compile without CI noticing.
+    runs-on: herschel-runners
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build firmware (no deploy)
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.4
+          target: esp32s3
+          path: firmware
+          command: >-
+            (idf.py reconfigure || true) &&
+            find managed_components -name sdkconfig.rename -delete &&
+            idf.py build

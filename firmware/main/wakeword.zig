@@ -133,8 +133,11 @@ fn resyncRx() void {
 fn readChunk48k() ?usize {
     var bytes_read: usize = 0;
     const ret = c.i2s_channel_read(
-        board.i2sRx(), &i2s_buf,
-        PAIRS_48K * STEREO_BYTES, &bytes_read, 200,
+        board.i2sRx(),
+        &i2s_buf,
+        PAIRS_48K * STEREO_BYTES,
+        &bytes_read,
+        200,
     );
     if (ret != c.ESP_OK) return null;
     return bytes_read / STEREO_BYTES;
