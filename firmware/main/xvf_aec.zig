@@ -296,9 +296,10 @@ pub fn applyConfig() bool {
 
     // Far-end DSP path. With this off the far-end activity detector reads no
     // energy (spenergy stays 0) and the AEC never adapts — converged=0 and the
-    // loudspeaker couples straight into the mic. The XVF reverts it to its build
-    // default (0) on POWER-CYCLE (not esp_restart), so unplugging the unit
-    // silently kills the AEC. Pin it here, fail closed like the beam writes.
+    // loudspeaker couples straight into the mic. It was 1 during every successful
+    // convergence run, but only as a leftover manual write: the XVF reverts to its
+    // build default (0) on POWER-CYCLE (not esp_restart), so unplugging the unit
+    // silently killed the AEC. Pin it here, fail closed like the beam writes.
     if (!writeU8Verified(RESID_AUDIO_MGR, MGR_FAR_END_DSP_ENABLE, 1, "FAR_END_DSP_ENABLE")) return false;
 
     // Fixed beam. The adaptive beamformer continuously changes the mic→echo path,
@@ -367,6 +368,212 @@ pub fn logConfig() void {
         const cur: f32 = @bitCast(std.mem.readInt(u32, b[4..8], .little));
         log.info("aec detector: silence_level_set={d}n silence_level_cur={d}n (×1e9)", .{ scaled(set, 1e9), scaled(cur, 1e9) });
     }
+
+    logPpConfig();
+}
+
+// ── Post-processor (comms channel) inventory ─────────────────────────────────
+// The PP is the DSP we currently bypass by tapping the raw ASR beam: residual
+// echo suppression (linear tail + NON-LINEAR — the full-duplex-with-tracking
+// candidate), AGC (distance normalization), NS, limiter. Dumped read-only at
+// boot so we know what THIS build ships (Seeed changed defaults before:
+// REF_GAIN=8.0) before we start exploiting it.
+const RESID_PP: u8 = 17;
+const PP_AGCONOFF: u8 = 10;
+const PP_AGCMAXGAIN: u8 = 11;
+const PP_AGCDESIREDLEVEL: u8 = 12;
+const PP_AGCGAIN: u8 = 13;
+const PP_AGCTIME: u8 = 14;
+const PP_LIMITONOFF: u8 = 19;
+const PP_LIMITPLIMIT: u8 = 20;
+const PP_MIN_NS: u8 = 21;
+const PP_MIN_NN: u8 = 22;
+const PP_ECHOONOFF: u8 = 23;
+const PP_GAMMA_E: u8 = 24;
+const PP_GAMMA_ETAIL: u8 = 25;
+const PP_GAMMA_ENL: u8 = 26;
+const PP_NLATTENONOFF: u8 = 27;
+const PP_NLAEC_MODE: u8 = 28;
+const PP_FMIN_SPEINDEX: u8 = 30;
+const PP_DTSENSITIVE: u8 = 31;
+const PP_ATTNS_MODE: u8 = 32;
+const PP_ATTNS_NOMINAL: u8 = 33;
+const PP_ATTNS_SLOPE: u8 = 34;
+
+fn logPpConfig() void {
+    log.info("pp echo: echoonoff={d} gamma_e={d}m gamma_etail={d}m gamma_enl={d}m nlatten={d} nlaec_mode={d} dtsensitive={d}", .{
+        readI32(RESID_PP, PP_ECHOONOFF) orelse -1,
+        milli(readF32(RESID_PP, PP_GAMMA_E)),
+        milli(readF32(RESID_PP, PP_GAMMA_ETAIL)),
+        milli(readF32(RESID_PP, PP_GAMMA_ENL)),
+        readI32(RESID_PP, PP_NLATTENONOFF) orelse -1,
+        readI32(RESID_PP, PP_NLAEC_MODE) orelse -1,
+        readI32(RESID_PP, PP_DTSENSITIVE) orelse -1,
+    });
+    log.info("pp agc: on={d} maxgain={d}m desired={d}m gain={d}m time={d}m limiter={d} plimit={d}m", .{
+        readI32(RESID_PP, PP_AGCONOFF) orelse -1,
+        milli(readF32(RESID_PP, PP_AGCMAXGAIN)),
+        milli(readF32(RESID_PP, PP_AGCDESIREDLEVEL)),
+        milli(readF32(RESID_PP, PP_AGCGAIN)),
+        milli(readF32(RESID_PP, PP_AGCTIME)),
+        readI32(RESID_PP, PP_LIMITONOFF) orelse -1,
+        milli(readF32(RESID_PP, PP_LIMITPLIMIT)),
+    });
+    log.info("pp ns: min_ns={d}m min_nn={d}m attns_mode={d} attns_nominal={d}m attns_slope={d}m fmin_speindex={d}m", .{
+        milli(readF32(RESID_PP, PP_MIN_NS)),
+        milli(readF32(RESID_PP, PP_MIN_NN)),
+        readI32(RESID_PP, PP_ATTNS_MODE) orelse -1,
+        milli(readF32(RESID_PP, PP_ATTNS_NOMINAL)),
+        milli(readF32(RESID_PP, PP_ATTNS_SLOPE)),
+        milli(readF32(RESID_PP, PP_FMIN_SPEINDEX)),
+    });
+}
+
+// ── Dual-channel probe (camino B) ────────────────────────────────────────────
+const DualResult = struct {
+    lpeak: u32 = 0,
+    rpeak: u32 = 0,
+    lsum: u64 = 0,
+    rsum: u64 = 0,
+    n: u64 = 0,
+    werr: u32 = 0,
+    rerr: u32 = 0,
+
+    fn lmean(self: DualResult) u32 {
+        return if (self.n == 0) 0 else @intCast(self.lsum / self.n);
+    }
+    fn rmean(self: DualResult) u32 {
+        return if (self.n == 0) 0 else @intCast(self.rsum / self.n);
+    }
+};
+
+/// Play (optional) and measure the peak+mean magnitude of BOTH I2S slots at once.
+/// LEFT slot = comms beam (post-processed), RIGHT slot = raw ASR beam.
+fn measureDual(chunks: u32, amp: f32, noise: bool) DualResult {
+    var phase: f32 = 0;
+    var res = DualResult{};
+    for (0..chunks) |_| {
+        var written: usize = 0;
+        var got: usize = 0;
+        if (amp > 0.0) {
+            if (noise) fillNoise(amp) else fillTone(&phase, amp);
+            if (c.i2s_channel_write(board.i2sTx(), &tone_buf, @sizeOf(@TypeOf(tone_buf)), &written, 100) != c.ESP_OK) res.werr += 1;
+        }
+        if (c.i2s_channel_read(board.i2sRx(), &probe_rx_buf, @sizeOf(@TypeOf(probe_rx_buf)), &got, 100) != c.ESP_OK) {
+            res.rerr += 1;
+            continue;
+        }
+        const pairs = got / 8;
+        for (0..pairs) |i| {
+            const l: u32 = @abs(probe_rx_buf[i * 2 + 0] >> 8);
+            const r: u32 = @abs(probe_rx_buf[i * 2 + 1] >> 8);
+            res.lpeak = @max(res.lpeak, l);
+            res.rpeak = @max(res.rpeak, r);
+            res.lsum += l;
+            res.rsum += r;
+            res.n += 1;
+        }
+    }
+    return res;
+}
+
+fn logDual(comptime tag: []const u8, base: DualResult, echo: DualResult) void {
+    const l_rise: i64 = @as(i64, echo.lmean()) - @as(i64, base.lmean());
+    const r_rise: i64 = @as(i64, echo.rmean()) - @as(i64, base.rmean());
+    log.info(tag ++ ": echo-rise L(comms)={d} R(asr)={d} | L(peak={d} mean={d}) R(peak={d} mean={d}) werr={d}", .{
+        l_rise, r_rise, echo.lpeak, echo.lmean(), echo.rpeak, echo.rmean(), echo.werr,
+    });
+}
+
+/// Camino B decisivo: ¿la supresión residual (no lineal) del canal comms mata el
+/// eco que el beam ASR crudo deja pasar, SIN que el AEC lineal converja?
+/// Fase A = beam ADAPTATIVO (peor caso, el AEC no puede fijar): si L-rise << R-rise,
+/// full-duplex con tracking es viable. Fase B = beam FIJO tras converger (mejor
+/// caso, referencia). AGC+limiter fuera durante el test para comparar niveles
+/// reales; todo se restaura al terminar.
+pub fn probeDualChannel() void {
+    const saved_agc = readI32(RESID_PP, PP_AGCONOFF) orelse 1;
+    const saved_lim = readI32(RESID_PP, PP_LIMITONOFF) orelse 1;
+    _ = writeI32(RESID_PP, PP_AGCONOFF, 0);
+    _ = writeI32(RESID_PP, PP_LIMITONOFF, 0);
+    log.info("dualch: AGC/limiter off (was {d}/{d})", .{ saved_agc, saved_lim });
+
+    _ = c.i2s_channel_disable(board.i2sRx());
+    _ = c.i2s_channel_enable(board.i2sRx());
+
+    // Fase A: beam adaptativo, AEC virgen (boot) — el peor caso del eco.
+    _ = writeI32(RESID_AEC, AEC_FIXEDBEAMSONOFF, 0);
+    c.vTaskDelay(100);
+    const base = measureDual(40, 0.0, false); // ~0.8s de ambiente
+    log.info("dualch base: L(peak={d} mean={d}) R(peak={d} mean={d})", .{
+        base.lpeak, base.lmean(), base.rpeak, base.rmean(),
+    });
+    const echo_a = measureDual(150, PROBE_NOISE_AMP, true); // ~3s ruido
+    logDual("dualch A(adaptive)", base, echo_a);
+
+    // Fase B: beam fijo + 3s de convergencia, y medir de nuevo.
+    _ = writeI32(RESID_AEC, AEC_FIXEDBEAMSONOFF, 1);
+    c.vTaskDelay(100);
+    _ = measureDual(150, PROBE_NOISE_AMP, true); // converger (~1s basta, damos 3)
+    const echo_b = measureDual(150, PROBE_NOISE_AMP, true);
+    logDual("dualch B(fixed+converged)", base, echo_b);
+    log.info("dualch: converged={d}", .{readI32(RESID_AEC, AEC_AECCONVERGED) orelse -1});
+
+    // Restaurar TODO al estado de producción.
+    _ = writeI32(RESID_AEC, AEC_FIXEDBEAMSONOFF, if (cfg.fixed_beam) 1 else 0);
+    _ = writeI32(RESID_PP, PP_AGCONOFF, saved_agc);
+    _ = writeI32(RESID_PP, PP_LIMITONOFF, saved_lim);
+    _ = c.i2s_channel_disable(board.i2sTx());
+    _ = c.i2s_channel_enable(board.i2sTx());
+    _ = c.i2s_channel_disable(board.i2sRx());
+    _ = c.i2s_channel_enable(board.i2sRx());
+    log.info("dualch: done (restored)", .{});
+}
+
+// ── Output-gain actuator probe ───────────────────────────────────────────────
+/// ¿Es FAR_EXTGAIN (dB) un volumen maestro utilizable? Reproduce el mismo ruido
+/// a 0 dB y a −12 dB y compara el nivel de eco en el MICRO PRE-AEC (mux
+/// mics_w_gain, sin el confounder de la cancelación). Si el eco cae ≈4× (−12 dB),
+/// el knob escala el camino al DAC de forma coherente con la referencia del AEC
+/// → sirve de actuador para el auto-nivelado de headroom del eco (cualquier
+/// altavoz enchufado, autocalibrante). Reversible: restaura OP_R y la ganancia.
+pub fn probeOutputGain() void {
+    const saved = readBytes(RESID_AUDIO_MGR, MGR_OP_R, 2) orelse {
+        log.err("outgain: OP_R read failed — skipping", .{});
+        return;
+    };
+    if (!writeOpR(MUX_MICS_W_GAIN, 0)) {
+        log.err("outgain: OP_R switch failed — skipping", .{});
+        return;
+    }
+    _ = c.i2s_channel_disable(board.i2sRx());
+    _ = c.i2s_channel_enable(board.i2sRx());
+
+    const base = measureDual(40, 0.0, false);
+    const at_0db = measureDual(150, PROBE_NOISE_AMP, true);
+    var at_12db = DualResult{};
+    if (writeF32Verified(RESID_AEC, AEC_FAR_EXTGAIN, -12.0, "FAR_EXTGAIN")) {
+        c.vTaskDelay(50);
+        at_12db = measureDual(150, PROBE_NOISE_AMP, true);
+    }
+    _ = writeF32Verified(RESID_AEC, AEC_FAR_EXTGAIN, 0.0, "FAR_EXTGAIN");
+
+    log.info("outgain: mic(pre-AEC) ambient={d} | extgain 0dB → {d} | −12dB → {d} (≈/4 si el knob actúa sobre el DAC)", .{
+        base.rmean(), at_0db.rmean(), at_12db.rmean(),
+    });
+
+    // The restore MUST land: OP_R left on mics_w_gain feeds raw mic (gain 90 →
+    // saturated) to wake+ASR — the unit goes deaf until a power-cycle.
+    if (!writeOpR(saved[0], saved[1])) {
+        log.err("outgain: OP_R RESTORE FAILED — retrying", .{});
+        c.vTaskDelay(50);
+        if (!writeOpR(saved[0], saved[1])) log.err("outgain: OP_R restore failed twice — mic path is raw mic, power-cycle the XVF", .{});
+    }
+    _ = c.i2s_channel_disable(board.i2sTx());
+    _ = c.i2s_channel_enable(board.i2sTx());
+    _ = c.i2s_channel_disable(board.i2sRx());
+    _ = c.i2s_channel_enable(board.i2sRx());
+    log.info("outgain: done (restored)", .{});
 }
 
 // ── Reference probe ──────────────────────────────────────────────────────────

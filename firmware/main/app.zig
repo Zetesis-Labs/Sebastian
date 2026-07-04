@@ -604,6 +604,8 @@ export fn app_main() callconv(.c) void {
     // AEC convergence self-test (config.probe_aec_on_boot): plays a session-level
     // tone and reports converged — tests the REF_GAIN fix with no session/human.
     if (cfg.probe_aec_on_boot) xvf_aec.probeReference();
+    if (cfg.probe_dual_channel_on_boot) xvf_aec.probeDualChannel();
+    if (cfg.probe_output_gain_on_boot) xvf_aec.probeOutputGain();
 
     registerAudioCodecs() catch |err| {
         logStageError("audio codec registration", err);

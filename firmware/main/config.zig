@@ -43,3 +43,16 @@ pub const full_duplex: bool = true;
 /// with no session or human needed — the result lands in Grafana after a reset.
 /// Diagnostic only; leave false in production (it beeps for ~10s at boot).
 pub const probe_aec_on_boot: bool = false;
+
+/// Dual-channel echo test at boot (xvf_aec.probeDualChannel): plays agent-like
+/// noise and compares residual echo on the comms (LEFT) vs raw ASR (RIGHT) beams,
+/// with the beam adaptive (worst case) and fixed (reference). Answers whether the
+/// comms channel's non-linear suppressor enables full-duplex WITH tracking.
+/// Diagnostic only; leave false in production (plays ~12s of noise at boot).
+pub const probe_dual_channel_on_boot: bool = false;
+
+/// Output-gain actuator test at boot (xvf_aec.probeOutputGain): plays noise at
+/// FAR_EXTGAIN 0 dB vs −12 dB and compares pre-AEC mic echo. Answers whether
+/// FAR_EXTGAIN is a usable master volume for echo-headroom auto-leveling.
+/// Diagnostic only; leave false in production (~7s of noise at boot).
+pub const probe_output_gain_on_boot: bool = false;
