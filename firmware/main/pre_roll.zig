@@ -6,17 +6,14 @@
 
 const std = @import("std");
 const c = @import("csdk.zig");
+const core = @import("core/pre_roll_core.zig");
 
 const log = std.log.scoped(.pre_roll);
 
-pub const SAMPLE_RATE: u16 = 16000;
-// Capacity, not behaviour: the ring keeps filling until the live-capture
-// handoff EVENT, however long connect takes. 12s (384KB PSRAM) comfortably
-// covers worst-case connect + agent join + the speech spoken meanwhile.
-pub const SECONDS: usize = 12;
-pub const SAMPLE_CAPACITY: usize = SAMPLE_RATE * SECONDS;
+pub const SAMPLE_RATE = core.SAMPLE_RATE;
+pub const SECONDS = core.SECONDS;
+pub const SAMPLE_CAPACITY = core.SAMPLE_CAPACITY;
 
-const HEADER_BYTES: usize = 16;
 const TOPIC = "sebastian.preroll";
 
 var ring: ?[*]i16 = null;
@@ -68,39 +65,11 @@ pub fn markWake() void {
 }
 
 fn windowSamples() usize {
-    const lead: u64 = @min(wake_mark, WAKE_LEAD_SAMPLES);
-    const since_mark = total_written - wake_mark;
-    return @intCast(@min(@as(u64, filled), since_mark + lead));
+    return core.windowSamples(wake_mark, total_written, filled);
 }
 
 pub fn availableMs() u32 {
-    return @intCast(windowSamples() * 1000 / SAMPLE_RATE);
-}
-
-fn putU16LE(out: *[HEADER_BYTES]u8, offset: usize, value: u16) void {
-    out[offset] = @truncate(value);
-    out[offset + 1] = @truncate(value >> 8);
-}
-
-fn putU32LE(out: *[HEADER_BYTES]u8, offset: usize, value: u32) void {
-    out[offset] = @truncate(value);
-    out[offset + 1] = @truncate(value >> 8);
-    out[offset + 2] = @truncate(value >> 16);
-    out[offset + 3] = @truncate(value >> 24);
-}
-
-fn makeHeader(wake_id: u32, sample_count: u32) [HEADER_BYTES]u8 {
-    var out = [_]u8{0} ** HEADER_BYTES;
-    out[0] = 'S';
-    out[1] = 'B';
-    out[2] = 'P';
-    out[3] = 'R';
-    out[4] = 1; // version
-    out[5] = 0; // reserved
-    putU16LE(&out, 6, SAMPLE_RATE);
-    putU32LE(&out, 8, sample_count);
-    putU32LE(&out, 12, wake_id);
-    return out;
+    return core.availableMs(windowSamples());
 }
 
 fn writeSamples(room: c.livekit_room_handle_t, stream: c.livekit_data_stream_handle_t, start: usize, count: usize) bool {
@@ -119,7 +88,7 @@ pub fn send(room: c.livekit_room_handle_t, wake_id: u32) bool {
     }
 
     const sample_count: u32 = @intCast(count);
-    const total_len: u64 = HEADER_BYTES + @as(u64, sample_count) * @sizeOf(i16);
+    const total_len: u64 = core.HEADER_BYTES + @as(u64, sample_count) * @sizeOf(i16);
     var opts = c.livekit_data_stream_options_t{
         .topic = TOPIC,
         .is_text = false,
@@ -133,11 +102,11 @@ pub fn send(room: c.livekit_room_handle_t, wake_id: u32) bool {
     }
 
     var ok = true;
-    const header = makeHeader(wake_id, sample_count);
+    const header = core.makeHeader(wake_id, sample_count);
     ok = ok and c.livekit_room_data_stream_write(room, stream, header[0..].ptr, header.len) == c.LIVEKIT_ERR_NONE;
 
     // Newest `count` samples end at write_idx; start may wrap.
-    const start = (write_idx + SAMPLE_CAPACITY - (count % SAMPLE_CAPACITY)) % SAMPLE_CAPACITY;
+    const start = core.startIndex(write_idx, count);
     const first = @min(count, SAMPLE_CAPACITY - start);
     ok = ok and writeSamples(room, stream, start, first);
     ok = ok and writeSamples(room, stream, 0, count - first);

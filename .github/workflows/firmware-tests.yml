@@ -1,0 +1,37 @@
+name: Firmware Tests
+
+on:
+  pull_request:
+    paths:
+      - "firmware/**"
+      - "tools/zig.sh"
+      - "Makefile"
+      - ".github/workflows/firmware-tests.yml"
+  push:
+    branches: [main]
+    paths:
+      - "firmware/**"
+      - "tools/zig.sh"
+      - "Makefile"
+      - ".github/workflows/firmware-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  zig-host-tests:
+    runs-on: herschel-runners
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Zig host tests
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.4
+          target: esp32s3
+          path: firmware
+          command: >-
+            (idf.py reconfigure || true) &&
+            find managed_components -name sdkconfig.rename -delete &&
+            ../tools/zig.sh test core_test.zig

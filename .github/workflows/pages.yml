@@ -38,6 +38,7 @@ jobs:
           command: >-
             (idf.py reconfigure || true) &&
             find managed_components -name sdkconfig.rename -delete &&
+            ../tools/zig.sh test core_test.zig &&
             idf.py build &&
             python -m esptool --chip esp32s3 merge_bin
             -o ../docs/installer/firmware/sebastian-esp32s3-merged.bin

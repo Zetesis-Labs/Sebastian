@@ -16,6 +16,7 @@ const std = @import("std");
 const c = @import("csdk.zig");
 const board = @import("board.zig");
 const cfg = @import("config.zig");
+const gate_core = @import("core/mic_gate.zig");
 const pcm = @import("xvf_pcm.zig");
 const wakeword = @import("wakeword.zig");
 
@@ -35,7 +36,7 @@ const Src = extern struct {
 var instance: Src = undefined;
 var pcm_codecs = [_]c_uint{c.ESP_CAPTURE_FMT_ID_PCM};
 var mic_level: u32 = 0;
-var muted_flag: bool = false;
+var gate = gate_core.Gate{};
 
 /// Smoothed peak of the captured voice (0..32767). Used by the LED UI to detect
 /// when someone is speaking so it can lock the beam direction per utterance.
@@ -47,10 +48,10 @@ pub fn level() u32 {
 /// audio (used by the mute button — the XVF GPIO30 mute doesn't silence our ASR
 /// beam). Can also gate the mic while the agent speaks (half-duplex), if enabled.
 pub fn setMuted(m: bool) void {
-    muted_flag = m;
+    gate.setMuted(m);
 }
 pub fn isMuted() bool {
-    return muted_flag;
+    return gate.muted;
 }
 
 var live_flag: bool = false;
@@ -66,9 +67,8 @@ pub fn setLive(v: bool) void {
 /// safe once applyConfig actually fixed the beam so the AEC cancels the echo.
 /// app.zig only enables this when full-duplex is requested, fixed_beam is true,
 /// and AEC config succeeded. Defaults false (safe) until app.zig confirms.
-var full_duplex_active: bool = false;
 pub fn setFullDuplex(v: bool) void {
-    full_duplex_active = v;
+    gate.setFullDuplex(v);
 }
 
 // Half-duplex gate (the fallback when full_duplex_active is false — i.e. an
@@ -76,15 +76,10 @@ pub fn setFullDuplex(v: bool) void {
 // the agent speaks its own voice would come back through the mic as crisp phantom
 // user turns and the room feeds on itself. The agent announces speaking over the
 // data channel; we send silence for the duration plus a short reverb tail.
-const SPEAK_HANGOVER_FRAMES: u32 = 20; // ~400ms at 20ms frames
-var agent_speaking: bool = false;
-var speak_hangover: u32 = 0;
 var barge_flag: bool = false;
 
 pub fn setAgentSpeaking(v: bool) void {
-    if (v and !agent_speaking) wakeword.bargeReset(); // fresh detector window per burst
-    if (agent_speaking and !v) speak_hangover = SPEAK_HANGOVER_FRAMES;
-    agent_speaking = v;
+    if (gate.setAgentSpeaking(v)) wakeword.bargeReset(); // fresh detector window per burst
 }
 
 /// True once when "Sebastián" was heard over the agent's speech. app.zig
@@ -96,12 +91,7 @@ pub fn takeBargeRequest() bool {
 }
 
 fn gatedByAgent() bool {
-    if (agent_speaking) return true;
-    if (speak_hangover > 0) {
-        speak_hangover -= 1;
-        return true;
-    }
-    return false;
+    return gate.gatedByAgent();
 }
 var read_buf: [MAX_SAMPLES * 2]i32 = undefined; // interleaved L/R 32-bit
 var resynced = false;
@@ -201,8 +191,7 @@ var heal_bad_frames: u32 = 0;
 var heal_count: u32 = 0;
 
 fn channelLooksBad(peak: u32, mean: i32) bool {
-    if (peak == 0) return true; // dead: not even room noise
-    return @abs(mean) > 15000; // pinned: massive DC, audio crushed by softClip
+    return gate_core.channelLooksBad(peak, mean);
 }
 
 fn healChannelIfBad(peak: u32, mean: i32) void {
@@ -241,18 +230,18 @@ pub fn takeGatedPeak() u32 {
 }
 
 fn agentGateActive() bool {
-    return !full_duplex_active and gatedByAgent();
+    return gate.agentGateActive();
 }
 
 fn detectBargeInFromGatedAudio(got: usize) void {
-    if (muted_flag) return;
+    if (gate.muted) return;
     if (got == 0) return;
 
     trackGatedPeak(got); // residual echo the AEC left, invisible in mic_level
     if (!wakeword.bargeFeed(read_buf[0 .. got * 2])) return;
 
-    agent_speaking = false;
-    speak_hangover = 0;
+    gate.agent_speaking = false;
+    gate.speak_hangover = 0;
     barge_flag = true;
     log.info("barge-in: wake word heard over agent speech", .{});
 }
@@ -295,7 +284,7 @@ fn readLiveSamples(frame: *c.esp_capture_stream_frame_t, total: usize) c_int {
     const got = readI2s(total) orelse return c.ESP_CAPTURE_ERR_INTERNAL;
     const agent_gated = agentGateActive();
 
-    if (muted_flag or agent_gated) {
+    if (gate.muted or agent_gated) {
         writeGatedFrame(out, got, total, agent_gated);
         return c.ESP_CAPTURE_ERR_OK;
     }

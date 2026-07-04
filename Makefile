@@ -15,7 +15,12 @@
 #   make fw-flash                                  flashea vía rfc2217
 #   SEBASTIAN_SERIAL_URL=rfc2217://$IP:4000 make bridge
 
-.PHONY: fw-build fw-flash agent token provision flash bridge serial-share
+.PHONY: check fw-test fw-build fw-flash agent token provision flash bridge serial-share
+
+check: fw-test
+
+fw-test:
+	cd firmware && ../tools/zig.sh test core_test.zig
 
 fw-build:
 	cd firmware && idf.py build

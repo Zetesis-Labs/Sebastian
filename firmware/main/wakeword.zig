@@ -16,7 +16,7 @@ const std = @import("std");
 const c = @import("csdk.zig");
 const board = @import("board.zig");
 const cfg = @import("config.zig");
-const pcm = @import("xvf_pcm.zig");
+const decimator = @import("core/decimator.zig");
 const pre_roll = @import("pre_roll.zig");
 const mic_src = @import("mic_src.zig");
 
@@ -51,12 +51,9 @@ const SLIDING_WINDOW: c_int = 4;
 // which is exactly the confusing failure pattern we debugged. 19-tap
 // lowpass at 6.8kHz, Q15: flat to 4kHz, -27dB @ 10kHz, -55dB @ 12kHz.
 
-const PAIRS_48K = 480; // stereo pairs per 10ms at 48kHz
+const PAIRS_48K = decimator.PAIRS_48K; // stereo pairs per 10ms at 48kHz
 const STEREO_BYTES = 8; // bytes per stereo pair (2 × 32-bit)
-const SAMPLES_16K = 160; // mono samples per 10ms at 16kHz (= 480/3)
-
-const FIR_TAPS = 19;
-const FIR_Q15 = [FIR_TAPS]i32{ 91, 104, -15, -434, -923, -655, 1210, 4534, 7849, 9246, 7849, 4534, 1210, -655, -923, -434, -15, 104, 91 };
+const SAMPLES_16K = decimator.SAMPLES_16K; // mono samples per 10ms at 16kHz (= 480/3)
 
 // ── Shared state ─────────────────────────────────────────────────────────────
 
@@ -69,8 +66,7 @@ var ww_exited = std.atomic.Value(bool).init(true);
 // Buffers — only touched by the detection task (no concurrent access).
 var i2s_buf: [PAIRS_48K * 2]i32 = undefined; // interleaved L/R 32-bit
 var pcm_buf: [SAMPLES_16K]i16 = undefined;
-// Mono 48k working buffer: FIR history from the previous chunk + this chunk.
-var fir_buf: [FIR_TAPS - 1 + PAIRS_48K]i32 = undefined;
+var decim = decimator.Decimator{};
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
@@ -145,38 +141,15 @@ fn readChunk48k() ?usize {
 }
 
 fn resetDecimator() void {
-    @memset(fir_buf[0 .. FIR_TAPS - 1], 0);
+    decim.reset();
 }
 
 /// Anti-aliased 3:1 decimation of the configured slot into pcm_buf. The FIR
 /// runs on the linear (post gain-shift, pre softClip) signal; only the
 /// decimated outputs are computed. Returns mono sample count, the chunk's
 /// peak and mean (telemetry + channel-health detection).
-fn decimateChunk(got_pairs: usize) struct { samples: usize, peak: i32, mean: i32 } {
-    for (0..got_pairs) |i| {
-        fir_buf[FIR_TAPS - 1 + i] = i2s_buf[i * 2 + pcm.SLOT] >> pcm.SHIFT;
-    }
-
-    const out_samples = @min(SAMPLES_16K, got_pairs / 3);
-    var peak: i32 = 0;
-    var sum: i64 = 0;
-    for (0..out_samples) |i| {
-        const newest = FIR_TAPS - 1 + i * 3;
-        var acc: i64 = 0;
-        inline for (0..FIR_TAPS) |t| {
-            acc += @as(i64, FIR_Q15[t]) * @as(i64, fir_buf[newest - t]);
-        }
-        const s = pcm.softClip(@intCast(acc >> 15));
-        pcm_buf[i] = s;
-        sum += s;
-        peak = @max(peak, @as(i32, @intCast(@abs(s))));
-    }
-
-    // Carry the last TAPS-1 input samples into the next chunk's history.
-    const end = FIR_TAPS - 1 + got_pairs;
-    std.mem.copyForwards(i32, fir_buf[0 .. FIR_TAPS - 1], fir_buf[end - (FIR_TAPS - 1) .. end]);
-    const mean: i32 = if (out_samples > 0) @intCast(@divTrunc(sum, @as(i64, @intCast(out_samples)))) else 0;
-    return .{ .samples = out_samples, .peak = peak, .mean = mean };
+fn decimateChunk(got_pairs: usize) decimator.Result {
+    return decim.decimate(i2s_buf[0 .. got_pairs * 2], pcm_buf[0..]);
 }
 
 /// Telemetry: log any inference above 30% immediately (each near-trigger is

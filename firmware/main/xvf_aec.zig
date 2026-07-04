@@ -19,6 +19,7 @@
 //! little-endian.
 
 const std = @import("std");
+const core = @import("core/aec_core.zig");
 const dfu = @import("xvf_dfu.zig");
 const board = @import("board.zig");
 const c = @import("csdk.zig");
@@ -89,12 +90,12 @@ fn readBytes(resid: u8, cmd: u8, comptime n: usize) ?[n]u8 {
 
 fn readI32(resid: u8, cmd: u8) ?i32 {
     const b = readBytes(resid, cmd, 4) orelse return null;
-    return std.mem.readInt(i32, &b, .little);
+    return core.readI32LE(&b);
 }
 
 fn readF32(resid: u8, cmd: u8) ?f32 {
     const b = readBytes(resid, cmd, 4) orelse return null;
-    return @bitCast(std.mem.readInt(u32, &b, .little));
+    return core.readF32LE(&b);
 }
 
 fn readU8(resid: u8, cmd: u8) ?u8 {
@@ -103,37 +104,24 @@ fn readU8(resid: u8, cmd: u8) ?u8 {
 }
 
 fn writeI32(resid: u8, cmd: u8, v: i32) bool {
-    var b: [4]u8 = undefined;
-    std.mem.writeInt(i32, &b, v, .little);
-    const req = [_]u8{ resid, cmd, 4, b[0], b[1], b[2], b[3] };
+    const req = core.makeI32Write(resid, cmd, v);
     return dfu.ctrlWriteOnly(&req);
 }
 
 fn writeF32Pair(resid: u8, cmd: u8, a: f32, b: f32) bool {
-    const ba: [4]u8 = @bitCast(a);
-    const bb: [4]u8 = @bitCast(b);
-    const req = [_]u8{ resid, cmd, 8, ba[0], ba[1], ba[2], ba[3], bb[0], bb[1], bb[2], bb[3] };
+    const req = core.makeF32PairWrite(resid, cmd, a, b);
     return dfu.ctrlWriteOnly(&req);
 }
 
 fn floatsClose(actual: f32, expected: f32, eps: f32) bool {
-    if (std.math.isNan(actual) or std.math.isNan(expected)) return false;
-    return @abs(actual - expected) <= eps;
+    return core.floatsClose(actual, expected, eps);
 }
 
-const F32Pair = struct {
-    first: f32,
-    second: f32,
-};
+const F32Pair = core.F32Pair;
 
 fn readF32Pair(resid: u8, cmd: u8) ?F32Pair {
     const b = readBytes(resid, cmd, 8) orelse return null;
-    const first: f32 = @bitCast(std.mem.readInt(u32, b[0..4], .little));
-    const second: f32 = @bitCast(std.mem.readInt(u32, b[4..8], .little));
-    return .{
-        .first = first,
-        .second = second,
-    };
+    return core.readF32PairLE(&b);
 }
 
 fn writeF32PairVerified(resid: u8, cmd: u8, a: f32, b: f32, comptime name: []const u8) bool {
@@ -161,8 +149,8 @@ fn writeF32PairVerified(resid: u8, cmd: u8, a: f32, b: f32, comptime name: []con
 /// off. Read-only + ABORT to release the DSP snapshot.
 fn logFilterSummary(far: i32, mic: i32) void {
     var idx: [8]u8 = undefined;
-    std.mem.writeInt(i32, idx[0..4], far, .little);
-    std.mem.writeInt(i32, idx[4..8], mic, .little);
+    core.writeI32LE(idx[0..4], far);
+    core.writeI32LE(idx[4..8], mic);
     const trig = [_]u8{ RESID_AEC, AEC_FAR_MIC_INDEX, 8, idx[0], idx[1], idx[2], idx[3], idx[4], idx[5], idx[6], idx[7] };
     if (!dfu.ctrlWriteOnly(&trig)) {
         log.err("filter: far_mic_index write failed", .{});
@@ -184,7 +172,7 @@ fn logFilterSummary(far: i32, mic: i32) void {
         const b = readBytes(RESID_AEC, AEC_FILTER_COEFFS, 60) orelse break; // 15×f32
         const cnt = @min(@as(usize, 15), n - off);
         for (0..cnt) |i| {
-            const f: f32 = @bitCast(std.mem.readInt(u32, b[i * 4 ..][0..4], .little));
+            const f = core.readF32LE(b[i * 4 ..][0..4]);
             const a = @abs(f);
             if (std.math.isNan(a)) continue;
             if (a > 0.0005) nonzero += 1;
@@ -205,16 +193,11 @@ fn logFilterSummary(far: i32, mic: i32) void {
 /// @intFromFloat panicked and REBOOTED the device mid-session (confirmed by
 /// backtrace). NaN → -2, out-of-range clamps.
 fn scaled(v: ?f32, mul: f32) i32 {
-    const x = v orelse return -1;
-    const m = x * mul;
-    if (std.math.isNan(m)) return -2;
-    if (m >= 2147483000.0) return std.math.maxInt(i32);
-    if (m <= -2147483000.0) return std.math.minInt(i32);
-    return @intFromFloat(m);
+    return core.scaled(v, mul);
 }
 
 fn milli(v: ?f32) i32 {
-    return scaled(v, 1000.0);
+    return core.milli(v);
 }
 
 /// Write a float command and confirm it took by reading it back. An ACKed

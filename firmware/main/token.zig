@@ -13,6 +13,7 @@
 
 const std = @import("std");
 const c = @import("csdk.zig");
+const token_core = @import("core/token_core.zig");
 
 const log = std.log.scoped(.token);
 
@@ -47,25 +48,12 @@ pub fn fetch() Error!Connection {
         return error.HttpFailed;
     }
 
-    const body = response_buf[0..@intCast(n)];
-    const nl = std.mem.indexOfScalar(u8, body, '\n') orelse {
-        log.err("no newline in token response", .{});
+    const parsed = token_core.parseResponse(response_buf[0..@intCast(n)], &url_buf, &token_buf) catch {
+        log.err("malformed token response", .{});
         return error.MalformedResponse;
     };
 
-    const url = std.mem.trim(u8, body[0..nl], " \r\n");
-    const token = std.mem.trim(u8, body[nl + 1 ..], " \r\n");
-    if (url.len == 0 or token.len == 0 or url.len >= url_buf.len or token.len >= token_buf.len) {
-        log.err("token response fields out of range (url={d} token={d})", .{ url.len, token.len });
-        return error.MalformedResponse;
-    }
-
-    @memcpy(url_buf[0..url.len], url);
-    url_buf[url.len] = 0;
-    @memcpy(token_buf[0..token.len], token);
-    token_buf[token.len] = 0;
-
-    log.info("token fetched ({d}B token) for {s}", .{ token.len, url_buf[0..url.len] });
+    log.info("token fetched ({d}B token) for {s}", .{ parsed.token.len, parsed.url });
     return .{
         .server_url = @ptrCast(&url_buf),
         .token = @ptrCast(&token_buf),
