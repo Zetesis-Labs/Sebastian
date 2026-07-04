@@ -38,5 +38,5 @@ jobs:
             curl -fsSL https://github.com/kassane/zig-espressif-bootstrap/releases/download/0.16.0-xtensa/zig-relsafe-x86_64-linux-musl-baseline.tar.xz -o /tmp/zig.tar.xz &&
             echo "9e3dcef9d6f6d552df641a12addc9e443a69b7cbdad85492ec677acd55b7de9b  /tmp/zig.tar.xz" | sha256sum -c - &&
             mkdir -p /tmp/zig &&
-            python -c "import tarfile; tarfile.open('/tmp/zig.tar.xz').extractall('/tmp/zig')" &&
+            tar -xJf /tmp/zig.tar.xz -C /tmp/zig &&
             "$(find /tmp/zig -maxdepth 2 -type f -name zig | head -1)" test core_test.zig

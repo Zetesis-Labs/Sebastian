@@ -157,6 +157,28 @@ test "pre-roll fill caps at ring capacity while write index keeps wrapping" {
     try std.testing.expectEqual(@as(usize, 123), pre_roll.startIndex(state.write_idx, pre_roll.SAMPLE_CAPACITY));
 }
 
+test "pre-roll window invariants hold across timeline matrix" {
+    const wake_marks = [_]u64{ 0, 1, 1000, pre_roll.WAKE_LEAD_SAMPLES - 1, pre_roll.WAKE_LEAD_SAMPLES, pre_roll.SAMPLE_CAPACITY * 2 };
+    const deltas = [_]u64{ 0, 1, pre_roll.SAMPLE_RATE - 1, pre_roll.SAMPLE_RATE, pre_roll.WAKE_LEAD_SAMPLES, pre_roll.SAMPLE_CAPACITY * 2 };
+    const filled_values = [_]usize{ 0, 1, 1000, pre_roll.WAKE_LEAD_SAMPLES, pre_roll.SAMPLE_CAPACITY };
+
+    for (wake_marks) |wake_mark| {
+        for (deltas) |delta| {
+            for (filled_values) |filled| {
+                const count = pre_roll.windowSamples(wake_mark, wake_mark + delta, filled);
+                const lead = @min(wake_mark, @as(u64, pre_roll.WAKE_LEAD_SAMPLES));
+                const expected: usize = @intCast(@min(@as(u64, filled), delta + lead));
+
+                try std.testing.expectEqual(expected, count);
+                try std.testing.expect(count <= filled);
+                try std.testing.expect(count <= pre_roll.SAMPLE_CAPACITY);
+            }
+        }
+    }
+
+    try std.testing.expectEqual(@as(usize, 0), pre_roll.windowSamples(100, 99, pre_roll.SAMPLE_CAPACITY));
+}
+
 test "mic gate half-duplex speaking and finite hangover" {
     var g = gate.Gate{};
 
@@ -398,6 +420,22 @@ test "decimator ignores unselected stereo slot" {
     try std.testing.expectEqualSlices(i16, clean_out[0..clean_result.samples], noisy_out[0..noisy_result.samples]);
 }
 
+test "decimator respects small output slices" {
+    var d = decimator.Decimator{};
+    var stereo = [_]i32{0} ** (decimator.PAIRS_48K * 2);
+    var out = [_]i16{-1234} ** 8;
+    fillStereo(stereo[0..], 8000, -8000);
+
+    const result = d.decimate(stereo[0..], out[0..3]);
+
+    try std.testing.expectEqual(@as(usize, 3), result.samples);
+    try std.testing.expect(result.peak > 0);
+    try std.testing.expect(result.mean != 0);
+    for (out[3..]) |sample| {
+        try std.testing.expectEqual(@as(i16, -1234), sample);
+    }
+}
+
 test "token parser accepts trimmed two-line response and nul-terminates fields" {
     var url_buf = [_]u8{0xaa} ** 32;
     var token_buf = [_]u8{0xaa} ** 64;
@@ -449,11 +487,37 @@ test "token parser rejects embedded line breaks but accepts trailing blanks" {
     try std.testing.expectError(error.MalformedResponse, token.parseResponse("wss://x\njwt\nextra", &url_buf, &token_buf));
 }
 
+test "token parser accepts CRLF delimiter" {
+    var url_buf = [_]u8{0} ** 32;
+    var token_buf = [_]u8{0} ** 32;
+
+    const parsed = try token.parseResponse("wss://x\r\njwt", &url_buf, &token_buf);
+
+    try std.testing.expectEqualSlices(u8, "wss://x", parsed.url);
+    try std.testing.expectEqualSlices(u8, "jwt", parsed.token);
+}
+
+test "token parser leaves buffers untouched on malformed response" {
+    var url_buf = [_]u8{0x55} ** 8;
+    var token_buf = [_]u8{0xaa} ** 8;
+
+    try std.testing.expectError(error.MalformedResponse, token.parseResponse("wss://x\njwt\nextra", &url_buf, &token_buf));
+
+    for (url_buf) |byte| {
+        try std.testing.expectEqual(@as(u8, 0x55), byte);
+    }
+    for (token_buf) |byte| {
+        try std.testing.expectEqual(@as(u8, 0xaa), byte);
+    }
+}
+
 test "aec scaled telemetry math never panics on bad floats" {
     try std.testing.expectEqual(@as(i32, -1), aec.scaled(null, 1000.0));
     try std.testing.expectEqual(@as(i32, -2), aec.scaled(std.math.nan(f32), 1000.0));
     try std.testing.expectEqual(std.math.maxInt(i32), aec.scaled(1.0e30, 1000.0));
     try std.testing.expectEqual(std.math.minInt(i32), aec.scaled(-1.0e30, 1000.0));
+    try std.testing.expectEqual(std.math.maxInt(i32), aec.scaled(std.math.inf(f32), 1000.0));
+    try std.testing.expectEqual(std.math.minInt(i32), aec.scaled(-std.math.inf(f32), 1000.0));
     try std.testing.expectEqual(@as(i32, 1234), aec.milli(1.234));
 }
 
@@ -462,6 +526,8 @@ test "aec float comparisons reject NaN and honor epsilon" {
     try std.testing.expect(!aec.floatsClose(1.0, 1.02, 0.01));
     try std.testing.expect(!aec.floatsClose(std.math.nan(f32), 1.0, 0.01));
     try std.testing.expect(!aec.floatsClose(1.0, std.math.nan(f32), 0.01));
+    try std.testing.expect(!aec.floatsClose(std.math.inf(f32), std.math.inf(f32), 0.0));
+    try std.testing.expect(!aec.floatsClose(1.0, 1.0, -0.01));
 }
 
 test "aec command encoding is little-endian and stable" {
