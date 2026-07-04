@@ -1,14 +1,12 @@
 """Sebastian voice agent.
 
 Joins the same LiveKit room as the ESP32-S3 device and drives the conversation
-with OpenAI Realtime (speech-to-speech). The ReSpeaker XVF3800 already does
+with a speech-to-speech realtime model. The ReSpeaker XVF3800 already does
 beamforming + AEC on-device, so we add background-voice cancellation on top.
 
-Turn-taking is handled server-side by OpenAI's **semantic VAD**: it decides the
-user has finished a turn from the *meaning* of what was said, not just a silence
-gap, which is what makes it work across languages (Spanish included) and tolerate
-mid-sentence pauses. LiveKit's own turn detector does not apply to a RealtimeModel
-(it would be ignored), so the session is told turn detection lives in the LLM.
+Turn-taking is handled server-side by the selected RealtimeModel. LiveKit's own
+turn detector does not apply to a RealtimeModel (it would be ignored), so the
+session is told turn detection lives in the model.
 
 Run with:
     uv run agent.py dev        # local dev, hot-reload
@@ -26,6 +24,7 @@ import time
 import unicodedata
 import wave
 from collections import deque
+from pathlib import Path
 
 import aiohttp
 
@@ -34,12 +33,12 @@ from livekit import agents, api, rtc
 from livekit.agents import Agent, AgentSession, RunContext, function_tool, get_job_context, mcp
 from livekit.agents.voice.agent_session import TurnHandlingOptions
 from livekit.agents.voice.room_io import RoomOptions
-from livekit.plugins import noise_cancellation, openai
+from livekit.plugins import google, noise_cancellation, openai
 from openai.types.beta.realtime.session import TurnDetection
 
 import telemetry
 
-load_dotenv()
+load_dotenv(Path(__file__).with_name(".env"))
 telemetry.setup()
 
 log = logging.getLogger("sebastian.agent")
@@ -106,6 +105,19 @@ LIVE_FRAME_MS = 50
 # Live frames buffer while we wait — this delays first processing, loses nothing.
 PREROLL_WAIT_TIMEOUT = 6.0
 RECORD = os.getenv("SEBASTIAN_RECORD") == "1"
+MODEL_PROVIDER = os.getenv("SEBASTIAN_MODEL_PROVIDER", "gemini").strip().lower()
+GEMINI_MODEL = os.getenv(
+    "SEBASTIAN_GEMINI_MODEL",
+    "gemini-2.5-flash-native-audio-preview-12-2025",
+)
+GEMINI_VOICE = os.getenv("SEBASTIAN_GEMINI_VOICE", os.getenv("SEBASTIAN_VOICE", "Puck"))
+# Empty = let the model auto-detect. The native-audio models reject explicit
+# BCP-47 codes like "es-ES" (APIError 1007 → session closes → agent goes silent);
+# they infer language from the audio + system prompt. Set a code only for a model
+# that accepts one (e.g. the half-cascade models).
+GEMINI_LANGUAGE = os.getenv("SEBASTIAN_GEMINI_LANGUAGE", "").strip()
+OPENAI_REALTIME_MODEL = os.getenv("SEBASTIAN_OPENAI_REALTIME_MODEL", "gpt-realtime-mini")
+OPENAI_VOICE = os.getenv("SEBASTIAN_OPENAI_VOICE", os.getenv("SEBASTIAN_VOICE", "alloy"))
 
 # Home Assistant MCP server (control the house). URL is the HA "MCP Server"
 # integration SSE endpoint; auth is a Long-Lived Access Token (HA → profile →
@@ -400,15 +412,52 @@ class SebastianAudioInput(agents.io.AudioInput):
             log.info("[audio] live stream stopped from=%s", participant)
 
 
-def _build_session() -> AgentSession:
-    realtime = openai.realtime.RealtimeModel(
-        voice="alloy",
+def _build_gemini_realtime_model() -> google.realtime.RealtimeModel:
+    log.info(
+        "[model] provider=gemini model=%s voice=%s language=%s",
+        GEMINI_MODEL,
+        GEMINI_VOICE,
+        GEMINI_LANGUAGE or "<auto>",
+    )
+    kwargs = dict(
+        model=GEMINI_MODEL,
+        voice=GEMINI_VOICE,
+        # Proactive audio lets Gemini decide not to answer when the follow-up
+        # audio is not directed at the device. That is a good fit for LINGER.
+        proactivity=True,
+        enable_affective_dialog=True,
+    )
+    if GEMINI_LANGUAGE:
+        kwargs["language"] = GEMINI_LANGUAGE
+    return google.realtime.RealtimeModel(**kwargs)
+
+
+def _build_openai_realtime_model() -> openai.realtime.RealtimeModel:
+    log.info("[model] provider=openai model=%s voice=%s", OPENAI_REALTIME_MODEL, OPENAI_VOICE)
+    return openai.realtime.RealtimeModel(
+        model=OPENAI_REALTIME_MODEL,
+        voice=OPENAI_VOICE,
         # Semantic VAD: end-of-turn is decided from meaning, not just silence.
         # Multilingual (Spanish) and tolerant of mid-sentence pauses. eagerness
         # trades latency for patience — "low" waits longer before assuming the
         # user is done (better far-field, where people pause across a room).
         turn_detection=TurnDetection(type="semantic_vad", eagerness="low"),
     )
+
+
+def _build_realtime_model():
+    if MODEL_PROVIDER == "gemini":
+        return _build_gemini_realtime_model()
+    if MODEL_PROVIDER == "openai":
+        return _build_openai_realtime_model()
+    raise ValueError(
+        "SEBASTIAN_MODEL_PROVIDER must be 'gemini' or 'openai' "
+        f"(got {MODEL_PROVIDER!r})"
+    )
+
+
+def _build_session() -> AgentSession:
+    realtime = _build_realtime_model()
     # The RealtimeModel owns turn detection; tell the session so it doesn't try
     # to attach LiveKit's own detector (which a RealtimeModel would ignore).
     return AgentSession(
@@ -467,7 +516,7 @@ def _instrument_session(session: AgentSession) -> None:
             nudge["task"] = None
 
     async def _nudge_response() -> None:
-        # OpenAI Realtime can leave the session's opening command unanswered
+        # A realtime model can leave the session's opening command unanswered
         # when the pre-roll injection cancels the greeting mid-generation.
         await asyncio.sleep(NUDGE_AFTER_S)
         nudge["task"] = None

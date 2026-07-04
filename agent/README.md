@@ -3,19 +3,21 @@
 Cerebro conversacional del altavoz. Corre en tu Mac (o en cloud) y se une a la
 misma sala de LiveKit que el dispositivo ESP32-S3.
 
-Stack: [`livekit-agents`](https://github.com/livekit/agents) 1.2 + OpenAI Realtime
-(speech-to-speech) + cancelación de ruido BVC.
+Stack: [`livekit-agents`](https://github.com/livekit/agents) 1.6 + modelo
+realtime configurable (`gemini` por defecto, `openai` como fallback) +
+cancelación de ruido BVC.
 
 ## Requisitos
 
 - Python ≥ 3.13
 - [`uv`](https://docs.astral.sh/uv/) (`brew install uv`)
-- Cuenta de LiveKit Cloud y `OPENAI_API_KEY`
+- Cuenta de LiveKit Cloud
+- `GOOGLE_API_KEY` para Gemini Live, o `OPENAI_API_KEY` si usas el fallback OpenAI
 
 ## Puesta en marcha
 
 ```bash
-cp .env.example .env      # rellena LIVEKIT_* y OPENAI_API_KEY
+cp .env.example .env      # rellena LIVEKIT_* y GOOGLE_API_KEY
 uv sync
 uv run agent.py dev       # worker en modo desarrollo (hot-reload)
 ```

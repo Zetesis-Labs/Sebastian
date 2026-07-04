@@ -5,7 +5,7 @@ description = "LiveKit voice agent for the Sebastian ESP32-S3 speaker"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "livekit-agents[openai,mcp]~=1.6",
+    "livekit-agents[google,mcp,openai]~=1.6",
     "livekit-plugins-noise-cancellation~=0.2",
     "python-dotenv>=1.0",
     "opentelemetry-sdk>=1.25",
