@@ -4,15 +4,11 @@ on:
   pull_request:
     paths:
       - "firmware/**"
-      - "tools/zig.sh"
-      - "Makefile"
       - ".github/workflows/firmware-tests.yml"
   push:
     branches: [main]
     paths:
       - "firmware/**"
-      - "tools/zig.sh"
-      - "Makefile"
       - ".github/workflows/firmware-tests.yml"
   workflow_dispatch:
 
@@ -25,13 +21,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # core_test.zig only imports pure-logic modules (main/core/*, config,
+      # xvf_pcm), so it compiles and runs on the host — no ESP-IDF needed. Use
+      # the same pinned Espressif Zig fork the firmware build uses
+      # (kassane/zig-espressif-bootstrap 0.16.0-xtensa, see firmware/cmake/zig.cmake)
+      # so the compiler version matches exactly.
+      - name: Fetch pinned Espressif Zig
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            x86_64)  triplet=x86_64-linux-musl-baseline;  sha=9e3dcef9d6f6d552df641a12addc9e443a69b7cbdad85492ec677acd55b7de9b ;;
+            aarch64) triplet=aarch64-linux-musl-baseline; sha=5304f43cd30dfcbdc555fde3e2b6501b4838322ba47dd71da34111e08b02eef4 ;;
+            *) echo "unsupported arch $(uname -m)"; exit 1 ;;
+          esac
+          url="https://github.com/kassane/zig-espressif-bootstrap/releases/download/0.16.0-xtensa/zig-relsafe-${triplet}.tar.xz"
+          curl -fsSL "$url" -o zig.tar.xz
+          echo "${sha}  zig.tar.xz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/zig"
+          tar -xJf zig.tar.xz -C "$RUNNER_TEMP/zig"
+          zigbin="$(find "$RUNNER_TEMP/zig" -maxdepth 2 -type f -name zig | head -1)"
+          test -n "$zigbin" || { echo "zig binary not found in archive"; exit 1; }
+          dirname "$zigbin" >> "$GITHUB_PATH"
+
       - name: Run Zig host tests
-        uses: espressif/esp-idf-ci-action@v1
-        with:
-          esp_idf_version: v5.4
-          target: esp32s3
-          path: firmware
-          command: >-
-            (idf.py reconfigure || true) &&
-            find managed_components -name sdkconfig.rename -delete &&
-            ../tools/zig.sh test core_test.zig
+        working-directory: firmware
+        run: zig test core_test.zig
