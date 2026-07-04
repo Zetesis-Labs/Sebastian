@@ -35,13 +35,16 @@ const Src = extern struct {
 
 var instance: Src = undefined;
 var pcm_codecs = [_]c_uint{c.ESP_CAPTURE_FMT_ID_PCM};
-var mic_level: u32 = 0;
+// Shared across tasks (audio capture writes, UI/session read): use atomics for
+// visibility instead of plain globals. Monotonic ordering is enough — these are
+// independent scalars, not a lock protecting other state.
+var mic_level = std.atomic.Value(u32).init(0);
 var gate = gate_core.Gate{};
 
 /// Smoothed peak of the captured voice (0..32767). Used by the LED UI to detect
 /// when someone is speaking so it can lock the beam direction per utterance.
 pub fn level() u32 {
-    return mic_level;
+    return mic_level.load(.monotonic);
 }
 
 /// When true, read_frame() sends silence to the room instead of the captured
@@ -54,13 +57,13 @@ pub fn isMuted() bool {
     return gate.muted;
 }
 
-var live_flag: bool = false;
+var live_flag = std.atomic.Value(bool).init(false);
 
 /// Until the wake→live handoff the wake task still owns I2S (it keeps filling
 /// the pre-roll ring through connect); the capture pipeline gets silence
 /// without touching the bus. app.zig flips this at the handoff event.
 pub fn setLive(v: bool) void {
-    live_flag = v;
+    live_flag.store(v, .monotonic);
 }
 
 /// Full-duplex is a RUNTIME decision, not just config.full_duplex: it is only
@@ -76,7 +79,7 @@ pub fn setFullDuplex(v: bool) void {
 // the agent speaks its own voice would come back through the mic as crisp phantom
 // user turns and the room feeds on itself. The agent announces speaking over the
 // data channel; we send silence for the duration plus a short reverb tail.
-var barge_flag: bool = false;
+var barge_flag = std.atomic.Value(bool).init(false);
 
 pub fn setAgentSpeaking(v: bool) void {
     if (gate.setAgentSpeaking(v)) wakeword.bargeReset(); // fresh detector window per burst
@@ -85,16 +88,14 @@ pub fn setAgentSpeaking(v: bool) void {
 /// True once when "Sebastián" was heard over the agent's speech. app.zig
 /// polls this from the session loop and relays the interrupt to the agent.
 pub fn takeBargeRequest() bool {
-    const b = barge_flag;
-    barge_flag = false;
-    return b;
+    return barge_flag.swap(false, .monotonic);
 }
 
 fn gatedByAgent() bool {
     return gate.gatedByAgent();
 }
 var read_buf: [MAX_SAMPLES * 2]i32 = undefined; // interleaved L/R 32-bit
-var resynced = false;
+var resynced = std.atomic.Value(bool).init(false);
 
 fn frameSampleCount(frame: *const c.esp_capture_stream_frame_t) ?usize {
     if (frame.size <= 0) return 0;
@@ -111,9 +112,9 @@ fn frameSampleCount(frame: *const c.esp_capture_stream_frame_t) ?usize {
 }
 
 fn resyncRxOnce() void {
-    if (resynced) return;
+    if (resynced.load(.monotonic)) return;
 
-    resynced = true;
+    resynced.store(true, .monotonic);
     _ = c.i2s_channel_disable(board.i2sRx());
     _ = c.i2s_channel_enable(board.i2sRx());
 }
@@ -145,7 +146,7 @@ fn negotiateCaps(_: *c.esp_capture_audio_src_iface_t, in_cap: *c.esp_capture_aud
 fn start(_: *c.esp_capture_audio_src_iface_t) callconv(.c) c_int {
     instance.started = true;
     instance.samples_acc = 0;
-    resynced = false;
+    resynced.store(false, .monotonic);
     log.info("mic source started (direct read, {s} slot, 48k)", .{@tagName(cfg.mic_channel)});
     return c.ESP_CAPTURE_ERR_OK;
 }
@@ -167,15 +168,18 @@ fn fillSilence(out: [*]i16, samples: usize) void {
 fn writeSilentFrame(frame: *c.esp_capture_stream_frame_t, samples: usize) void {
     const out: [*]i16 = @ptrCast(@alignCast(frame.data));
     fillSilence(out, samples);
-    mic_level = 0;
+    mic_level.store(0, .monotonic);
 }
 
 fn updatePeak(next_peak: u32) void {
-    if (next_peak > mic_level) {
-        mic_level = next_peak;
+    // Single writer (the audio task): load/compute/store is race-free here; the
+    // cross-task reader only needs a coherent snapshot.
+    const cur = mic_level.load(.monotonic);
+    if (next_peak > cur) {
+        mic_level.store(next_peak, .monotonic);
         return;
     }
-    mic_level -= mic_level >> 4;
+    mic_level.store(cur - (cur >> 4), .monotonic);
 }
 
 // ── Channel self-heal ─────────────────────────────────────────────────────────
@@ -211,22 +215,22 @@ fn healChannelIfBad(peak: u32, mean: i32) void {
 // Echo telemetry: peak of the captured beam while the agent speaks. The gate
 // forces mic_level to 0, so the residual the AEC failed to cancel is otherwise
 // invisible. app.zig drains this each AEC-log window (takeGatedPeak).
-var gated_peak_max: u32 = 0;
+var gated_peak_max = std.atomic.Value(u32).init(0);
 
 fn trackGatedPeak(got: usize) void {
+    var peak = gated_peak_max.load(.monotonic);
     var i: usize = 0;
     while (i < got) : (i += 1) {
         const s = pcm.convert(read_buf[i * 2 + pcm.SLOT]);
         const a: u32 = @abs(@as(i32, s));
-        if (a > gated_peak_max) gated_peak_max = a;
+        if (a > peak) peak = a;
     }
+    gated_peak_max.store(peak, .monotonic);
 }
 
 /// Peak residual echo seen while the agent spoke since the last call, then reset.
 pub fn takeGatedPeak() u32 {
-    const p = gated_peak_max;
-    gated_peak_max = 0;
-    return p;
+    return gated_peak_max.swap(0, .monotonic);
 }
 
 fn agentGateActive() bool {
@@ -242,14 +246,14 @@ fn detectBargeInFromGatedAudio(got: usize) void {
 
     gate.agent_speaking = false;
     gate.speak_hangover = 0;
-    barge_flag = true;
+    barge_flag.store(true, .monotonic);
     log.info("barge-in: wake word heard over agent speech", .{});
 }
 
 fn writeGatedFrame(out: [*]i16, got: usize, total: usize, agent_gated: bool) void {
     if (agent_gated) detectBargeInFromGatedAudio(got);
     fillSilence(out, total);
-    mic_level = 0;
+    mic_level.store(0, .monotonic);
 }
 
 fn writeCapturedSamples(out: [*]i16, got: usize, total: usize) void {
@@ -302,7 +306,7 @@ fn readFrame(_: *c.esp_capture_audio_src_iface_t, frame: *c.esp_capture_stream_f
     // Pre-handoff: the wake task owns I2S and is filling the pre-roll ring.
     // Feed the pipeline silence without touching the bus — two concurrent
     // i2s_channel_read callers would steal frames from each other.
-    if (!live_flag) {
+    if (!live_flag.load(.monotonic)) {
         writeSilentFrame(frame, total);
         updatePts(frame, total);
         return c.ESP_CAPTURE_ERR_OK;
