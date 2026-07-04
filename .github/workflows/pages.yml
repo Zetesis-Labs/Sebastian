@@ -25,7 +25,7 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: herschel-runners
     steps:
       - uses: actions/checkout@v4
 
@@ -52,7 +52,7 @@ jobs:
           test -f "$bin" || { echo "merged bin missing"; exit 1; }
           echo "merged bin: $(du -h "$bin" | cut -f1)"
           for s in Pizarro LIVEKIT_API_SECRET; do
-            if strings "$bin" | grep -qF "$s"; then echo "SECRET '$s' in bin"; exit 1; fi
+            if grep -aqF "$s" "$bin"; then echo "SECRET '$s' in bin"; exit 1; fi
           done
           echo "clean"
 
@@ -66,7 +66,7 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
+    runs-on: herschel-runners
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
