@@ -294,6 +294,13 @@ pub fn applyConfig() bool {
     // for AEC convergence and did NOT help — ASR level wins.
     if (!writeF32Verified(RESID_AUDIO_MGR, MGR_MIC_GAIN, 90.0, "MIC_GAIN")) return false;
 
+    // Far-end DSP path. With this off the far-end activity detector reads no
+    // energy (spenergy stays 0) and the AEC never adapts — converged=0 and the
+    // loudspeaker couples straight into the mic. The XVF reverts it to its build
+    // default (0) on POWER-CYCLE (not esp_restart), so unplugging the unit
+    // silently kills the AEC. Pin it here, fail closed like the beam writes.
+    if (!writeU8Verified(RESID_AUDIO_MGR, MGR_FAR_END_DSP_ENABLE, 1, "FAR_END_DSP_ENABLE")) return false;
+
     // Fixed beam. The adaptive beamformer continuously changes the mic→echo path,
     // which prevents the AEC from ever locking a stable echo model (confirmed on
     // hardware: adaptive → never converges; fixed → converges in ~1s, filter peak
@@ -309,7 +316,7 @@ pub fn applyConfig() bool {
     }
     if (!writeI32Verified(RESID_AEC, AEC_FIXEDBEAMSONOFF, if (cfg.fixed_beam) 1 else 0, "FIXEDBEAMSONOFF")) return false;
 
-    log.info("AEC config applied & verified: ref_gain=1.0 far_extgain=0.0 mic_gain=90.0 fixed_beam={}", .{cfg.fixed_beam});
+    log.info("AEC config applied & verified: ref_gain=1.0 far_extgain=0.0 mic_gain=90.0 far_end_dsp=1 fixed_beam={}", .{cfg.fixed_beam});
     return true;
 }
 
