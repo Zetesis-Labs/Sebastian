@@ -16,10 +16,14 @@ pub const Result = struct {
 };
 
 pub const Decimator = struct {
-    fir_buf: [FIR_TAPS - 1 + PAIRS_48K]i32 = [_]i32{0} ** (FIR_TAPS - 1 + PAIRS_48K),
+    history: [FIR_TAPS]i32 = [_]i32{0} ** FIR_TAPS,
+    phase: u2 = 0,
+    pending: i16 = 0,
 
     pub fn reset(self: *Decimator) void {
-        @memset(self.fir_buf[0 .. FIR_TAPS - 1], 0);
+        @memset(self.history[0..], 0);
+        self.phase = 0;
+        self.pending = 0;
     }
 
     /// Anti-aliased 3:1 decimation of the configured slot.
@@ -27,29 +31,32 @@ pub const Decimator = struct {
     /// `stereo` is interleaved L/R 32-bit I2S samples. `out` receives s16 PCM.
     pub fn decimate(self: *Decimator, stereo: []const i32, out: []i16) Result {
         const got_pairs = @min(PAIRS_48K, stereo.len / 2);
-        for (0..got_pairs) |i| {
-            self.fir_buf[FIR_TAPS - 1 + i] = stereo[i * 2 + pcm.SLOT] >> pcm.SHIFT;
-        }
-
-        const out_samples = @min(@min(SAMPLES_16K, got_pairs / 3), out.len);
         var peak: i32 = 0;
         var sum: i64 = 0;
-        for (0..out_samples) |i| {
-            const newest = FIR_TAPS - 1 + i * 3;
-            var acc: i64 = 0;
-            inline for (0..FIR_TAPS) |t| {
-                acc += @as(i64, FIR_Q15[t]) * @as(i64, self.fir_buf[newest - t]);
+        var out_samples: usize = 0;
+
+        for (0..got_pairs) |i| {
+            std.mem.copyForwards(i32, self.history[0 .. FIR_TAPS - 1], self.history[1..FIR_TAPS]);
+            self.history[FIR_TAPS - 1] = stereo[i * 2 + pcm.SLOT] >> pcm.SHIFT;
+
+            if (self.phase == 0) {
+                var acc: i64 = 0;
+                inline for (0..FIR_TAPS) |t| {
+                    acc += @as(i64, FIR_Q15[t]) * @as(i64, self.history[FIR_TAPS - 1 - t]);
+                }
+                self.pending = pcm.softClip(@intCast(acc >> 15));
             }
-            const s = pcm.softClip(@intCast(acc >> 15));
-            out[i] = s;
-            sum += s;
-            peak = @max(peak, @as(i32, @intCast(@abs(s))));
+
+            self.phase = if (self.phase == 2) 0 else self.phase + 1;
+            if (self.phase == 0 and out_samples < out.len) {
+                const s = self.pending;
+                out[out_samples] = s;
+                out_samples += 1;
+                sum += s;
+                peak = @max(peak, @as(i32, @intCast(@abs(s))));
+            }
         }
 
-        if (got_pairs > 0) {
-            const end = FIR_TAPS - 1 + got_pairs;
-            std.mem.copyForwards(i32, self.fir_buf[0 .. FIR_TAPS - 1], self.fir_buf[end - (FIR_TAPS - 1) .. end]);
-        }
         const mean: i32 = if (out_samples > 0) @intCast(@divTrunc(sum, @as(i64, @intCast(out_samples)))) else 0;
         return .{ .samples = out_samples, .peak = peak, .mean = mean };
     }

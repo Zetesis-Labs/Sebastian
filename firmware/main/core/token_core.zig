@@ -16,7 +16,14 @@ pub fn parseResponse(body: []const u8, url_buf: []u8, token_buf: []u8) Error!Par
 
     const url = std.mem.trim(u8, body[0..nl], " \r\n");
     const token = std.mem.trim(u8, body[nl + 1 ..], " \r\n");
-    if (url.len == 0 or token.len == 0 or url.len >= url_buf.len or token.len >= token_buf.len) {
+    const invalid =
+        url.len == 0 or
+        token.len == 0 or
+        url.len >= url_buf.len or
+        token.len >= token_buf.len or
+        hasLineBreak(url) or
+        hasLineBreak(token);
+    if (invalid) {
         return error.MalformedResponse;
     }
 
@@ -29,4 +36,11 @@ pub fn parseResponse(body: []const u8, url_buf: []u8, token_buf: []u8) Error!Par
         .url = url_buf[0..url.len],
         .token = token_buf[0..token.len],
     };
+}
+
+fn hasLineBreak(value: []const u8) bool {
+    for (value) |c| {
+        if (c == '\r' or c == '\n') return true;
+    }
+    return false;
 }

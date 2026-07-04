@@ -7,6 +7,27 @@ const pcm = @import("main/xvf_pcm.zig");
 const pre_roll = @import("main/core/pre_roll_core.zig");
 const token = @import("main/core/token_core.zig");
 
+fn rawSample(sample: i32) i32 {
+    const scale: i32 = @as(i32, 1) << pcm.SHIFT;
+    return sample * scale;
+}
+
+fn setStereoPair(stereo: []i32, pair: usize, selected: i32, other: i32) void {
+    const other_slot: usize = if (pcm.SLOT == 0) 1 else 0;
+    stereo[pair * 2 + pcm.SLOT] = rawSample(selected);
+    stereo[pair * 2 + other_slot] = rawSample(other);
+}
+
+fn fillStereo(stereo: []i32, selected: i32, other: i32) void {
+    for (0..stereo.len / 2) |i| {
+        setStereoPair(stereo, i, selected, other);
+    }
+}
+
+fn noteSamples(state: *pre_roll.WindowState, samples: usize) void {
+    for (0..samples) |_| state.noteSample();
+}
+
 test "pcm softClip is linear below knee and bounded above it" {
     try std.testing.expectEqual(@as(i16, 0), pcm.softClip(0));
     try std.testing.expectEqual(@as(i16, 1234), pcm.softClip(1234));
@@ -83,13 +104,57 @@ test "pre-roll keeps wake anchored after long connect and ring wrap" {
     var state = pre_roll.WindowState{};
     const sr: usize = pre_roll.SAMPLE_RATE;
 
-    for (0..sr * 20) |_| state.noteSample();
+    noteSamples(&state, sr * 20);
     state.markWake();
-    for (0..sr * 8) |_| state.noteSample();
+    noteSamples(&state, sr * 8);
 
     try std.testing.expectEqual(sr * 10, state.windowSamples());
     try std.testing.expectEqual(@as(u32, 10_000), state.availableMs());
     try std.testing.expect(state.startIndex() < pre_roll.SAMPLE_CAPACITY);
+}
+
+test "pre-roll duration conversion floors partial milliseconds" {
+    try std.testing.expectEqual(@as(u32, 0), pre_roll.availableMs(0));
+    try std.testing.expectEqual(@as(u32, 0), pre_roll.availableMs(15));
+    try std.testing.expectEqual(@as(u32, 999), pre_roll.availableMs(pre_roll.SAMPLE_RATE - 1));
+    try std.testing.expectEqual(@as(u32, 1000), pre_roll.availableMs(pre_roll.SAMPLE_RATE));
+    try std.testing.expectEqual(@as(u32, 12_000), pre_roll.availableMs(pre_roll.SAMPLE_CAPACITY));
+}
+
+test "pre-roll early wake only includes available lead" {
+    var state = pre_roll.WindowState{};
+    const sr: usize = pre_roll.SAMPLE_RATE;
+
+    noteSamples(&state, sr);
+    state.markWake();
+    noteSamples(&state, sr / 4);
+
+    try std.testing.expectEqual(sr + sr / 4, state.windowSamples());
+    try std.testing.expectEqual(@as(usize, 0), state.startIndex());
+    try std.testing.expectEqual(@as(u32, 1250), state.availableMs());
+}
+
+test "pre-roll late wake starts two seconds before wake mark" {
+    var state = pre_roll.WindowState{};
+    const sr: usize = pre_roll.SAMPLE_RATE;
+
+    noteSamples(&state, sr * 5);
+    state.markWake();
+    noteSamples(&state, sr / 2);
+
+    try std.testing.expectEqual(pre_roll.WAKE_LEAD_SAMPLES + sr / 2, state.windowSamples());
+    try std.testing.expectEqual(sr * 3, state.startIndex());
+}
+
+test "pre-roll fill caps at ring capacity while write index keeps wrapping" {
+    var state = pre_roll.WindowState{};
+
+    noteSamples(&state, pre_roll.SAMPLE_CAPACITY + 123);
+
+    try std.testing.expectEqual(pre_roll.SAMPLE_CAPACITY, state.filled);
+    try std.testing.expectEqual(@as(usize, 123), state.write_idx);
+    try std.testing.expectEqual(@as(u64, pre_roll.SAMPLE_CAPACITY + 123), state.total_written);
+    try std.testing.expectEqual(@as(usize, 123), pre_roll.startIndex(state.write_idx, pre_roll.SAMPLE_CAPACITY));
 }
 
 test "mic gate half-duplex speaking and finite hangover" {
@@ -124,6 +189,49 @@ test "mic gate channel health classification catches dead and DC-pinned audio" {
     try std.testing.expect(!gate.channelLooksBad(400, 15000));
     try std.testing.expect(!gate.channelLooksBad(400, -15000));
     try std.testing.expect(!gate.channelLooksBad(1400, 0));
+}
+
+test "mic gate repeated silence does not extend consumed hangover" {
+    var g = gate.Gate{};
+
+    try std.testing.expect(g.setAgentSpeaking(true));
+    try std.testing.expect(!g.setAgentSpeaking(false));
+    for (0..gate.SPEAK_HANGOVER_FRAMES) |_| {
+        try std.testing.expect(g.agentGateActive());
+    }
+
+    try std.testing.expectEqual(@as(u32, 0), g.speak_hangover);
+    try std.testing.expect(!g.agentGateActive());
+    try std.testing.expect(!g.setAgentSpeaking(false));
+    try std.testing.expect(!g.agentGateActive());
+}
+
+test "mic gate full-duplex preserves pending half-duplex hangover" {
+    var g = gate.Gate{};
+
+    _ = g.setAgentSpeaking(true);
+    _ = g.setAgentSpeaking(false);
+    try std.testing.expectEqual(gate.SPEAK_HANGOVER_FRAMES, g.speak_hangover);
+
+    g.setFullDuplex(true);
+    for (0..5) |_| {
+        try std.testing.expect(!g.agentGateActive());
+    }
+    try std.testing.expectEqual(gate.SPEAK_HANGOVER_FRAMES, g.speak_hangover);
+
+    g.setFullDuplex(false);
+    try std.testing.expect(g.agentGateActive());
+    try std.testing.expectEqual(gate.SPEAK_HANGOVER_FRAMES - 1, g.speak_hangover);
+}
+
+test "mic gate fresh bursts are reported after restart" {
+    var g = gate.Gate{};
+
+    try std.testing.expect(g.setAgentSpeaking(true));
+    try std.testing.expect(!g.setAgentSpeaking(true));
+    try std.testing.expect(!g.setAgentSpeaking(false));
+    try std.testing.expect(g.setAgentSpeaking(true));
+    try std.testing.expect(!g.setAgentSpeaking(true));
 }
 
 test "decimator emits 160 samples for one 10ms 48k frame" {
@@ -195,6 +303,101 @@ test "decimator reset makes identical chunks deterministic" {
     try std.testing.expectEqualSlices(i16, out_a[0..a.samples], out_b[0..b.samples]);
 }
 
+test "decimator preserves phase across uneven streaming chunks" {
+    var stereo = [_]i32{0} ** (decimator.PAIRS_48K * 2);
+    for (0..decimator.PAIRS_48K) |i| {
+        const selected: i32 = @as(i32, @intCast((i * 37) % 20_000)) - 10_000;
+        const other: i32 = 7_000 - @as(i32, @intCast((i * 19) % 14_000));
+        setStereoPair(stereo[0..], i, selected, other);
+    }
+
+    var full = decimator.Decimator{};
+    var chunked = decimator.Decimator{};
+    var full_out = [_]i16{0} ** decimator.SAMPLES_16K;
+    var chunked_out = [_]i16{0} ** decimator.SAMPLES_16K;
+    var scratch = [_]i16{0} ** decimator.SAMPLES_16K;
+
+    const full_result = full.decimate(stereo[0..], full_out[0..]);
+
+    const chunks = [_]usize{ 1, 2, 17, 319, 4, 56, 81 };
+    var off: usize = 0;
+    var emitted: usize = 0;
+    for (chunks) |pairs| {
+        const result = chunked.decimate(stereo[off * 2 .. (off + pairs) * 2], scratch[0..]);
+        std.mem.copyForwards(i16, chunked_out[emitted .. emitted + result.samples], scratch[0..result.samples]);
+        emitted += result.samples;
+        off += pairs;
+    }
+
+    try std.testing.expectEqual(decimator.PAIRS_48K, off);
+    try std.testing.expectEqual(full_result.samples, emitted);
+    try std.testing.expectEqualSlices(i16, full_out[0..full_result.samples], chunked_out[0..emitted]);
+}
+
+test "decimator golden silence stays silent" {
+    var d = decimator.Decimator{};
+    var stereo = [_]i32{0} ** (decimator.PAIRS_48K * 2);
+    var out = [_]i16{123} ** decimator.SAMPLES_16K;
+
+    const result = d.decimate(stereo[0..], out[0..]);
+
+    try std.testing.expectEqual(@as(usize, decimator.SAMPLES_16K), result.samples);
+    try std.testing.expectEqual(@as(i32, 0), result.peak);
+    try std.testing.expectEqual(@as(i32, 0), result.mean);
+    for (out[0..result.samples]) |sample| {
+        try std.testing.expectEqual(@as(i16, 0), sample);
+    }
+}
+
+test "decimator golden constant shows FIR warmup and unity gain" {
+    var d = decimator.Decimator{};
+    var stereo = [_]i32{0} ** (decimator.PAIRS_48K * 2);
+    var out = [_]i16{0} ** decimator.SAMPLES_16K;
+    fillStereo(stereo[0..], 1000, -12000);
+
+    const result = d.decimate(stereo[0..], out[0..]);
+
+    try std.testing.expectEqual(@as(usize, decimator.SAMPLES_16K), result.samples);
+    try std.testing.expectEqualSlices(i16, &[_]i16{ 2, -8, -19, 641, 1055, 994, 1000, 1000 }, out[0..8]);
+    try std.testing.expectEqual(@as(i16, 1000), out[result.samples - 1]);
+}
+
+test "decimator golden impulse follows FIR taps at decimated positions" {
+    var d = decimator.Decimator{};
+    var stereo = [_]i32{0} ** (decimator.PAIRS_48K * 2);
+    var out = [_]i16{0} ** decimator.SAMPLES_16K;
+    setStereoPair(stereo[0..], 0, 16000, -3000);
+
+    const result = d.decimate(stereo[0..], out[0..]);
+
+    try std.testing.expectEqual(@as(usize, decimator.SAMPLES_16K), result.samples);
+    try std.testing.expectEqualSlices(i16, &[_]i16{ 44, -212, 590, 4514, 590, -212, 44, 0 }, out[0..8]);
+}
+
+test "decimator ignores unselected stereo slot" {
+    var clean_decim = decimator.Decimator{};
+    var noisy_decim = decimator.Decimator{};
+    var clean = [_]i32{0} ** (decimator.PAIRS_48K * 2);
+    var noisy = [_]i32{0} ** (decimator.PAIRS_48K * 2);
+    var clean_out = [_]i16{0} ** decimator.SAMPLES_16K;
+    var noisy_out = [_]i16{0} ** decimator.SAMPLES_16K;
+
+    for (0..decimator.PAIRS_48K) |i| {
+        const selected: i32 = @as(i32, @intCast((i * 23) % 8_000)) - 4_000;
+        const unrelated: i32 = if (i % 2 == 0) 20_000 else -20_000;
+        setStereoPair(clean[0..], i, selected, 0);
+        setStereoPair(noisy[0..], i, selected, unrelated);
+    }
+
+    const clean_result = clean_decim.decimate(clean[0..], clean_out[0..]);
+    const noisy_result = noisy_decim.decimate(noisy[0..], noisy_out[0..]);
+
+    try std.testing.expectEqual(clean_result.samples, noisy_result.samples);
+    try std.testing.expectEqual(clean_result.peak, noisy_result.peak);
+    try std.testing.expectEqual(clean_result.mean, noisy_result.mean);
+    try std.testing.expectEqualSlices(i16, clean_out[0..clean_result.samples], noisy_out[0..noisy_result.samples]);
+}
+
 test "token parser accepts trimmed two-line response and nul-terminates fields" {
     var url_buf = [_]u8{0xaa} ** 32;
     var token_buf = [_]u8{0xaa} ** 64;
@@ -216,6 +419,34 @@ test "token parser rejects malformed and oversized responses" {
     try std.testing.expectError(error.MalformedResponse, token.parseResponse("wss://x\n", &url_buf, &token_buf));
     try std.testing.expectError(error.MalformedResponse, token.parseResponse("wss://too-long\njwt", &url_buf, &token_buf));
     try std.testing.expectError(error.MalformedResponse, token.parseResponse("wss://x\njwt-too-long", &url_buf, &token_buf));
+}
+
+test "token parser accepts exact buffer limits before nul" {
+    var url_buf = [_]u8{0xaa} ** 4;
+    var token_buf = [_]u8{0xaa} ** 4;
+
+    const parsed = try token.parseResponse("abc\nxyz", &url_buf, &token_buf);
+
+    try std.testing.expectEqualSlices(u8, "abc", parsed.url);
+    try std.testing.expectEqualSlices(u8, "xyz", parsed.token);
+    try std.testing.expectEqual(@as(u8, 0), url_buf[3]);
+    try std.testing.expectEqual(@as(u8, 0), token_buf[3]);
+
+    try std.testing.expectError(error.MalformedResponse, token.parseResponse("abcd\nxyz", &url_buf, &token_buf));
+    try std.testing.expectError(error.MalformedResponse, token.parseResponse("abc\nxyzz", &url_buf, &token_buf));
+}
+
+test "token parser rejects embedded line breaks but accepts trailing blanks" {
+    var url_buf = [_]u8{0} ** 32;
+    var token_buf = [_]u8{0} ** 32;
+
+    const parsed = try token.parseResponse("wss://x\njwt\n\n", &url_buf, &token_buf);
+    try std.testing.expectEqualSlices(u8, "wss://x", parsed.url);
+    try std.testing.expectEqualSlices(u8, "jwt", parsed.token);
+
+    try std.testing.expectError(error.MalformedResponse, token.parseResponse("wss://x\rmore\njwt", &url_buf, &token_buf));
+    try std.testing.expectError(error.MalformedResponse, token.parseResponse("wss://x\njwt\rmore", &url_buf, &token_buf));
+    try std.testing.expectError(error.MalformedResponse, token.parseResponse("wss://x\njwt\nextra", &url_buf, &token_buf));
 }
 
 test "aec scaled telemetry math never panics on bad floats" {
@@ -248,4 +479,32 @@ test "aec command encoding is little-endian and stable" {
         0x00, 0x00, 0x80, 0x3f,
         0x00, 0x00, 0x00, 0xc0,
     }, pair_req[0..]);
+}
+
+test "aec signed i32 little-endian round trips boundary values" {
+    var bytes: [4]u8 = undefined;
+
+    aec.writeI32LE(&bytes, -2);
+    try std.testing.expectEqualSlices(u8, &[_]u8{ 0xfe, 0xff, 0xff, 0xff }, bytes[0..]);
+    try std.testing.expectEqual(@as(i32, -2), aec.readI32LE(&bytes));
+
+    aec.writeI32LE(&bytes, std.math.maxInt(i32));
+    try std.testing.expectEqual(@as(i32, std.math.maxInt(i32)), aec.readI32LE(&bytes));
+
+    aec.writeI32LE(&bytes, std.math.minInt(i32));
+    try std.testing.expectEqual(@as(i32, std.math.minInt(i32)), aec.readI32LE(&bytes));
+
+    const req = aec.makeI32Write(7, 8, -2);
+    try std.testing.expectEqualSlices(u8, &[_]u8{ 7, 8, 4, 0xfe, 0xff, 0xff, 0xff }, req[0..]);
+}
+
+test "aec float pair reader decodes little-endian command payloads" {
+    const payload = [_]u8{
+        0x00, 0x00, 0xc0, 0x3f,
+        0x00, 0x00, 0x80, 0xbe,
+    };
+    const pair = aec.readF32PairLE(&payload);
+
+    try std.testing.expect(aec.floatsClose(pair.first, 1.5, 0.0));
+    try std.testing.expect(aec.floatsClose(pair.second, -0.25, 0.0));
 }
