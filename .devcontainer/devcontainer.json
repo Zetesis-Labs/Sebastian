@@ -1,0 +1,24 @@
+{
+  "name": "Sebastian",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "dev",
+  "workspaceFolder": "/workspace",
+  "onCreateCommand": "cd agent && uv sync",
+  "postStartCommand": "GRAFANA_URL=http://lgtm:3000 tools/telemetry/provision.sh || true",
+  "waitFor": "onCreateCommand",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ziglang.vscode-zig",
+        "ms-python.python",
+        "charliermarsh.ruff"
+      ],
+      "settings": {
+        "zig.path": "/workspace/tools/zig.sh",
+        "zig.formattingProvider": "extension",
+        "zig.zls.enabled": false,
+        "[zig]": { "editor.formatOnSave": true }
+      }
+    }
+  }
+}

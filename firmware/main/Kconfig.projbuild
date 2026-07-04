@@ -1,0 +1,18 @@
+menu "Sebastian / LiveKit"
+
+    config LK_EXAMPLE_SANDBOX_ID
+        string "LiveKit sandbox token-server ID"
+        default ""
+        help
+            Sandbox ID from https://cloud.livekit.io (Sandbox → Token server).
+            Lets the device fetch a room token without running your own server.
+
+    config LK_EXAMPLE_ROOM_NAME
+        string "Room name"
+        default "sebastian"
+
+    config LK_EXAMPLE_PARTICIPANT_NAME
+        string "Participant name"
+        default "esp32-respeaker"
+
+endmenu

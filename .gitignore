@@ -1,0 +1,50 @@
+# --- Secrets / local config (NUNCA commitear) ---
+# sdkconfig contiene credenciales WiFi y de LiveKit en claro.
+firmware/sdkconfig
+firmware/sdkconfig.old
+firmware/sdkconfig.local
+**/.env
+
+# --- ESP-IDF build artifacts ---
+firmware/build/
+firmware/managed_components/
+firmware/dependencies.lock
+firmware/include/bindings.h
+
+# --- Web installer generated artifacts ---
+# These binaries can embed local WiFi/token-server config. Publish only factory
+# images that are intentionally safe for distribution.
+docs/installer/firmware/*.bin
+docs/installer/*.local.json
+
+# --- Zig ---
+firmware/.zig-cache/
+firmware/zig-out/
+firmware/zig-relsafe-*/
+
+# --- Python ---
+agent/.venv/
+agent/uv.lock
+__pycache__/
+*.pyc
+
+# --- macOS ---
+.DS_Store
+
+# Conexión LiveKit del dispositivo (token)
+firmware/main/secrets.zig
+
+# ESPHome secrets (WiFi)
+homeassistant/secrets.yaml
+homeassistant/.esphome/
+
+# --- Wake word: datasets y toolchain de entrenamiento (~40GB) ---
+# Los scripts, el modelo final y su metadata SÍ se versionan
+# (wakeword/*.py, wakeword/*.md, wakeword/*.json, wakeword/*.tflite).
+wakeword/trainer/
+
+# Web installer firmware (generated, gitignored like docs/installer)
+web-installer/public/firmware/*.bin
+web-installer/public/*.local.json
+web-installer/node_modules/
+web-installer/dist/

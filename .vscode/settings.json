@@ -1,0 +1,10 @@
+{
+  "python.terminal.activateEnvironment": false,
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff"
+  },
+  "zig.path": "${workspaceFolder}/tools/zig.sh",
+  "zig.formattingProvider": "extension",
+  "zig.zls.enabled": false,
+  "[zig]": { "editor.formatOnSave": true }
+}

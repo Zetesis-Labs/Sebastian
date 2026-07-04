@@ -1,0 +1,87 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug: agente LiveKit",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/agent/agent.py",
+      "args": ["dev"],
+      "cwd": "${workspaceFolder}/agent",
+      "console": "integratedTerminal",
+      "envFile": "${workspaceFolder}/agent/.env",
+      "python": "${workspaceFolder}/agent/.venv/bin/python",
+      "env": { "SEBASTIAN_DEBUG": "1" },
+      "preLaunchTask": "uv sync (agent)",
+      "justMyCode": true
+    },
+    {
+      "name": "Debug: token server",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/agent/token_server.py",
+      "cwd": "${workspaceFolder}/agent",
+      "console": "integratedTerminal",
+      "envFile": "${workspaceFolder}/agent/.env",
+      "python": "${workspaceFolder}/agent/.venv/bin/python",
+      "preLaunchTask": "uv sync (agent)"
+    },
+    {
+      "name": "Firmware",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["${workspaceFolder}/tools/devtools.sh", "${input:fwMode}"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Telemetría & servicios",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["${workspaceFolder}/tools/devtools.sh", "${input:opsMode}"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Zig",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["${workspaceFolder}/tools/devtools.sh", "${input:zigMode}"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "fwMode",
+      "type": "pickString",
+      "description": "Firmware",
+      "options": ["Build", "Flash", "Monitor", "Flash + Monitor"],
+      "default": "Flash + Monitor"
+    },
+    {
+      "id": "zigMode",
+      "type": "pickString",
+      "description": "Zig",
+      "options": ["Zig fmt", "Zig fmt check"],
+      "default": "Zig fmt"
+    },
+    {
+      "id": "opsMode",
+      "type": "pickString",
+      "description": "Telemetría & servicios",
+      "options": ["Bridge (telemetría)", "Provision dashboard"],
+      "default": "Bridge (telemetría)"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "🚀 Launch All (token + agente)",
+      "configurations": ["Debug: token server", "Debug: agente LiveKit"],
+      "stopAll": true
+    }
+  ]
+}

@@ -1,0 +1,147 @@
+TEST_CONTROL                               resid= 32 cmd=  0 type=uint8   rw=RW n=60 [hidden]
+SHF_BYPASS                                 resid= 33 cmd= 70 type=uint8   rw=RW n=1
+AEC_NUM_MICS                               resid= 33 cmd= 71 type=int32   rw=RO n=1
+AEC_NUM_FARENDS                            resid= 33 cmd= 72 type=int32   rw=RO n=1
+AEC_MIC_ARRAY_TYPE                         resid= 33 cmd= 73 type=int32   rw=RO n=1
+AEC_MIC_ARRAY_GEO                          resid= 33 cmd= 74 type=float   rw=RO n=12
+AEC_AZIMUTH_VALUES                         resid= 33 cmd= 75 type=radians rw=RO n=4
+TEST_AEC_DISABLE_CONTROL                   resid= 33 cmd= 76 type=uint32  rw=WO n=1 [hidden]
+AEC_CURRENT_IDLE_TIME                      resid= 33 cmd= 77 type=uint32  rw=RO n=1
+AEC_MIN_IDLE_TIME                          resid= 33 cmd= 78 type=uint32  rw=RO n=1
+AEC_RESET_MIN_IDLE_TIME                    resid= 33 cmd= 79 type=uint32  rw=WO n=1
+AEC_SPENERGY_VALUES                        resid= 33 cmd= 80 type=float   rw=RO n=4
+AEC_FIXEDBEAMSAZIMUTH_VALUES               resid= 33 cmd= 81 type=radians rw=RW n=2
+AEC_FIXEDBEAMSELEVATION_VALUES             resid= 33 cmd= 82 type=radians rw=RW n=2
+AEC_FIXEDBEAMSGATING                       resid= 33 cmd= 83 type=uint8   rw=RW n=1
+SPECIAL_CMD_AEC_FAR_MIC_INDEX              resid= 33 cmd= 90 type=int32   rw=WO n=2 [hidden]
+SPECIAL_CMD_AEC_FILTER_COEFF_START_OFFSET  resid= 33 cmd= 91 type=int32   rw=RW n=1 [hidden]
+SPECIAL_CMD_AEC_FILTER_COEFFS              resid= 33 cmd= 92 type=float   rw=RW n=15 [hidden]
+SPECIAL_CMD_AEC_FILTER_LENGTH              resid= 33 cmd= 93 type=int32   rw=RO n=1 [hidden]
+AEC_FILTER_CMD_ABORT                       resid= 33 cmd= 94 type=int32   rw=WO n=1
+AEC_AECPATHCHANGE                          resid= 33 cmd=  0 type=int32   rw=RO n=1
+AEC_HPFONOFF                               resid= 33 cmd=  1 type=int32   rw=RW n=1
+AEC_AECSILENCELEVEL                        resid= 33 cmd=  2 type=float   rw=RW n=2
+AEC_AECCONVERGED                           resid= 33 cmd=  3 type=int32   rw=RO n=1
+AEC_AECEMPHASISONOFF                       resid= 33 cmd=  4 type=int32   rw=RW n=1
+AEC_FAR_EXTGAIN                            resid= 33 cmd=  5 type=float   rw=RW n=1
+AEC_PCD_COUPLINGI                          resid= 33 cmd=  6 type=float   rw=RW n=1
+AEC_PCD_MINTHR                             resid= 33 cmd=  7 type=float   rw=RW n=1
+AEC_PCD_MAXTHR                             resid= 33 cmd=  8 type=float   rw=RW n=1
+AEC_RT60                                   resid= 33 cmd=  9 type=float   rw=RO n=1
+AEC_ASROUTONOFF                            resid= 33 cmd= 35 type=int32   rw=RW n=1
+AEC_ASROUTGAIN                             resid= 33 cmd= 36 type=float   rw=RW n=1
+AEC_FIXEDBEAMSONOFF                        resid= 33 cmd= 37 type=int32   rw=RW n=1
+AEC_FIXEDBEAMNOISETHR                      resid= 33 cmd= 38 type=float   rw=RW n=2
+VERSION                                    resid= 48 cmd=  0 type=uint8   rw=RO n=3
+BLD_MSG                                    resid= 48 cmd=  1 type=char    rw=RO n=50
+BLD_HOST                                   resid= 48 cmd=  2 type=char    rw=RO n=30
+BLD_REPO_HASH                              resid= 48 cmd=  3 type=char    rw=RO n=40
+BLD_MODIFIED                               resid= 48 cmd=  4 type=char    rw=RO n=6
+BOOT_STATUS                                resid= 48 cmd=  5 type=char    rw=RO n=3
+TEST_CORE_BURN                             resid= 48 cmd=  6 type=uint8   rw=RW n=1 [hidden]
+REBOOT                                     resid= 48 cmd=  7 type=uint8   rw=WO n=1
+USB_BIT_DEPTH                              resid= 48 cmd=  8 type=uint8   rw=RW n=2
+SAVE_CONFIGURATION                         resid= 48 cmd=  9 type=uint8   rw=WO n=1
+CLEAR_CONFIGURATION                        resid= 48 cmd= 10 type=uint8   rw=WO n=1
+AUDIO_MGR_MIC_GAIN                         resid= 35 cmd=  0 type=float   rw=RW n=1
+AUDIO_MGR_REF_GAIN                         resid= 35 cmd=  1 type=float   rw=RW n=1
+AUDIO_MGR_CURRENT_IDLE_TIME                resid= 35 cmd=  2 type=int32   rw=RO n=1
+AUDIO_MGR_MIN_IDLE_TIME                    resid= 35 cmd=  3 type=int32   rw=RO n=1
+AUDIO_MGR_RESET_MIN_IDLE_TIME              resid= 35 cmd=  4 type=int32   rw=WO n=1
+MAX_CONTROL_TIME                           resid= 35 cmd=  5 type=int32   rw=RO n=1
+RESET_MAX_CONTROL_TIME                     resid= 35 cmd=  6 type=int32   rw=WO n=1
+I2S_CURRENT_IDLE_TIME                      resid= 35 cmd=  7 type=int32   rw=RO n=1
+I2S_MIN_IDLE_TIME                          resid= 35 cmd=  8 type=int32   rw=RO n=1
+I2S_RESET_MIN_IDLE_TIME                    resid= 35 cmd=  9 type=int32   rw=WO n=1
+I2S_INPUT_PACKED                           resid= 35 cmd= 10 type=uint8   rw=RW n=1
+AUDIO_MGR_SELECTED_AZIMUTHS                resid= 35 cmd= 11 type=radians rw=RO n=2
+AUDIO_MGR_SELECTED_CHANNELS                resid= 35 cmd= 12 type=uint8   rw=RW n=2
+AUDIO_MGR_OP_PACKED                        resid= 35 cmd= 13 type=uint8   rw=RW n=2
+AUDIO_MGR_OP_UPSAMPLE                      resid= 35 cmd= 14 type=uint8   rw=RW n=2
+AUDIO_MGR_OP_L                             resid= 35 cmd= 15 type=uint8   rw=RW n=2
+AUDIO_MGR_OP_L_PK0                         resid= 35 cmd= 16 type=uint8   rw=RW n=2
+AUDIO_MGR_OP_L_PK1                         resid= 35 cmd= 17 type=uint8   rw=RW n=2
+AUDIO_MGR_OP_L_PK2                         resid= 35 cmd= 18 type=uint8   rw=RW n=2
+AUDIO_MGR_OP_R                             resid= 35 cmd= 19 type=uint8   rw=RW n=2
+AUDIO_MGR_OP_R_PK0                         resid= 35 cmd= 20 type=uint8   rw=RW n=2
+AUDIO_MGR_OP_R_PK1                         resid= 35 cmd= 21 type=uint8   rw=RW n=2
+AUDIO_MGR_OP_R_PK2                         resid= 35 cmd= 22 type=uint8   rw=RW n=2
+AUDIO_MGR_OP_ALL                           resid= 35 cmd= 23 type=uint8   rw=RW n=12
+I2S_INACTIVE                               resid= 35 cmd= 24 type=uint8   rw=RO n=1
+AUDIO_MGR_FAR_END_DSP_ENABLE               resid= 35 cmd= 25 type=uint8   rw=RW n=1
+AUDIO_MGR_SYS_DELAY                        resid= 35 cmd= 26 type=int32   rw=RW n=1
+I2S_DAC_DSP_ENABLE                         resid= 35 cmd= 27 type=uint8   rw=RW n=1
+DFU_DETACH                                 resid=240 cmd=  0 type=uint8   rw=WO n=1 [hidden]
+DFU_DNLOAD                                 resid=240 cmd=  1 type=uint8   rw=WO n=130 [hidden]
+DFU_UPLOAD                                 resid=240 cmd=  2 type=uint8   rw=RO n=130 [hidden]
+DFU_GETSTATUS                              resid=240 cmd=  3 type=uint8   rw=RO n=5 [hidden]
+DFU_CLRSTATUS                              resid=240 cmd=  4 type=uint8   rw=WO n=1 [hidden]
+DFU_GETSTATE                               resid=240 cmd=  5 type=uint8   rw=RO n=1 [hidden]
+DFU_ABORT                                  resid=240 cmd=  6 type=uint8   rw=WO n=1 [hidden]
+DFU_SETALTERNATE                           resid=240 cmd= 64 type=uint8   rw=WO n=1 [hidden]
+DFU_TRANSFERBLOCK                          resid=240 cmd= 65 type=uint8   rw=RW n=2 [hidden]
+DFU_GETVERSION                             resid=240 cmd= 88 type=uint8   rw=RO n=3 [hidden]
+DFU_REBOOT                                 resid=240 cmd= 89 type=uint8   rw=WO n=1 [hidden]
+GPI_READ_VALUES                            resid= 36 cmd=  0 type=uint8   rw=RO n=3
+GPI_INDEX                                  resid= 36 cmd=  1 type=uint8   rw=RW n=1 [hidden]
+GPI_EVENT_CONFIG                           resid= 36 cmd=  2 type=uint8   rw=RW n=1 [hidden]
+GPI_ACTIVE_LEVEL                           resid= 36 cmd=  3 type=uint8   rw=RW n=1 [hidden]
+GPI_VALUE                                  resid= 36 cmd=  4 type=uint8   rw=RO n=1 [hidden]
+GPI_EVENT_PENDING                          resid= 36 cmd=  5 type=uint8   rw=RO n=1 [hidden]
+GPI_VALUE_ALL                              resid= 36 cmd=  6 type=uint32  rw=RO n=1 [hidden]
+GPI_EVENT_PENDING_ALL                      resid= 36 cmd=  7 type=uint32  rw=RO n=1 [hidden]
+GPO_READ_VALUES                            resid= 20 cmd=  0 type=uint8   rw=RO n=5
+GPO_WRITE_VALUE                            resid= 20 cmd=  1 type=uint8   rw=WO n=2
+GPO_PORT_PIN_INDEX                         resid= 20 cmd=  2 type=uint32  rw=RW n=2 [hidden]
+GPO_PIN_VAL                                resid= 20 cmd=  3 type=uint8   rw=WO n=3 [hidden]
+GPO_PIN_ACTIVE_LEVEL                       resid= 20 cmd=  4 type=uint32  rw=RW n=1 [hidden]
+GPO_PIN_PWM_DUTY                           resid= 20 cmd=  5 type=uint8   rw=RW n=1 [hidden]
+GPO_PIN_FLASH_MASK                         resid= 20 cmd=  6 type=uint32  rw=RW n=1 [hidden]
+LED_EFFECT                                 resid= 20 cmd= 12 type=uint8   rw=RW n=1
+LED_BRIGHTNESS                             resid= 20 cmd= 13 type=uint8   rw=RW n=1
+LED_GAMMIFY                                resid= 20 cmd= 14 type=uint8   rw=RW n=1
+LED_SPEED                                  resid= 20 cmd= 15 type=uint8   rw=RW n=1
+LED_COLOR                                  resid= 20 cmd= 16 type=uint32  rw=RW n=1
+LED_DOA_COLOR                              resid= 20 cmd= 17 type=uint32  rw=RW n=2
+PLL_LOCK_STATUS                            resid= 49 cmd=  0 type=int32   rw=RO n=1
+PP_CURRENT_IDLE_TIME                       resid= 17 cmd= 70 type=uint32  rw=RO n=1
+PP_MIN_IDLE_TIME                           resid= 17 cmd= 71 type=uint32  rw=RO n=1
+PP_RESET_MIN_IDLE_TIME                     resid= 17 cmd= 72 type=uint32  rw=WO n=1
+SPECIAL_CMD_PP_NLMODEL_NROW_NCOL           resid= 17 cmd= 90 type=int32   rw=RO n=2 [hidden]
+SPECIAL_CMD_NLMODEL_START                  resid= 17 cmd= 91 type=int32   rw=WO n=1 [hidden]
+SPECIAL_CMD_NLMODEL_COEFF_START_OFFSET     resid= 17 cmd= 92 type=int32   rw=RW n=1 [hidden]
+SPECIAL_CMD_PP_NLMODEL                     resid= 17 cmd= 93 type=float   rw=RW n=15 [hidden]
+PP_NL_MODEL_CMD_ABORT                      resid= 17 cmd= 94 type=int32   rw=WO n=1
+SPECIAL_CMD_PP_NLMODEL_BAND                resid= 17 cmd= 95 type=uint8   rw=RW n=1 [hidden]
+SPECIAL_CMD_PP_EQUALIZATION_NUM_BANDS      resid= 17 cmd= 96 type=int32   rw=RO n=1 [hidden]
+SPECIAL_CMD_EQUALIZATION_START             resid= 17 cmd= 97 type=int32   rw=WO n=1 [hidden]
+SPECIAL_CMD_EQUALIZATION_COEFF_START_OFFSET resid= 17 cmd= 98 type=int32   rw=RW n=1 [hidden]
+SPECIAL_CMD_PP_EQUALIZATION                resid= 17 cmd= 99 type=float   rw=RW n=15 [hidden]
+PP_EQUALIZATION_CMD_ABORT                  resid= 17 cmd=100 type=int32   rw=WO n=1
+PP_AGCONOFF                                resid= 17 cmd= 10 type=int32   rw=RW n=1
+PP_AGCMAXGAIN                              resid= 17 cmd= 11 type=float   rw=RW n=1
+PP_AGCDESIREDLEVEL                         resid= 17 cmd= 12 type=float   rw=RW n=1
+PP_AGCGAIN                                 resid= 17 cmd= 13 type=float   rw=RW n=1
+PP_AGCTIME                                 resid= 17 cmd= 14 type=float   rw=RW n=1
+PP_AGCFASTTIME                             resid= 17 cmd= 15 type=float   rw=RW n=1
+PP_AGCALPHAFASTGAIN                        resid= 17 cmd= 16 type=float   rw=RW n=1
+PP_AGCALPHASLOW                            resid= 17 cmd= 17 type=float   rw=RW n=1
+PP_AGCALPHAFAST                            resid= 17 cmd= 18 type=float   rw=RW n=1
+PP_LIMITONOFF                              resid= 17 cmd= 19 type=int32   rw=RW n=1
+PP_LIMITPLIMIT                             resid= 17 cmd= 20 type=float   rw=RW n=1
+PP_MIN_NS                                  resid= 17 cmd= 21 type=float   rw=RW n=1
+PP_MIN_NN                                  resid= 17 cmd= 22 type=float   rw=RW n=1
+PP_ECHOONOFF                               resid= 17 cmd= 23 type=int32   rw=RW n=1
+PP_GAMMA_E                                 resid= 17 cmd= 24 type=float   rw=RW n=1
+PP_GAMMA_ETAIL                             resid= 17 cmd= 25 type=float   rw=RW n=1
+PP_GAMMA_ENL                               resid= 17 cmd= 26 type=float   rw=RW n=1
+PP_NLATTENONOFF                            resid= 17 cmd= 27 type=int32   rw=RW n=1
+PP_NLAEC_MODE                              resid= 17 cmd= 28 type=int32   rw=RW n=1
+PP_MGSCALE                                 resid= 17 cmd= 29 type=float   rw=RW n=3
+PP_FMIN_SPEINDEX                           resid= 17 cmd= 30 type=float   rw=RW n=1
+PP_DTSENSITIVE                             resid= 17 cmd= 31 type=int32   rw=RW n=1
+PP_ATTNS_MODE                              resid= 17 cmd= 32 type=int32   rw=RW n=1
+PP_ATTNS_NOMINAL                           resid= 17 cmd= 33 type=float   rw=RW n=1
+PP_ATTNS_SLOPE                             resid= 17 cmd= 34 type=float   rw=RW n=1
+USB_D2H_BUFFER_STABLE                      resid= 21 cmd=  5 type=uint8   rw=RO n=1
+USB_H2D_BUFFER_STABLE                      resid= 21 cmd=  6 type=uint8   rw=RO n=1

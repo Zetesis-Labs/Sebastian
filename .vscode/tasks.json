@@ -1,0 +1,25 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "uv sync (agent)",
+      "type": "shell",
+      "command": "uv sync",
+      "options": {
+        "cwd": "${workspaceFolder}/agent",
+        "env": { "UV_PROJECT_ENVIRONMENT": ".venv" }
+      },
+      "problemMatcher": [],
+      "detail": "Prepara agent/.venv. Lo corre el debug de Python antes de lanzar (preLaunchTask)"
+    },
+    {
+      "label": "fw: build",
+      "type": "shell",
+      "command": "tools/idf.sh build",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": ["$gcc"],
+      "group": { "kind": "build", "isDefault": true },
+      "detail": "Atajo Cmd+Shift+B. Las demás acciones de firmware están en Run and Debug → Firmware"
+    }
+  ]
+}

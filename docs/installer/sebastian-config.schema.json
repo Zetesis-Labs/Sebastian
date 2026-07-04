@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zetesis-labs.github.io/Sebastian/installer/sebastian-config.schema.json",
+  "title": "Sebastian device provisioning config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "wifi", "livekit", "telemetry", "audio", "session"],
+  "properties": {
+    "schema": {
+      "const": "sebastian.config.v1"
+    },
+    "wifi": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ssid", "password", "hidden"],
+      "properties": {
+        "ssid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "password": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "hidden": {
+          "type": "boolean"
+        }
+      }
+    },
+    "livekit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tokenServerUrl", "deviceIdentity", "room", "agentName"],
+      "properties": {
+        "tokenServerUrl": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https?://",
+          "maxLength": 256
+        },
+        "deviceIdentity": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "room": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "agentName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      }
+    },
+    "telemetry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["otlpEndpoint", "grafanaUrl"],
+      "properties": {
+        "otlpEndpoint": {
+          "$ref": "#/$defs/optionalUrl"
+        },
+        "grafanaUrl": {
+          "$ref": "#/$defs/optionalUrl"
+        }
+      }
+    },
+    "audio": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "micChannel",
+        "fixedBeam",
+        "fixedBeamAzimuthDeg",
+        "fullDuplex",
+        "probeAecOnBoot"
+      ],
+      "properties": {
+        "micChannel": {
+          "enum": ["left", "right"]
+        },
+        "fixedBeam": {
+          "type": "boolean"
+        },
+        "fixedBeamAzimuthDeg": {
+          "type": "number",
+          "minimum": -180,
+          "maximum": 180
+        },
+        "fullDuplex": {
+          "type": "boolean"
+        },
+        "probeAecOnBoot": {
+          "type": "boolean"
+        }
+      }
+    },
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["silenceTimeoutMs", "voiceLevel"],
+      "properties": {
+        "silenceTimeoutMs": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 120000
+        },
+        "voiceLevel": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 32767
+        }
+      }
+    }
+  },
+  "$defs": {
+    "optionalUrl": {
+      "anyOf": [
+        {
+          "const": ""
+        },
+        {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https?://",
+          "maxLength": 256
+        }
+      ]
+    }
+  }
+}

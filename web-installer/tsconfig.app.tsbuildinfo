@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/global.d.ts","./src/main.tsx","./src/components/configform.tsx","./src/components/icons.tsx","./src/components/ui.tsx","./src/lib/config.ts","./src/lib/serial.ts","./src/lib/validate.ts"],"version":"5.9.3"}

@@ -1,0 +1,72 @@
+@import "tailwindcss";
+
+/* Zetesis / Sebastian design tokens (Tailwind v4 @theme → utilities like
+   bg-surface, text-brand, border-line, etc.) */
+@theme {
+  --color-brand: #ff9000;
+  --color-brand-strong: #ff7d00;
+  --color-brand-deep: #bf4b00;
+
+  --color-ink: #0e0f13;
+  --color-surface: #16171c;
+  --color-surface-2: #1c1e24;
+  --color-surface-3: #23262d;
+  --color-line: rgb(255 255 255 / 8%);
+  --color-line-strong: rgb(255 255 255 / 16%);
+
+  --color-fg: #f3f1ea;
+  --color-fg-soft: #d8d3c8;
+  --color-fg-muted: #97938b;
+
+  --color-ok: #5fd39b;
+  --color-warn: #ffb454;
+  --color-danger: #ff6b57;
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-serif: ui-serif, Georgia, "Times New Roman", serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --radius-xl: 18px;
+}
+
+html {
+  color-scheme: dark;
+  background: var(--color-ink);
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  background:
+    radial-gradient(1200px 520px at 82% -8%, rgb(255 144 0 / 14%), transparent 60%),
+    radial-gradient(900px 500px at 6% 4%, rgb(191 75 0 / 12%), transparent 55%),
+    var(--color-ink);
+}
+
+/* Custom scrollbar for the JSON preview + selects */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-strong) transparent;
+}
+
+::selection {
+  background: rgb(255 144 0 / 32%);
+  color: var(--color-fg);
+}
+
+/* esp-web-tools install button theming */
+esp-web-install-button {
+  --esp-tools-button-color: var(--color-brand);
+  --esp-tools-button-text-color: #1c1204;
+  --esp-tools-button-border-radius: 12px;
+}
+
+@keyframes spin-ring {
+  to {
+    transform: rotate(360deg);
+  }
+}

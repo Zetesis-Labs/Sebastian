@@ -1,0 +1,863 @@
+{
+  "dashboard": {
+    "title": "Sebastián — Telemetría del dispositivo",
+    "uid": "sebastian-device",
+    "timezone": "browser",
+    "refresh": "5s",
+    "time": {
+      "from": "now-30m",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Canal micro — peak y DC (salud del I2S)",
+        "type": "timeseries",
+        "gridPos": {
+          "x": 0,
+          "y": 0,
+          "w": 12,
+          "h": 8
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "targets": [
+          {
+            "expr": "sebastian_pcm_peak",
+            "legendFormat": "peak"
+          },
+          {
+            "expr": "sebastian_pcm_dc",
+            "legendFormat": "dc"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "drawStyle": "line",
+              "fillOpacity": 10
+            }
+          },
+          "overrides": []
+        }
+      },
+      {
+        "id": 2,
+        "title": "Wake word — probabilidad máx (%)",
+        "type": "timeseries",
+        "gridPos": {
+          "x": 12,
+          "y": 0,
+          "w": 12,
+          "h": 8
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "targets": [
+          {
+            "expr": "sebastian_wake_prob_max",
+            "legendFormat": "prob max %"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "max": 100,
+            "min": 0,
+            "custom": {
+              "drawStyle": "line",
+              "fillOpacity": 20
+            }
+          },
+          "overrides": []
+        }
+      },
+      {
+        "id": 3,
+        "title": "Detecciones",
+        "type": "stat",
+        "gridPos": {
+          "x": 0,
+          "y": 8,
+          "w": 4,
+          "h": 5
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "targets": [
+          {
+            "expr": "sum(increase(sebastian_wake_detections_total[$__range]))"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Sesiones",
+        "type": "stat",
+        "gridPos": {
+          "x": 4,
+          "y": 8,
+          "w": 4,
+          "h": 5
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "targets": [
+          {
+            "expr": "sum(increase(sebastian_sessions_opened_total[$__range]))"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Reinicios",
+        "type": "stat",
+        "gridPos": {
+          "x": 8,
+          "y": 8,
+          "w": 4,
+          "h": 5
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "targets": [
+          {
+            "expr": "sum(increase(sebastian_reboots_total[$__range])) or vector(0)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "green",
+                  "value": null
+                },
+                {
+                  "color": "red",
+                  "value": 1
+                }
+              ]
+            }
+          },
+          "overrides": []
+        }
+      },
+      {
+        "id": 6,
+        "title": "PANICs",
+        "type": "stat",
+        "gridPos": {
+          "x": 12,
+          "y": 8,
+          "w": 4,
+          "h": 5
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "targets": [
+          {
+            "expr": "sum(increase(sebastian_panics_total[$__range])) or vector(0)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "green",
+                  "value": null
+                },
+                {
+                  "color": "red",
+                  "value": 1
+                }
+              ]
+            }
+          },
+          "overrides": []
+        }
+      },
+      {
+        "id": 7,
+        "title": "Self-heals I2S",
+        "type": "stat",
+        "gridPos": {
+          "x": 16,
+          "y": 8,
+          "w": 4,
+          "h": 5
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "targets": [
+          {
+            "expr": "sum(increase(sebastian_channel_heals_total[$__range])) or vector(0)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "green",
+                  "value": null
+                },
+                {
+                  "color": "yellow",
+                  "value": 1
+                }
+              ]
+            }
+          },
+          "overrides": []
+        }
+      },
+      {
+        "id": 8,
+        "title": "SCTP INIT/min (huérfanos)",
+        "type": "stat",
+        "gridPos": {
+          "x": 20,
+          "y": 8,
+          "w": 4,
+          "h": 5
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "targets": [
+          {
+            "expr": "sum(rate(sebastian_sctp_init_total[5m]))*60 or vector(0)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "green",
+                  "value": null
+                },
+                {
+                  "color": "red",
+                  "value": 30
+                }
+              ]
+            }
+          },
+          "overrides": []
+        }
+      },
+      {
+        "id": 9,
+        "title": "Sesión activa / estado del agente",
+        "type": "timeseries",
+        "gridPos": {
+          "x": 0,
+          "y": 13,
+          "w": 12,
+          "h": 7
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "targets": [
+          {
+            "expr": "sebastian_session_active",
+            "legendFormat": "sesión"
+          },
+          {
+            "expr": "sebastian_agent_state",
+            "legendFormat": "agente (0=idle 1=list 2=think 3=speak)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "stepAfter",
+              "fillOpacity": 15
+            }
+          },
+          "overrides": []
+        }
+      },
+      {
+        "id": 10,
+        "title": "Timing wake task (µs)",
+        "type": "timeseries",
+        "gridPos": {
+          "x": 12,
+          "y": 13,
+          "w": 12,
+          "h": 7
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "targets": [
+          {
+            "expr": "sebastian_feed_max_us",
+            "legendFormat": "feed max"
+          },
+          {
+            "expr": "sebastian_gap_max_us",
+            "legendFormat": "gap max"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "µs",
+            "custom": {
+              "drawStyle": "line"
+            }
+          },
+          "overrides": []
+        }
+      },
+      {
+        "id": 12,
+        "title": "Serial: edad última línea",
+        "type": "stat",
+        "gridPos": {
+          "x": 0,
+          "y": 20,
+          "w": 4,
+          "h": 5
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "targets": [
+          {
+            "expr": "max(sebastian_serial_age_seconds)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "green",
+                  "value": null
+                },
+                {
+                  "color": "yellow",
+                  "value": 15
+                },
+                {
+                  "color": "red",
+                  "value": 30
+                }
+              ]
+            }
+          },
+          "overrides": []
+        }
+      },
+      {
+        "id": 13,
+        "title": "Puerto serie",
+        "type": "stat",
+        "gridPos": {
+          "x": 4,
+          "y": 20,
+          "w": 4,
+          "h": 5
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "targets": [
+          {
+            "expr": "max(sebastian_serial_attached)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {
+                "type": "value",
+                "options": {
+                  "0": {
+                    "text": "SUELTO",
+                    "color": "red"
+                  },
+                  "1": {
+                    "text": "OK",
+                    "color": "green"
+                  }
+                }
+              }
+            ]
+          },
+          "overrides": []
+        }
+      },
+      {
+        "id": 14,
+        "title": "Mute",
+        "type": "stat",
+        "gridPos": {
+          "x": 8,
+          "y": 20,
+          "w": 4,
+          "h": 5
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "targets": [
+          {
+            "expr": "max(sebastian_muted)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {
+                "type": "value",
+                "options": {
+                  "0": {
+                    "text": "abierto",
+                    "color": "green"
+                  },
+                  "1": {
+                    "text": "MUTED",
+                    "color": "orange"
+                  }
+                }
+              }
+            ]
+          },
+          "overrides": []
+        }
+      },
+      {
+        "id": 15,
+        "title": "Cierres de sesión por causa",
+        "type": "stat",
+        "gridPos": {
+          "x": 12,
+          "y": 20,
+          "w": 6,
+          "h": 5
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "targets": [
+          {
+            "expr": "sum by (reason) (increase(sebastian_sessions_closed_total[$__range]))",
+            "legendFormat": "{{reason}}"
+          }
+        ]
+      },
+      {
+        "id": 16,
+        "title": "Herramientas HA ejecutadas",
+        "type": "stat",
+        "gridPos": {
+          "x": 18,
+          "y": 20,
+          "w": 6,
+          "h": 5
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "targets": [
+          {
+            "expr": "sum by (tool) (increase(sebastian_agent_tool_calls_total[$__range])) or vector(0)",
+            "legendFormat": "{{tool}}"
+          }
+        ]
+      },
+      {
+        "id": 17,
+        "title": "Conversación — turnos por rol",
+        "type": "timeseries",
+        "gridPos": {
+          "x": 0,
+          "y": 25,
+          "w": 12,
+          "h": 7
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "targets": [
+          {
+            "expr": "sum by (role) (increase(sebastian_agent_turns_total[5m]))",
+            "legendFormat": "{{role}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "drawStyle": "bars",
+              "fillOpacity": 50
+            }
+          },
+          "overrides": []
+        }
+      },
+      {
+        "id": 18,
+        "title": "Estado del agente (transiciones/min)",
+        "type": "timeseries",
+        "gridPos": {
+          "x": 12,
+          "y": 25,
+          "w": 12,
+          "h": 7
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "targets": [
+          {
+            "expr": "sum by (state) (rate(sebastian_agent_state_changes_total[5m]))*60",
+            "legendFormat": "{{state}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "drawStyle": "line",
+              "fillOpacity": 10
+            }
+          },
+          "overrides": []
+        }
+      },
+      {
+        "id": 11,
+        "title": "Logs del dispositivo",
+        "type": "logs",
+        "gridPos": {
+          "x": 0,
+          "y": 32,
+          "w": 24,
+          "h": 10
+        },
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
+        "targets": [
+          {
+            "expr": "{service_name=\"sebastian-device\"}"
+          }
+        ],
+        "options": {
+          "showTime": true,
+          "wrapLogMessage": true,
+          "sortOrder": "Descending"
+        }
+      },
+      {
+        "id": 19,
+        "title": "Logs del agente (conversación incluida)",
+        "type": "logs",
+        "gridPos": {
+          "x": 0,
+          "y": 42,
+          "w": 24,
+          "h": 10
+        },
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
+        "targets": [
+          {
+            "expr": "{service_name=\"sebastian-agent\"} != `Using selector`"
+          }
+        ],
+        "options": {
+          "showTime": true,
+          "wrapLogMessage": true,
+          "sortOrder": "Descending"
+        }
+      },
+      {
+        "id": 20,
+        "title": "REF_GAIN (sospechoso nº1: 8.0)",
+        "type": "stat",
+        "gridPos": {
+          "x": 0,
+          "y": 52,
+          "w": 5,
+          "h": 5
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "targets": [
+          {
+            "expr": "max(sebastian_aec_ref_gain)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "decimals": 1,
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "green",
+                  "value": null
+                },
+                {
+                  "color": "red",
+                  "value": 2
+                }
+              ]
+            }
+          },
+          "overrides": []
+        }
+      },
+      {
+        "id": 21,
+        "title": "FAR_EXTGAIN (dB)",
+        "type": "stat",
+        "gridPos": {
+          "x": 5,
+          "y": 52,
+          "w": 4,
+          "h": 5
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "targets": [
+          {
+            "expr": "max(sebastian_aec_far_extgain)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "decimals": 2
+          },
+          "overrides": []
+        }
+      },
+      {
+        "id": 22,
+        "title": "Sesiones convergidas",
+        "type": "stat",
+        "gridPos": {
+          "x": 9,
+          "y": 52,
+          "w": 5,
+          "h": 5
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "targets": [
+          {
+            "expr": "sum(increase(sebastian_aec_sessions_total{converged=\"1\"}[$__range])) / clamp_min(sum(increase(sebastian_aec_sessions_total[$__range])),1)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percentunit",
+            "decimals": 0,
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "red",
+                  "value": null
+                },
+                {
+                  "color": "green",
+                  "value": 0.99
+                }
+              ]
+            }
+          },
+          "overrides": []
+        }
+      },
+      {
+        "id": 23,
+        "title": "Turnos fantasma (eco)",
+        "type": "stat",
+        "gridPos": {
+          "x": 14,
+          "y": 52,
+          "w": 5,
+          "h": 5
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "targets": [
+          {
+            "expr": "sum(increase(sebastian_agent_phantom_turns_total[$__range])) or vector(0)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "green",
+                  "value": null
+                },
+                {
+                  "color": "red",
+                  "value": 1
+                }
+              ]
+            }
+          },
+          "overrides": []
+        }
+      },
+      {
+        "id": 24,
+        "title": "AEC idle (ms)",
+        "type": "stat",
+        "gridPos": {
+          "x": 19,
+          "y": 52,
+          "w": 5,
+          "h": 5
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "targets": [
+          {
+            "expr": "max(sebastian_aec_idle_ms)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ms"
+          },
+          "overrides": []
+        }
+      },
+      {
+        "id": 25,
+        "title": "AEC converged / path_change / estado agente",
+        "type": "timeseries",
+        "gridPos": {
+          "x": 0,
+          "y": 57,
+          "w": 12,
+          "h": 8
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "targets": [
+          {
+            "expr": "sebastian_aec_converged",
+            "legendFormat": "converged"
+          },
+          {
+            "expr": "sebastian_aec_path_change",
+            "legendFormat": "path_change"
+          },
+          {
+            "expr": "sebastian_agent_state",
+            "legendFormat": "agente (3=speaking)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "stepAfter",
+              "fillOpacity": 15
+            }
+          },
+          "overrides": []
+        }
+      },
+      {
+        "id": 26,
+        "title": "Eco vs habla del agente (full-duplex: live_echo)",
+        "type": "timeseries",
+        "gridPos": {
+          "x": 12,
+          "y": 57,
+          "w": 12,
+          "h": 8
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "targets": [
+          {
+            "expr": "sebastian_echo_live",
+            "legendFormat": "eco full-duplex (live, alto=AEC fuga)"
+          },
+          {
+            "expr": "sebastian_echo_gated_peak",
+            "legendFormat": "eco half-duplex (gated)"
+          },
+          {
+            "expr": "sebastian_render_peak",
+            "legendFormat": "altavoz (render peak)"
+          },
+          {
+            "expr": "sebastian_keepalive * 1000",
+            "legendFormat": "keepalive x1000"
+          },
+          {
+            "expr": "sebastian_agent_state * 1000",
+            "legendFormat": "agente x1000"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "drawStyle": "line",
+              "fillOpacity": 10
+            }
+          },
+          "overrides": []
+        }
+      }
+    ]
+  },
+  "overwrite": true
+}

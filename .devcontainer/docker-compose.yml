@@ -1,0 +1,39 @@
+services:
+  dev:
+    build: .
+    volumes:
+      - ..:/workspace:cached
+      # Venv en VOLUMEN NOMBRADO, no en el mount: el python de un venv uv es un
+      # symlink a un intérprete local al contenedor, así que un venv en el mount
+      # compartido cuelga en otro contenedor/host y aparece incompleto (el
+      # calvario de Pylance de esta sesión). El volumen sombrea esta ruta dentro
+      # del contenedor y lo mantiene íntegro e independiente del host.
+      - agent_venv:/workspace/agent/.venv
+    working_dir: /workspace
+    command: sleep infinity
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4318
+    ports:
+      - "8787:8787" # token server — el device lo busca en la IP del Mac en la LAN
+    # Host LINUX: descomenta para pasar el USB directo al contenedor
+    # (en macOS/Windows no aplica — el device pertenece a otro kernel).
+    # devices:
+    #   - /dev/ttyACM0:/dev/ttyACM0
+    depends_on:
+      - lgtm
+
+  lgtm:
+    image: grafana/otel-lgtm:latest
+    # Sin container_name fijo: bajo orquestación de devcontainer, un nombre fijo
+    # choca entre proyectos compose (VS Code usa 'sebastian_devcontainer', un
+    # 'docker compose' manual usa el nombre del directorio). Compose lo nombra
+    # <proyecto>-lgtm-1. Los servicios internos lo resuelven como 'lgtm'; el
+    # bridge del host usa localhost:4318 (puerto publicado). El MCP de Grafana
+    # apunta a ese nombre generado — ver docs/DEVCONTAINER.md.
+    ports:
+      - "3000:3000" # Grafana UI
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP — el bridge serial del host exporta aquí
+
+volumes:
+  agent_venv: # venv del agente, local al contenedor (ver comentario en dev)
