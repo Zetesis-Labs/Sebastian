@@ -21,8 +21,9 @@ pub fn parseResponse(body: []const u8, url_buf: []u8, token_buf: []u8) Error!Par
         token.len == 0 or
         url.len >= url_buf.len or
         token.len >= token_buf.len or
-        hasLineBreak(url) or
-        hasLineBreak(token);
+        !hasWebSocketScheme(url) or
+        hasForbiddenByte(url) or
+        hasForbiddenByte(token);
     if (invalid) {
         return error.MalformedResponse;
     }
@@ -38,9 +39,15 @@ pub fn parseResponse(body: []const u8, url_buf: []u8, token_buf: []u8) Error!Par
     };
 }
 
-fn hasLineBreak(value: []const u8) bool {
+fn hasWebSocketScheme(url: []const u8) bool {
+    if (std.mem.startsWith(u8, url, "ws://")) return url.len > "ws://".len;
+    if (std.mem.startsWith(u8, url, "wss://")) return url.len > "wss://".len;
+    return false;
+}
+
+fn hasForbiddenByte(value: []const u8) bool {
     for (value) |c| {
-        if (c == '\r' or c == '\n') return true;
+        if (c <= 0x20 or c == 0x7f) return true;
     }
     return false;
 }
