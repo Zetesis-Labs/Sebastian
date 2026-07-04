@@ -8,7 +8,6 @@ firmware/sdkconfig.local
 # --- ESP-IDF build artifacts ---
 firmware/build/
 firmware/managed_components/
-firmware/dependencies.lock
 firmware/include/bindings.h
 
 # --- Web installer generated artifacts ---
