@@ -298,10 +298,125 @@ En una frase: los tres primeros (#1 full-duplex con tracking, #3 endpointing, #4
 wake robusto) son el corazón de "cómo gestiona el audio/micro un altavoz
 inteligente"; #7 es lo que lo hace usable a diario.
 
-### Limitación de tooling: publicación del instalador web
+### Tooling: publicación del instalador web (RESUELTO 2026-07-04)
 
-El instalador web (React) se sirve por GitHub Pages, pero el `deploy-pages` del
-Action falla ("Deployment failed, try again later") — pendiente de mover a otro
-mecanismo de publicación (no Actions directo). El **build del firmware factory en
-CI sí funciona** (esp-idf-ci-action, ~7 min); lo que queda es solo el paso de
-deploy.
+El instalador web (React) se sirve por GitHub Pages. El `deploy-pages` fallaba en
+los runners de GitHub ("Deployment failed, try again later"); se movió al runner
+self-hosted **`herschel-runners`** y funciona. El **firmware factory se buildea en
+el propio Action** (esp-idf-ci-action, ~4-7 min) y se publica junto al instalador,
+con verificación de que la imagen no lleva credenciales. La imagen que se flashea
+la construye el CI, nunca se sube un binario local.
+
+## 7. Explotar el DSP del XVF → full-duplex con tracking + auto-calibración (2026-07-04)
+
+**Tesis:** el ~70 % de la "calidad top" de micro/altavoz no es construir DSP nuevo,
+sino **usar el que el XVF3800 ya trae armado** (AEC, beamforming, supresor de eco
+residual no-lineal, NS, de-reverb, AGC, limiter). Hoy tapamos el **beam ASR crudo
+(slot RIGHT)** y tiramos a la basura todo el post-procesado del **canal comms (slot
+LEFT)**. Esta sección es el plan para exprimirlo, con lo ya validado en hardware.
+
+### Objetivo: las dos capacidades que separan de un Echo
+
+1. **Full-duplex CON tracking** — hablarle por encima mientras suena, desde
+   cualquier punto de la sala, con el beam siguiéndote **y** el eco cancelado.
+2. **Auto-calibración por voz** (*"Sebastián, calíbrate"*) — que se adapte solo y
+   persista en NVS, resolviendo dos escenarios reales: **mover el aparato** y
+   **enchufar un altavoz distinto** (sensibilidad/THD desconocidas).
+
+### Camino B — VALIDADO en hardware (`probeDualChannel`)
+
+El trade que teníamos era "**beam fijo O tracking**": beam fijo → el AEC lineal
+converge (full-duplex actual) pero pierdes seguimiento; beam adaptativo → te sigue
+pero el AEC nunca fija y el eco pasa. **Camino B lo rompe**: el supresor residual
+**no-lineal** del canal comms cancela el eco **sin AEC lineal convergido y con el
+beam adaptativo**. Medido con ruido a nivel de agente:
+
+| | eco residual (echo-rise medio) |
+|---|---|
+| Beam ASR crudo (RIGHT), adaptativo | **+101 655** (inutilizable) |
+| Canal comms (LEFT), adaptativo, AEC sin converger | **−2 568** (por debajo del ambiente) |
+
+Es decir: **full-duplex con tracking es viable por el canal comms.** El mecanismo
+está probado; ya no es riesgo de investigación.
+
+### Estado real y lo que falta
+
+- **Full-duplex SIN tracking**: HECHO y en producción (camino A — beam fijo +
+  AEC convergido + keepalive por render). Va si estás en la zona del beam.
+- **Full-duplex CON tracking**: mecanismo validado; falta **integración + tuning
+  con voz** (no arquitectura nueva — la fontanería ya existe: `mic_channel`, flag
+  `full_duplex`, bypass del gate):
+  1. `mic_channel = .left` + `fixed_beam = false` → 2 flags + reflash.
+  2. **Tunear el AGC del comms** (32× de fábrica = el "sonaba de lata") para no
+     degradar el ASR.
+  3. **Wake word en el canal procesado**, o cablear wake-en-RIGHT + sesión-en-LEFT
+     (ambos slots llegan en el mismo stream I2S).
+
+### ⚠️ El único gate real: double-talk
+
+El probe midió **eco** (agente hablando, usuario callado), **no double-talk** (los
+dos a la vez). Ese es el talón de Aquiles de los supresores no-lineales: si es muy
+agresivo **se come TU voz cuando le hablas encima** → pierdes justo lo que buscabas.
+Knob: `PP_DTSENSITIVE` (resid 17/31, hoy en 0). **Solo se valida con voz en la sala.**
+Puede resolverse con el knob o revelar un límite. Estimación: **~1 sesión en casa**
+para una primera versión; posible 2ª ronda si el double-talk pide afinar
+`DTSENSITIVE`/`gamma_e`.
+
+### Plan del tool `calibrate_audio` ("Sebastián, calíbrate")
+
+Productiza los probes de hoy como un tool de voz. Prerrequisito: el **actuador de
+volumen** (ver hallazgos). Flujo:
+
+1. Tool `calibrate_audio` en el agente → comando por data channel (con ack/retry
+   por la tormenta SCTP) → rutina en el firmware (~10-15 s).
+2. La rutina barre la ganancia de salida con ruido, mide el eco pre-AEC, elige el
+   nivel más alto con headroom (−6 dB), verifica `converged=1`.
+3. Guarda `out_gain_db` en **NVS** (namespace `sebastian`, como el provisioning);
+   `applyConfig` lo re-aplica en cada boot con escritura verificada.
+4. Agente: "Listo, calibrado". Bonus: el firmware ya detecta saturación en sesión
+   (`live_echo=32767`) → puede **sugerir** la calibración o auto-corregir.
+
+Resuelve **mover el aparato** y **cambiar de altavoz** con una frase.
+
+### Hallazgos-ancla (para no repetir el trabajo)
+
+- **`FAR_END_DSP_ENABLE` (35/25) es prerrequisito del AEC.** Con él a 0 el detector
+  far-end no ve energía → el AEC nunca adapta → acople altavoz↔micro. El XVF lo
+  revierte a su default de build (0) en **power-cycle** (no en `esp_restart`), así
+  que desenchufar mataba el AEC. **Fijado en `applyConfig`** con write verificado
+  fail-closed (commit `a5b1534`).
+- **`FAR_EXTGAIN` NO es un volumen maestro** (medido: −12 dB movió el eco ~3 %). Es
+  metadato del AEC. Y **no existe API de volumen** en toda la cadena de render (por
+  eso el sw-vol fue siempre no-op). **El actuador real** = un `audio_render`
+  envolvente propio (~80 líneas) que escala el PCM (ganancia Q15) antes del render
+  I2S interno; coherente con la referencia del AEC (misma señal al DAC), reduce THD
+  y habilita ducking + volumen por voz + el actuador de `calibrate`.
+- **Config-drift del XVF**: revierte a defaults de build en cada power-cycle. Todo
+  knob adoptado DEBE escribirse en `applyConfig` (o `SAVE_CONFIGURATION` 48/9, pero
+  preferimos escritura explícita, visible en git).
+- **Routing por slot programable** (`OP_L`/`OP_R`, 35/15,19): se puede rutar comms
+  → cualquier slot sin tocar `mic_src`.
+- **Knobs concretos a tocar**: `PP_AGC*` (17/10-18, normalización de distancia),
+  `PP_DTSENSITIVE` (17/31, double-talk), `PP_GAMMA_E/ETAIL/ENL` (17/24-26,
+  agresividad del supresor), `PP_MIN_NS` (17/21, suelo de NS), `SYS_DELAY` (35/26,
+  alineación referencia↔micro).
+- **Referencia sin huecos**: el `auto_clear_after_cb` mete ceros en cada underrun →
+  huecos en la referencia far-end que degradan la adaptación; FIFO mayor / sin
+  underruns = AEC más estable.
+
+### Herramientas de diagnóstico (en el árbol, flags de boot en `false`)
+
+- `logPpConfig()` — dump del post-procesador en cada boot.
+- `probeDualChannel()` (`config.probe_dual_channel_on_boot`) — el experimento del
+  camino B; reversible, ~12 s de ruido, restaura todo.
+- `probeOutputGain()` (`config.probe_output_gain_on_boot`) — la sonda que descartó
+  `FAR_EXTGAIN` como volumen.
+
+### Nota — proveedor del agente (2026-07-04)
+
+Migrado a **Gemini Live** por defecto (`SEBASTIAN_MODEL_PROVIDER=gemini`, coste
+menor) con OpenAI Realtime como fallback. Los modelos native-audio **rechazan
+códigos BCP-47 explícitos** (`es-ES` → APIError 1007 → la sesión Live se cierra →
+el agente enmudece con la sesión del device abierta): el idioma es ahora
+configurable (`SEBASTIAN_GEMINI_LANGUAGE`) y por defecto **auto-detect** (commit
+`55b869f`).
