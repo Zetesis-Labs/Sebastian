@@ -296,30 +296,30 @@ function ToolbarBtn({ onClick, icon, label }: { onClick: () => void; icon: React
 }
 
 function DeviceVisual() {
+  const tags = ["ESP32-S3", "Web Serial", "Provisioning"];
+
   return (
-    <div className="relative hidden aspect-[4/3] overflow-hidden rounded-2xl border border-line bg-gradient-to-br from-brand/[0.14] via-transparent to-transparent md:block">
-      <div className="absolute inset-x-5 top-6 h-px bg-gradient-to-r from-transparent via-brand/50 to-transparent" />
-      <div className="absolute inset-x-5 bottom-6 h-px bg-gradient-to-r from-transparent via-brand/50 to-transparent" />
-      <div className="absolute right-8 top-1/2 grid size-28 -translate-y-1/2 place-items-center">
-        <div className="absolute inset-0 animate-[spin-ring_6s_linear_infinite] rounded-full border-[9px] border-white/8 border-t-brand border-r-brand-strong" />
-        <div className="size-14 rounded-full border border-line-strong bg-ink/80" />
+    <aside className="hidden md:grid gap-4">
+      <div className="relative grid aspect-[4/3] place-items-center overflow-hidden rounded-2xl border border-line bg-gradient-to-br from-white/[0.07] via-white/[0.025] to-brand/[0.08]">
+        <div className="absolute inset-x-8 top-7 h-px bg-gradient-to-r from-transparent via-brand/45 to-transparent" />
+        <div className="absolute inset-x-8 bottom-7 h-px bg-gradient-to-r from-transparent via-brand/35 to-transparent" />
+        <img
+          src={`${BASE}brand/zetesis-mark.svg`}
+          alt=""
+          className="relative z-10 w-[42%] max-w-44 drop-shadow-[0_22px_44px_rgba(255,125,0,0.24)]"
+        />
       </div>
-      <div className="absolute left-6 top-6 grid gap-2">
-        {["ESP32-S3", "Web Serial", "Provisioning"].map((t) => (
+      <div className="flex flex-wrap gap-2">
+        {tags.map((tag) => (
           <span
-            key={t}
-            className="rounded-full border border-line bg-ink/50 px-2.5 py-1 font-mono text-[10.5px] text-fg-soft"
+            key={tag}
+            className="rounded-full border border-line bg-white/[0.035] px-3 py-1.5 font-mono text-[11px] font-semibold text-fg-muted"
           >
-            {t}
+            {tag}
           </span>
         ))}
       </div>
-      <div className="absolute bottom-6 left-6 grid w-20 gap-2 rounded-lg border border-line bg-ink/80 p-3">
-        <span className="h-1.5 rounded bg-gradient-to-r from-brand-deep to-brand" />
-        <span className="h-1.5 rounded bg-gradient-to-r from-brand-deep to-brand" />
-        <span className="h-1.5 rounded bg-gradient-to-r from-brand-deep to-brand" />
-      </div>
-    </div>
+    </aside>
   );
 }
 
