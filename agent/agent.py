@@ -45,6 +45,17 @@ telemetry.setup()
 
 log = logging.getLogger("sebastian.agent")
 
+# Hold references to fire-and-forget tasks: asyncio only keeps a weak reference,
+# so an un-retained create_task() can be garbage-collected mid-flight.
+_bg_tasks: set[asyncio.Task] = set()
+
+
+def _spawn(coro) -> asyncio.Task:
+    task = asyncio.create_task(coro)
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
+    return task
+
 m_jobs = telemetry.counter("sebastian_agent_jobs_total", "Jobs accepted (one per device session)")
 m_turns = telemetry.counter("sebastian_agent_turns_total", "Conversation items by role")
 m_tools = telemetry.counter("sebastian_agent_tool_calls_total", "Tool executions, by tool name")
@@ -168,7 +179,7 @@ class Sebastian(Agent):
         que te calles o que pares, dé la conversación por terminada o se despida.
         Para volver a hablar tendrá que decir la palabra de activación."""
         _ = context
-        asyncio.create_task(_delete_room_after_goodbye(get_job_context()))
+        _spawn(_delete_room_after_goodbye(get_job_context()))
         log.info("end_session tool called — closing room in %.1fs", GOODBYE_GRACE_S)
         return "Sesión terminándose. Despídete con una sola palabra."
 
@@ -193,7 +204,7 @@ def _setup_recorder(ctx: agents.JobContext) -> None:
     @ctx.room.on("track_subscribed")
     def _on_track(track, publication, participant):  # noqa: ANN001
         if track.kind == rtc.TrackKind.KIND_AUDIO and "esp32" in participant.identity:
-            asyncio.create_task(_record_track(track, REC_PATH))
+            _spawn(_record_track(track, REC_PATH))
 
 
 GATE_SILENCE_PEAK = 100  # gate silence ≈ 0 after Opus; real room noise ≥ 1400
@@ -220,7 +231,10 @@ class SebastianAudioInput(agents.io.AudioInput):
     def __init__(self, room: rtc.Room) -> None:
         super().__init__(label="SebastianMic")
         self._room = room
-        self._queue: asyncio.Queue[rtc.AudioFrame | None] = asyncio.Queue()
+        # Bounded so a stalled consumer applies backpressure instead of growing
+        # unbounded in memory. ~1000 * 50ms frames is generous headroom for the
+        # pre-roll burst at hand-off while still capping the queue.
+        self._queue: asyncio.Queue[rtc.AudioFrame | None] = asyncio.Queue(maxsize=1000)
         self._preroll_ready = asyncio.Event()
         self.preroll_ready = self._preroll_ready  # exposed: entrypoint skips the greeting on it
         self._preroll_frames: list[rtc.AudioFrame] = []
@@ -327,7 +341,7 @@ class SebastianAudioInput(agents.io.AudioInput):
         if self._track_task:
             self._track_task.cancel()
         if self._stream:
-            asyncio.create_task(self._stream.aclose())
+            _spawn(self._stream.aclose())
 
         self._stream = rtc.AudioStream.from_track(
             track=track,
@@ -507,7 +521,7 @@ def _instrument_session(session: AgentSession) -> None:
             except Exception as e:
                 log.debug("agent state publish failed: %r", e)
 
-        asyncio.create_task(_pub())
+        _spawn(_pub())
 
     @session.on("agent_state_changed")
     def _on_state(ev) -> None:  # noqa: ANN001
