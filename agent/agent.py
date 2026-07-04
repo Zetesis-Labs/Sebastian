@@ -19,9 +19,7 @@ import asyncio
 import contextlib
 import logging
 import os
-import re
 import time
-import unicodedata
 import wave
 from collections import deque
 from pathlib import Path
@@ -36,7 +34,11 @@ from livekit.agents.voice.room_io import RoomOptions
 from livekit.plugins import google, noise_cancellation, openai
 from openai.types.beta.realtime.session import TurnDetection
 
+import preroll
 import telemetry
+from text_match import containment as _containment
+from text_match import looks_spanish as _looks_spanish
+from text_match import norm as _norm
 
 load_dotenv(Path(__file__).with_name(".env"))
 telemetry.setup()
@@ -63,34 +65,8 @@ ECHO_TAIL_S = 2.5       # reverb + render FIFO after speaking→listening
 OVERLAP_WINDOW_S = 20.0  # how far back to compare against the agent's own words
 OVERLAP_PHANTOM = 0.55   # near-literal echo: phantom even if the timing missed it
 OVERLAP_WEAK = 0.30      # partial echo: only counts combined with echo timing
-_ES_HINTS = {"que", "de", "la", "el", "en", "y", "no", "los", "se", "por", "un",
-             "una", "para", "con", "es", "si", "como", "esta", "hola", "gracias"}
-
-
-def _norm(t: str) -> str:
-    t = "".join(c for c in unicodedata.normalize("NFKD", t.lower()) if not unicodedata.combining(c))
-    return re.sub(r"[^\w\s]", " ", t)
-
-
-def _shingles(t: str) -> set[str]:
-    w = _norm(t).split()
-    if len(w) < 3:
-        return set(w)
-    return {" ".join(w[i : i + 3]) for i in range(len(w) - 2)}
-
-
-def _containment(user_text: str, ref_text: str) -> float:
-    u, r = _shingles(user_text), _shingles(ref_text)
-    return len(u & r) / len(u) if u else 0.0
-
-
-def _looks_spanish(t: str) -> bool:
-    if any(ord(ch) > 0x24F for ch in t):  # cyrillic / CJK / etc. → clearly not
-        return False
-    words = _norm(t).split()
-    if len(words) < 3:
-        return True  # too short to judge — benefit of the doubt
-    return sum(w in _ES_HINTS for w in words) / len(words) >= 0.15
+# Text-matching helpers (_norm/_containment/_looks_spanish) live in text_match.py
+# so they are unit-testable without importing the full agent.
 
 REC_PATH = "/tmp/sebastian_rx.wav"
 PREROLL_PATH = "/tmp/sebastian_preroll.wav"
@@ -316,27 +292,15 @@ class SebastianAudioInput(agents.io.AudioInput):
             _write_wav(PREROLL_PATH, pcm, sample_rate)
             log.info("[preroll] wrote %s", PREROLL_PATH)
 
+    @staticmethod
     def _parse_preroll(
-        self, payload: bytes, participant: str
+        payload: bytes, participant: str
     ) -> tuple[int, int, bytes] | None:
-        if len(payload) < 16 or payload[:4] != b"SBPR":
-            log.warning("[preroll] invalid stream from %s: %s bytes", participant, len(payload))
+        parsed = preroll.parse_header(payload)
+        if parsed is None:
+            log.warning("[preroll] invalid/malformed stream from %s: %s bytes", participant, len(payload))
             return None
-
-        version = payload[4]
-        sample_rate = int.from_bytes(payload[6:8], "little")
-        sample_count = int.from_bytes(payload[8:12], "little")
-        wake_id = int.from_bytes(payload[12:16], "little")
-        pcm = payload[16:]
-        expected = sample_count * 2
-        if version != 1 or sample_rate != 16000 or len(pcm) != expected:
-            log.warning(
-                "[preroll] malformed stream wake_id=%s version=%s rate=%s pcm=%s expected=%s",
-                wake_id, version, sample_rate, len(pcm), expected,
-            )
-            return None
-
-        return wake_id, sample_rate, pcm
+        return parsed.wake_id, parsed.sample_rate, parsed.pcm
 
     def _pcm_to_frames(self, pcm: bytes, sample_rate: int) -> list[rtc.AudioFrame]:
         frame_samples = sample_rate * LIVE_FRAME_MS // 1000
