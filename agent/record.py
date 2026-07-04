@@ -48,7 +48,7 @@ async def main() -> None:
             state["frames"] += 1
 
     @room.on("track_subscribed")
-    def _on(track, pub, participant):  # noqa: ANN001
+    def _on(track: rtc.Track, pub: rtc.TrackPublication, participant: rtc.RemoteParticipant) -> None:
         if track.kind == rtc.TrackKind.KIND_AUDIO and "esp32" in participant.identity:
             print(f"[rec] subscribed to {participant.identity}")
             asyncio.create_task(record(track))
@@ -60,7 +60,9 @@ async def main() -> None:
     await asyncio.sleep(0.3)
     wav.close()
     await room.disconnect()
-    print(f"[rec] done: {state['frames']} frames ({state['frames'] * 0.01:.1f}s of 10ms frames) -> {OUT}")
+    print(
+        f"[rec] done: {state['frames']} frames ({state['frames'] * 0.01:.1f}s of 10ms frames) -> {OUT}"
+    )
 
 
 if __name__ == "__main__":

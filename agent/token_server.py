@@ -26,6 +26,7 @@ agent). Serve it on the LAN the device is on; point the firmware at it via
 
 import os
 from datetime import timedelta
+from typing import AsyncIterator
 
 from aiohttp import web
 from dotenv import load_dotenv
@@ -51,7 +52,7 @@ def _mint() -> str:
     grant = api.VideoGrants(room_join=True, room=ROOM)
     dispatch = api.RoomAgentDispatch(agent_name=AGENT_NAME)
     room_config = api.RoomConfiguration(agents=[dispatch])
-    return (
+    jwt: str = (
         api.AccessToken(API_KEY, API_SECRET)
         .with_identity(IDENTITY)
         .with_name(IDENTITY)
@@ -60,6 +61,7 @@ def _mint() -> str:
         .with_ttl(TOKEN_TTL)
         .to_jwt()
     )
+    return jwt
 
 
 async def _dispatch_agent(lk: api.LiveKitAPI) -> None:
@@ -89,7 +91,7 @@ async def handle_health(request: web.Request) -> web.Response:
     return web.Response(text="ok")
 
 
-async def _lk_client(app: web.Application):
+async def _lk_client(app: web.Application) -> AsyncIterator[None]:
     app["lk"] = api.LiveKitAPI()
     yield
     await app["lk"].aclose()
@@ -99,7 +101,10 @@ def main() -> None:
     app = web.Application()
     app.cleanup_ctx.append(_lk_client)
     app.add_routes([web.get("/token", handle_token), web.get("/health", handle_health)])
-    print(f"[token-server] {LIVEKIT_URL} room={ROOM} agent={AGENT_NAME} on {HOST}:{PORT}", flush=True)
+    print(
+        f"[token-server] {LIVEKIT_URL} room={ROOM} agent={AGENT_NAME} on {HOST}:{PORT}",
+        flush=True,
+    )
     web.run_app(app, host=HOST, port=PORT)
 
 

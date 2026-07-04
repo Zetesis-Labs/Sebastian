@@ -10,14 +10,36 @@ import unicodedata
 # Common Spanish function words — a cheap "does this look Spanish?" signal used to
 # flag mic echo transcribed in the wrong language.
 ES_HINTS = {
-    "que", "de", "la", "el", "en", "y", "no", "los", "se", "por", "un",
-    "una", "para", "con", "es", "si", "como", "esta", "hola", "gracias",
+    "que",
+    "de",
+    "la",
+    "el",
+    "en",
+    "y",
+    "no",
+    "los",
+    "se",
+    "por",
+    "un",
+    "una",
+    "para",
+    "con",
+    "es",
+    "si",
+    "como",
+    "esta",
+    "hola",
+    "gracias",
 }
 
 
 def norm(t: str) -> str:
     """Lowercase, strip accents (NFKD), collapse punctuation to spaces."""
-    t = "".join(c for c in unicodedata.normalize("NFKD", t.lower()) if not unicodedata.combining(c))
+    t = "".join(
+        c
+        for c in unicodedata.normalize("NFKD", t.lower())
+        if not unicodedata.combining(c)
+    )
     return re.sub(r"[^\w\s]", " ", t)
 
 

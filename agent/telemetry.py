@@ -11,14 +11,16 @@ background threads and the agent keeps working. Disable with SEBASTIAN_OTEL=0.
 import logging
 import os
 
-_METER = None
+from typing import Any
+
+_METER: Any = None
 
 
 class _NullInstrument:
-    def add(self, *args, **kwargs) -> None: ...
+    def add(self, *args: Any, **kwargs: Any) -> None: ...
 
 
-def counter(name: str, description: str = ""):
+def counter(name: str, description: str = "") -> Any:
     if _METER is None:
         return _NullInstrument()
     return _METER.create_counter(name, description=description)
@@ -32,7 +34,9 @@ def setup() -> None:
         from opentelemetry import metrics
         from opentelemetry._logs import set_logger_provider
         from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
-        from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
+        from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
+            OTLPMetricExporter,
+        )
         from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
         from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
         from opentelemetry.sdk.metrics import MeterProvider
@@ -46,9 +50,12 @@ def setup() -> None:
     resource = Resource.create({"service.name": "sebastian-agent"})
 
     reader = PeriodicExportingMetricReader(
-        OTLPMetricExporter(endpoint=f"{endpoint}/v1/metrics"), export_interval_millis=5000
+        OTLPMetricExporter(endpoint=f"{endpoint}/v1/metrics"),
+        export_interval_millis=5000,
     )
-    metrics.set_meter_provider(MeterProvider(resource=resource, metric_readers=[reader]))
+    metrics.set_meter_provider(
+        MeterProvider(resource=resource, metric_readers=[reader])
+    )
     _METER = metrics.get_meter("sebastian.agent")
 
     provider = LoggerProvider(resource=resource)
