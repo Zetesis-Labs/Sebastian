@@ -14,7 +14,16 @@ pub fn espLogFn(
     args: anytype,
 ) void {
     var buf: [256]u8 = undefined;
-    const msg = std.fmt.bufPrintZ(&buf, format, args) catch return;
+    const msg = std.fmt.bufPrintZ(&buf, format, args) catch blk: {
+        // Too long for the buffer: keep the prefix + a marker instead of dropping
+        // the whole line silently (bufPrintZ's `catch return` used to lose it).
+        const marker = "...[truncated]";
+        const keep = buf.len - marker.len - 1;
+        _ = std.fmt.bufPrint(buf[0..keep], format, args) catch {};
+        @memcpy(buf[keep..][0..marker.len], marker);
+        buf[keep + marker.len] = 0;
+        break :blk buf[0 .. keep + marker.len :0];
+    };
     const esp_level: c_uint = switch (level) {
         .err => c.ESP_LOG_ERROR,
         .warn => c.ESP_LOG_WARN,
