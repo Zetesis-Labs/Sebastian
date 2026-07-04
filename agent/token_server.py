@@ -15,7 +15,8 @@ newline. The URL is a wss:// address and the token is a dot-separated JWT, so
 neither contains a newline.
 
 Run:
-    uv run token_server.py            # binds 0.0.0.0:8787
+    uv run token_server.py                              # binds 127.0.0.1:8787
+    SEBASTIAN_TOKEN_HOST=0.0.0.0 uv run token_server.py  # serve the device on the LAN
     SEBASTIAN_TOKEN_PORT=9000 uv run token_server.py
 
 Reads LIVEKIT_URL / LIVEKIT_API_KEY / LIVEKIT_API_SECRET from .env (same as the
@@ -37,6 +38,9 @@ IDENTITY = "esp32-respeaker"
 AGENT_NAME = "sebastian"
 TOKEN_TTL = timedelta(hours=1)  # refetched per session, so short is fine
 
+# Bind to loopback by default: this mints LiveKit tokens, so don't expose it to
+# the whole LAN unless asked. Set SEBASTIAN_TOKEN_HOST=0.0.0.0 to serve the device.
+HOST = os.getenv("SEBASTIAN_TOKEN_HOST", "127.0.0.1")
 PORT = int(os.getenv("SEBASTIAN_TOKEN_PORT", "8787"))
 LIVEKIT_URL = os.environ["LIVEKIT_URL"]
 API_KEY = os.environ["LIVEKIT_API_KEY"]
@@ -95,8 +99,8 @@ def main() -> None:
     app = web.Application()
     app.cleanup_ctx.append(_lk_client)
     app.add_routes([web.get("/token", handle_token), web.get("/health", handle_health)])
-    print(f"[token-server] {LIVEKIT_URL} room={ROOM} agent={AGENT_NAME} on :{PORT}", flush=True)
-    web.run_app(app, host="0.0.0.0", port=PORT)
+    print(f"[token-server] {LIVEKIT_URL} room={ROOM} agent={AGENT_NAME} on {HOST}:{PORT}", flush=True)
+    web.run_app(app, host=HOST, port=PORT)
 
 
 if __name__ == "__main__":

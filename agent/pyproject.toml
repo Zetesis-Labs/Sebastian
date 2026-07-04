@@ -7,10 +7,10 @@ requires-python = ">=3.13"
 dependencies = [
     "livekit-agents[google,mcp,openai]~=1.6",
     "livekit-plugins-noise-cancellation~=0.2",
-    "python-dotenv>=1.0",
-    "opentelemetry-sdk>=1.25",
-    "opentelemetry-exporter-otlp-proto-http>=1.25",
-    "aiohttp>=3.9",
+    "python-dotenv>=1.0,<2",
+    "opentelemetry-sdk>=1.25,<2",
+    "opentelemetry-exporter-otlp-proto-http>=1.25,<2",
+    "aiohttp>=3.9,<4",
 ]
 
 [dependency-groups]

@@ -121,14 +121,18 @@ OPENAI_VOICE = os.getenv("SEBASTIAN_OPENAI_VOICE", os.getenv("SEBASTIAN_VOICE", 
 
 # Home Assistant MCP server (control the house). URL is the HA "MCP Server"
 # integration SSE endpoint; auth is a Long-Lived Access Token (HA → profile →
-# Long-Lived Access Tokens). Both from env so no secret lives in the repo.
-HA_MCP_URL = os.getenv("SEBASTIAN_HA_MCP_URL", "https://rallo.nexolabs.dev/mcp_server/sse")
+# Long-Lived Access Tokens). Both from env so no secret (nor a private URL) lives
+# in the repo. No default URL: an unset URL disables HA control instead of
+# pointing every clone at someone else's Home Assistant.
+HA_MCP_URL = os.getenv("SEBASTIAN_HA_MCP_URL", "").strip()
 HA_TOKEN = os.getenv("SEBASTIAN_HA_TOKEN")
 
 
 def _ha_mcp_servers() -> list:
-    if not HA_TOKEN:
-        log.warning("[mcp] SEBASTIAN_HA_TOKEN not set — Home Assistant control disabled")
+    if not HA_TOKEN or not HA_MCP_URL:
+        log.warning(
+            "[mcp] SEBASTIAN_HA_TOKEN/SEBASTIAN_HA_MCP_URL not set — Home Assistant control disabled"
+        )
         return []
     log.info("[mcp] Home Assistant MCP enabled: %s", HA_MCP_URL)
     return [

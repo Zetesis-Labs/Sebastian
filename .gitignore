@@ -23,7 +23,6 @@ firmware/zig-relsafe-*/
 
 # --- Python ---
 agent/.venv/
-agent/uv.lock
 __pycache__/
 *.pyc
 
