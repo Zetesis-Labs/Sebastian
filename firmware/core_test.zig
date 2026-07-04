@@ -5,6 +5,7 @@ const decimator = @import("main/core/decimator.zig");
 const gate = @import("main/core/mic_gate.zig");
 const pcm = @import("main/xvf_pcm.zig");
 const pre_roll = @import("main/core/pre_roll_core.zig");
+const session = @import("main/core/session_core.zig");
 const token = @import("main/core/token_core.zig");
 
 fn rawSample(sample: i32) i32 {
@@ -1035,4 +1036,67 @@ test "aec float pair reader decodes little-endian command payloads" {
 
     try std.testing.expect(aec.floatsClose(pair.first, 1.5, 0.0));
     try std.testing.expect(aec.floatsClose(pair.second, -0.25, 0.0));
+}
+
+test "session silence closes only after the min-active window with no activity" {
+    var t = session.Timing{};
+    t.tick = session.MIN_ACTIVE_TICKS - 1;
+    try std.testing.expect(!t.silenceExpired());
+    t.tick = session.MIN_ACTIVE_TICKS;
+    try std.testing.expect(t.silenceExpired());
+}
+
+test "session voice activity resets the silence timer" {
+    var t = session.Timing{};
+    t.tick = session.MIN_ACTIVE_TICKS + 100;
+    t.markVoiceActivity(); // spoke just now
+    try std.testing.expect(!t.silenceExpired());
+    t.tick += session.SILENCE_TICKS - 1;
+    try std.testing.expect(!t.silenceExpired());
+    t.tick += 1; // exactly SILENCE_TICKS of quiet
+    try std.testing.expect(t.silenceExpired());
+}
+
+test "session agent-audio hangover holds then releases" {
+    var t = session.Timing{};
+    t.tick = 500;
+    t.noteAgentAudio();
+    try std.testing.expect(t.agentAudioActive());
+    t.tick += session.AGENT_AUDIO_HANGOVER_TICKS - 1;
+    try std.testing.expect(t.agentAudioActive());
+    t.tick += 1; // hangover elapsed
+    try std.testing.expect(!t.agentAudioActive());
+}
+
+test "session keepalive: the agent talking keeps the session alive (field bug)" {
+    var t = session.Timing{};
+
+    // Agent talks continuously, well past MIN_ACTIVE + SILENCE. With the AEC
+    // cancelling the echo the mic reads silence, so ONLY the keepalive keeps the
+    // session open. It must never close mid-reply.
+    const talk_until: u32 = session.MIN_ACTIVE_TICKS + session.SILENCE_TICKS + 500;
+    while (t.tick < talk_until) : (t.tick += 1) {
+        t.noteAgentAudio();
+        if (t.agentAudioActive()) t.markVoiceActivity(); // the keepalive
+        try std.testing.expect(!t.silenceExpired());
+    }
+
+    // Agent stops. The keepalive holds through the hangover, then the silence
+    // timer runs and the session finally closes — after, not before, real end.
+    var closed_at: ?u32 = null;
+    const stop_scan = talk_until + session.AGENT_AUDIO_HANGOVER_TICKS + session.SILENCE_TICKS + 50;
+    while (t.tick < stop_scan) : (t.tick += 1) {
+        if (t.agentAudioActive()) t.markVoiceActivity(); // hangover keepalive, no new audio
+        if (t.silenceExpired() and closed_at == null) closed_at = t.tick;
+    }
+    try std.testing.expect(closed_at != null);
+    try std.testing.expect(closed_at.? >= talk_until + session.SILENCE_TICKS);
+}
+
+test "session max duration is a hard cap" {
+    var t = session.Timing{};
+    t.tick = session.MAX_TICKS - 1;
+    try std.testing.expect(!t.maxDurationReached());
+    t.tick = session.MAX_TICKS;
+    try std.testing.expect(t.maxDurationReached());
 }

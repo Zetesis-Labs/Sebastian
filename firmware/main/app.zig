@@ -22,21 +22,19 @@ const xvf_ui = @import("xvf_ui.zig");
 const wakeword = @import("wakeword.zig");
 const xvf_aec = @import("xvf_aec.zig");
 const pre_roll = @import("pre_roll.zig");
+const session_core = @import("core/session_core.zig");
 const token = @import("token.zig");
 const c = @import("csdk.zig");
 
 const log = std.log.scoped(.sebastian);
 
-const SESSION_TICK_MS: u32 = 10;
-const SESSION_MIN_ACTIVE_TICKS: u32 = 20 * 1000 / SESSION_TICK_MS;
-const SESSION_SILENCE_TICKS: u32 = 12 * 1000 / SESSION_TICK_MS;
-// Safety net, not a guillotine: with the agent's speech counted as activity
-// (data channel and speaker render peak), silence-close fires at real
-// conversation end — sessions no longer need the hard cap to terminate.
-const SESSION_MAX_TICKS: u32 = 600 * 1000 / SESSION_TICK_MS;
+// Session timing constants + the pure keepalive/silence logic live in
+// core/session_core.zig (host-testable). These aliases keep the loop/watchdog
+// call sites here readable.
+const SESSION_TICK_MS: u32 = session_core.TICK_MS;
+const SESSION_MAX_TICKS: u32 = session_core.MAX_TICKS;
 const SESSION_VOICE_LEVEL: u32 = 3000;
 const AGENT_AUDIO_LEVEL: u32 = 1000; // render peak (>>8) over the auto_clear zero floor = agent speaking
-const AGENT_AUDIO_HANGOVER_TICKS: u32 = 2500 / SESSION_TICK_MS; // covers inter-sentence gaps + echo tail
 const AEC_LOG_PERIOD_TICKS: u32 = 500;
 const AEC_LOG_OFFSET_TICKS: u32 = 250;
 const PREROLL_RETRY_TICKS: u32 = 50; // 500ms between pre-roll send retries
@@ -87,10 +85,7 @@ const BootHealth = struct {
 };
 
 const SessionLoopState = struct {
-    tick: u32 = 0,
-    last_voice_tick: u32 = 0,
-    last_agent_audio_tick: u32 = 0,
-    agent_audio_seen: bool = false,
+    timing: session_core.Timing = .{},
     render_peak_window: u32 = 0,
     echo_window: u32 = 0,
     last_level: u32 = 0,
@@ -107,36 +102,25 @@ const SessionLoopState = struct {
 
     fn observeMicLevel(self: *SessionLoopState) void {
         self.last_level = mic_src.level();
-        if (self.last_level >= SESSION_VOICE_LEVEL) self.markVoiceActivity();
+        if (self.last_level >= SESSION_VOICE_LEVEL) self.timing.markVoiceActivity();
     }
 
     fn observeAgentDataChannel(self: *SessionLoopState) void {
-        if (agent_speaking.load(.acquire)) self.markVoiceActivity();
+        if (agent_speaking.load(.acquire)) self.timing.markVoiceActivity();
     }
 
     fn observeRenderPeak(self: *SessionLoopState) void {
         const rpeak = render_peak.swap(0, .monotonic);
         self.render_peak_window = @max(self.render_peak_window, rpeak);
-        if (rpeak >= AGENT_AUDIO_LEVEL) {
-            self.last_agent_audio_tick = self.tick;
-            self.agent_audio_seen = true;
-        }
-        if (!self.agentAudioActive()) return;
+        if (rpeak >= AGENT_AUDIO_LEVEL) self.timing.noteAgentAudio();
+        if (!self.timing.agentAudioActive()) return;
 
-        self.markVoiceActivity();
+        self.timing.markVoiceActivity();
         self.echo_window = @max(self.echo_window, self.last_level);
     }
 
-    fn markVoiceActivity(self: *SessionLoopState) void {
-        self.last_voice_tick = self.tick;
-    }
-
-    fn agentAudioActive(self: SessionLoopState) bool {
-        return self.agent_audio_seen and self.tick - self.last_agent_audio_tick < AGENT_AUDIO_HANGOVER_TICKS;
-    }
-
     fn shouldLogAec(self: SessionLoopState) bool {
-        return self.tick % AEC_LOG_PERIOD_TICKS == AEC_LOG_OFFSET_TICKS;
+        return self.timing.tick % AEC_LOG_PERIOD_TICKS == AEC_LOG_OFFSET_TICKS;
     }
 
     fn logAecDiagnostics(self: *SessionLoopState) void {
@@ -145,19 +129,18 @@ const SessionLoopState = struct {
             mic_src.takeGatedPeak(),
             self.echo_window,
             self.render_peak_window,
-            self.agentAudioActive(),
+            self.timing.agentAudioActive(),
         });
         self.render_peak_window = 0;
         self.echo_window = 0;
     }
 
     fn silenceExpired(self: SessionLoopState) bool {
-        return self.tick >= SESSION_MIN_ACTIVE_TICKS and
-            self.tick - self.last_voice_tick >= SESSION_SILENCE_TICKS;
+        return self.timing.silenceExpired();
     }
 
     fn maxDurationReached(self: SessionLoopState) bool {
-        return self.tick >= SESSION_MAX_TICKS;
+        return self.timing.maxDurationReached();
     }
 };
 
@@ -469,7 +452,7 @@ fn publishBargeRequest(session: *SessionLoopState) void {
     if (!mic_src.takeBargeRequest()) return;
 
     agent_speaking.store(false, .release);
-    session.markVoiceActivity(); // the user is about to talk
+    session.timing.markVoiceActivity(); // the user is about to talk
     publishBargeIn();
 }
 
@@ -500,7 +483,7 @@ fn completeWakeHandoff(session: *SessionLoopState, state: c_int, wake_id: u32) v
 
 fn retryPrerollIfNeeded(session: *SessionLoopState, wake_id: u32) void {
     if (!session.preroll_pending) return;
-    if (session.tick % PREROLL_RETRY_TICKS != 0) return;
+    if (session.timing.tick % PREROLL_RETRY_TICKS != 0) return;
 
     session.preroll_attempts += 1;
     if (pre_roll.send(room, wake_id)) {
@@ -516,7 +499,7 @@ fn retryPrerollIfNeeded(session: *SessionLoopState, wake_id: u32) void {
 
 fn runActiveSession(wake_id: u32) void {
     var session = SessionLoopState{};
-    while (true) : (session.tick += 1) {
+    while (true) : (session.timing.tick += 1) {
         c.vTaskDelay(SESSION_TICK_MS);
         session.observeActivity();
         publishBargeRequest(&session);
@@ -535,7 +518,7 @@ fn runActiveSession(wake_id: u32) void {
             log.info("session silence timeout: level={d} threshold={d} quiet_ms={d}", .{
                 session.last_level,
                 SESSION_VOICE_LEVEL,
-                (session.tick - session.last_voice_tick) * SESSION_TICK_MS,
+                (session.timing.tick - session.timing.last_voice_tick) * SESSION_TICK_MS,
             });
             break;
         }
