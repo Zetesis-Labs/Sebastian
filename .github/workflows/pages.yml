@@ -1,10 +1,16 @@
 name: Deploy GitHub Pages
 
+# Builds the factory firmware in CI (never a locally-produced binary) and
+# publishes it with the web installer. sdkconfig is gitignored, so the build
+# comes from sdkconfig.defaults — WiFi/token blank, so the merged image carries
+# no credentials.
+
 on:
   push:
     branches: [main]
     paths:
-      - "docs/**"
+      - "firmware/**"
+      - "docs/installer/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -18,16 +24,47 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build factory firmware + merge image
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.4
+          target: esp32s3
+          path: firmware
+          command: >-
+            idf.py build &&
+            python -m esptool --chip esp32s3 merge_bin
+            -o ../docs/installer/firmware/sebastian-esp32s3-merged.bin
+            --flash_mode dio --flash_freq 80m --flash_size 8MB
+            0x0 build/bootloader/bootloader.bin
+            0x8000 build/partition_table/partition-table.bin
+            0x10000 build/sebastian.bin
+
+      - name: Verify the image carries no credentials
+        run: |
+          bin=docs/installer/firmware/sebastian-esp32s3-merged.bin
+          test -f "$bin" || { echo "merged bin missing"; exit 1; }
+          echo "merged bin: $(du -h "$bin" | cut -f1)"
+          for s in Pizarro LIVEKIT_API_SECRET; do
+            if strings "$bin" | grep -qF "$s"; then echo "SECRET '$s' in bin"; exit 1; fi
+          done
+          echo "clean"
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/installer
+
   deploy:
+    needs: build
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: docs/installer
       - id: deployment
         uses: actions/deploy-pages@v4
