@@ -246,3 +246,62 @@ tramo del modelo. El agente Python se despliega como Deployment en cortes.
   versión y revisar changelogs antes de cada bump.
 - Los datos de mercado (versiones, precios, features de Alexa+/Gemini) son un
   snapshot de 2026-07; re-verificar antes de decisiones de coste.
+
+## 6. La brecha hasta "nivel Echo" — gestión de audio/micro (2026-07-04)
+
+Ciñéndonos al pipeline de audio y micrófono (no skills/servicios), esto es lo que
+separa hoy a Sebastian de un Alexa/Echo. Lo que **ya funciona** (wake gateado,
+pre-roll event-driven, half-duplex sin eco, full-duplex sobre beam fijo, config
+del AEC) es la base sólida; la brecha es sobre todo **#1, #3, #4 y #7**.
+
+1. **AEC convergente CON tracking (el gordo de verdad).** Un Echo te oye mientras
+   suena música, desde cualquier punto de la sala, con el beam siguiéndote **y**
+   cancelando el eco a la vez. Hoy Sebastian tiene que elegir: **beam fijo** (el AEC
+   converge pero pierdes seguimiento) o **beam adaptativo** (te sigue pero
+   medio-dúplex). Reconciliar tracking adaptativo + AEC estable es el pendiente
+   nº1 — el camino B (canal comms del XVF) o congelar el beam solo durante la
+   adaptación.
+
+2. **Barge-in sobre playback fuerte.** Alexa te oye decir su nombre con música a
+   todo volumen. El barge-in de Sebastian se ha probado sobre su propia voz TTS, no
+   sobre música alta. Exige que el AEC aguante una referencia far-end a alto SNR y
+   que el wake detecte sobre el residual.
+
+3. **Endpointing / VAD decente.** Alexa sabe cuándo has terminado de hablar (fin de
+   turno). Sebastian usa un `silence_timeout` por nivel de 12s — tosco, y de hecho
+   es lo que cortaba sesiones. Falta un VAD/endpointing de verdad (energía + tiempo
+   + contexto), no un umbral fijo.
+
+4. **Wake word fiable.** Recall/precisión afinados, pocos falsos positivos, robusto
+   en ruido y a distancia. El umbral se subió `0.62 → 0.80` con datos de campo, pero
+   falta **medir falsos sistemáticamente** y validar a distancia/ruido. Puro tuning
+   de modelo + datos.
+
+5. **AGC / normalización de distancia.** Oír igual de claro cerca que lejos.
+   Sebastian tiene `mic_gain` fijo y un SHIFT estático; Alexa normaliza el nivel
+   automáticamente según distancia/volumen.
+
+6. **Supresión de ruido y dereverb en far-field.** El XVF ya tiene NS + de-reverb
+   (el canal comms), pero Sebastian tapa por el canal ASR crudo. Para salas
+   ruidosas/reverberantes hay que explotar ese post-procesado sin cargarse el ASR.
+
+7. **Robustez de sesión/transporte.** Un Echo no se cae. Sebastian tiene la tormenta
+   SCTP (esp-webrtc-solution#186), cortes por `silence_timeout`, y la fragilidad del
+   **USB nativo del S3** (tanto el flash como el Web Serial re-enumeran/resetean la
+   placa). Reproducir la fiabilidad "nunca falla" es un eje entero.
+
+8. **Diseño acústico (medio hardware).** El eco no estacionario diagnosticado es en
+   parte físico: mic-array y altavoz en la misma caja. Los Echo tienen
+   aislamiento/geometría cuidada; sin eso, el AEC siempre lo tiene más difícil.
+
+En una frase: los tres primeros (#1 full-duplex con tracking, #3 endpointing, #4
+wake robusto) son el corazón de "cómo gestiona el audio/micro un altavoz
+inteligente"; #7 es lo que lo hace usable a diario.
+
+### Limitación de tooling: publicación del instalador web
+
+El instalador web (React) se sirve por GitHub Pages, pero el `deploy-pages` del
+Action falla ("Deployment failed, try again later") — pendiente de mover a otro
+mecanismo de publicación (no Actions directo). El **build del firmware factory en
+CI sí funciona** (esp-idf-ci-action, ~7 min); lo que queda es solo el paso de
+deploy.
