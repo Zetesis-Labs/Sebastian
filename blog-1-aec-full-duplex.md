@@ -1,199 +1,199 @@
-# Por qué el cancelador de eco no convergía — y cómo un beam fijo desbloqueó el full-duplex
+# Why the echo canceller never converged — and how a fixed beam unlocked full-duplex
 
-> Serie técnica de **Zetesis** sobre **Sebastian**, nuestro altavoz conversacional
-> sobre ReSpeaker XVF3800 + XIAO ESP32-S3. Este post es una *war story* de
-> depuración de audio far-field a bajo nivel.
+> **Zetesis** technical series on **Sebastian**, our conversational speaker
+> running on ReSpeaker XVF3800 + XIAO ESP32-S3. This post is a *war story* of
+> low-level far-field audio debugging.
 
-## El problema: un altavoz que se escucha a sí mismo
+## The problem: a speaker that hears itself
 
-Un altavoz de voz tiene un conflicto físico de base: el micrófono y el altavoz
-viven en la misma caja, a centímetros. Cuando el agente habla, su propia voz
-vuelve al micro con una amplitud enorme comparada con la del usuario. Sin
-cancelación, esa voz regresa al ASR como **turnos fantasma** nítidos: el agente
-se responde a sí mismo y la sala se realimenta.
+A voice speaker has a fundamental physical conflict: the microphone and the speaker
+live in the same box, centimeters apart. When the agent speaks, its own voice
+returns to the mic with enormous amplitude compared to the user's. Without
+cancellation, that voice returns to the ASR as crisp **phantom turns**: the agent
+answers itself and the room feeds back.
 
-La solución de libro es el **AEC** (Acoustic Echo Canceller): un filtro adaptativo
-que estima el camino acústico altavoz→micro y resta el eco. El XVF3800 (XMOS
-VocalFusion) trae uno en silicio. El problema: **no convergía nunca**.
+The textbook solution is the **AEC** (Acoustic Echo Canceller): an adaptive filter
+that estimates the acoustic path speaker→mic and subtracts the echo. The XVF3800 (XMOS
+VocalFusion) brings one in silicon. The problem: **it never converged**.
 
 ```mermaid
 flowchart LR
-    A[Agente TTS] -->|I2S TX| S[Altavoz]
-    S -->|camino acústico| M[Mic-array]
-    U[Usuario] -->|voz| M
+    A[Agent TTS] -->|I2S TX| S[Speaker]
+    S -->|acoustic path| M[Mic-array]
+    U[User] -->|voice| M
     M --> B[Beamformer + DoA]
-    B --> AEC[AEC filtro adaptativo]
-    R[far-end reference<br/>lo que suena] --> AEC
-    AEC --> ASR[Beam ASR<br/>a LiveKit]
+    B --> AEC[AEC adaptive filter]
+    R[far-end reference<br/>what plays] --> AEC
+    AEC --> ASR[Beam ASR<br/>to LiveKit]
     style AEC fill:#ff9000,color:#201306
 ```
 
-El síntoma medido: `AECCONVERGED` (registro `33/3` del XVF) se quedaba en **0 de
-por vida** (el flag está *latched*; una vez a 1 no baja hasta un power-cycle
-completo — `esp_restart` no reinicia el XVF).
+The measured symptom: `AECCONVERGED` (XVF register `33/3`) stayed at **0 for
+life** (the flag is *latched*; once at 1 it does not go down until a complete
+power-cycle — `esp_restart` does not restart the XVF).
 
-## El protocolo de control: hablar con el DSP por I2C
+## The control protocol: talking to the DSP over I2C
 
-Todo el diagnóstico se hizo por el `device_control` del XVF sobre I2C desde el
-firmware en Zig:
+All diagnostics were done through the XVF's `device_control` over I2C from the
+Zig firmware:
 
 ```
 write  [resid, cmd | 0x80, n+1]     # 0x80 = READ bit
-read   n+1 bytes                    # byte 0 = status (0 OK, 0x40 retry), resto = payload LE
+read   n+1 bytes                    # byte 0 = status (0 OK, 0x40 retry), rest = payload LE
 ```
 
-Con eso se leen/escriben todos los parámetros del AEC. Empezamos eliminando
-sospechosos de configuración, uno a uno.
+With that, all AEC parameters are read/written. We started by eliminating
+configuration suspects, one by one.
 
-## La eliminación sistemática
+## The systematic elimination
 
 ```mermaid
 flowchart TD
-    START[converged = 0 siempre] --> G1{REF_GAIN}
-    G1 -->|8.0 default Seeed<br/>clippea la referencia| FIX1[Corregido a 1.0<br/>necesario, no suficiente]
+    START[converged = 0 always] --> G1{REF_GAIN}
+    G1 -->|8.0 Seeed default<br/>clips the reference| FIX1[Fixed to 1.0<br/>necessary, not sufficient]
     FIX1 --> G2{MIC_GAIN}
-    G2 -->|90 vs 10 default| FIX2[probado, no era]
+    G2 -->|90 vs 10 default| FIX2[tested, was not it]
     FIX2 --> G3{FAR_EXTGAIN}
-    G3 -->|es dB, 0.0 = unidad| FIX3[el 1.0 era placebo]
+    G3 -->|is dB, 0.0 = unity| FIX3[the 1.0 was a placebo]
     FIX3 --> G4{AECSILENCELEVEL}
-    G4 -->|leído = 1e-9 default| FIX4[Seeed no lo tocó]
-    FIX4 --> G5{Excitación}
-    G5 -->|tono puro 0.85 FS<br/>1 banda + THD altavoz| FIX5[Rehecho: ruido blanco −15 dBFS]
+    G4 -->|read = 1e-9 default| FIX4[Seeed didn't touch it]
+    FIX4 --> G5{Excitation}
+    G5 -->|pure tone 0.85 FS<br/>1 band + speaker THD| FIX5[Redone: white noise −15 dBFS]
     FIX5 --> G6{Routing}
-    G6 -->|refutado por docs XMOS| FIX6[la referencia SÍ llega]
-    FIX6 --> STILL[Sigue converged = 0]
+    G6 -->|refuted by XMOS docs| FIX6[the reference DOES arrive]
+    FIX6 --> STILL[Still converged = 0]
     style STILL fill:#bf4b00,color:#fff
 ```
 
-Los hallazgos concretos, con registros:
+The concrete findings, with registers:
 
-- **`REF_GAIN` (`35/1`)**: lineal, default XMOS `1.5`, pero el build de Seeed lo
-  envía a `8.0`. A full-scale, ×8 **clippea digitalmente la referencia interna**
-  del AEC → el filtro lineal no puede correlar. Bug real, corregido a `1.0`.
-  **Necesario pero no suficiente.**
-- **`MIC_GAIN` (`35/0`)**: `90` vs `10` default (regla XMOS: el mic ≥6 dB por
-  debajo de la referencia). Probado, no era la causa.
-- **`FAR_EXTGAIN` (`33/5`)**: es **dB**, no lineal → `0.0` = unidad es lo
-  correcto; el `1.0` que arrastrábamos era un placebo de un diagnóstico erróneo.
-- **`AECSILENCELEVEL` (`33/2`)**: leído = `1e-9`, el default. Seeed no lo subió.
-- **La excitación**: la primera sonda usaba un **tono puro a 0.85 FS** — una sola
-  banda + la distorsión no lineal del altavoz (THD que el AEC lineal no modela) →
-  `converged=0` falso. Rehecha con **ruido blanco (xorshift) a −15 dBFS**, que es
-  el estímulo de convergencia real de XMOS (banda ancha, región lineal).
-- **El "routing problem"**: un diagnóstico intermedio afirmó que la referencia
-  far-end nunca llegaba al AEC. **Falso**, refutado con los docs primarios de
-  XMOS: `AEC_CURRENT_IDLE_TIME` (`33/77`) es un **contador de profiling de CPU**
-  (ticks de 10 ns), no actividad far-end; el mux `far_end_w_gain` que la sonda
-  leía **ES** la entrada del AEC.
+- **`REF_GAIN` (`35/1`)**: linear, XMOS default `1.5`, but the Seeed build
+  sends it to `8.0`. At full-scale, ×8 **digitally clips the internal reference**
+  of the AEC → the linear filter cannot correlate. Real bug, fixed to `1.0`.
+  **Necessary but not sufficient.**
+- **`MIC_GAIN` (`35/0`)**: `90` vs `10` default (XMOS rule: the mic ≥6 dB
+  below the reference). Tested, was not the cause.
+- **`FAR_EXTGAIN` (`33/5`)**: is **dB**, not linear → `0.0` = unity is
+  correct; the `1.0` we carried over was a placebo from a wrong diagnosis.
+- **`AECSILENCELEVEL` (`33/2`)**: read = `1e-9`, the default. Seeed didn't raise it.
+- **The excitation**: the first probe used a **pure tone at 0.85 FS** — a single
+  band + the non-linear distortion of the speaker (THD that the linear AEC does not model) →
+  false `converged=0`. Redone with **white noise (xorshift) at −15 dBFS**, which is
+  the real convergence stimulus of XMOS (wideband, linear region).
+- **The "routing problem"**: an intermediate diagnosis claimed that the far-end
+  reference never reached the AEC. **False**, refuted with the primary XMOS
+  docs: `AEC_CURRENT_IDLE_TIME` (`33/77`) is a **CPU profiling counter**
+  (10 ns ticks), not far-end activity; the mux `far_end_w_gain` that the probe
+  was reading **IS** the AEC input.
 
-Con `REF_GAIN=1.0` + ruido blanco + todo lo demás en su sitio: **seguía sin
-converger**. Se acabaron los knobs.
+With `REF_GAIN=1.0` + white noise + everything else in place: **it still wouldn't
+converge**. We ran out of knobs.
 
-## El instrumento definitivo: leer los coeficientes del filtro
+## The ultimate instrument: reading the filter coefficients
 
-Cuando no quedan parámetros que tocar, hay que mirar *dentro* del filtro. El XVF
-expone los coeficientes del AEC por unos comandos ocultos:
+When there are no parameters left to touch, you have to look *inside* the filter. The XVF
+exposes the AEC coefficients via some hidden commands:
 
 ```
-FAR_MIC_INDEX (33/90)   # trigger: par (far, mic)
-FILTER_LENGTH (33/93)   # nº de taps
-loop: COEFF_START_OFFSET (33/91) + COEFFS (33/92, 15 floats/lectura)
-FILTER_ABORT  (33/94)   # liberar el snapshot del DSP
+FAR_MIC_INDEX (33/90)   # trigger: pair (far, mic)
+FILTER_LENGTH (33/93)   # number of taps
+loop: COEFF_START_OFFSET (33/91) + COEFFS (33/92, 15 floats/read)
+FILTER_ABORT  (33/94)   # free the DSP snapshot
 ```
 
-Leyendo los taps tras 90 s de ruido:
+Reading the taps after 90 s of noise:
 
-- El filtro **NO estaba plano** → el AEC **sí adapta**.
-- El pico estaba en el **índice ~38–64, no en 0** → adapta **causalmente**
-  (descarta routing *y* delay).
-- **Pero** el pico nunca pasaba de **~0.003** (el eco es ~2.5% de la referencia →
-  el pico convergido debería rondar `0.025`, 8× más) y su índice **jitteaba**
-  (38↔62↔64). `ref_gaps=0` → ni huecos ni convergencia lenta.
+- The filter **was NOT flat** → the AEC **does adapt**.
+- The peak was at **index ~38–64, not at 0** → it adapts **causally**
+  (rules out routing *and* delay).
+- **But** the peak never went past **~0.003** (the echo is ~2.5% of the reference →
+  the converged peak should be around `0.025`, 8× more) and its index **jittered**
+  (38↔62↔64). `ref_gaps=0` → neither gaps nor slow convergence.
 
-Traducción: **el AEC adapta, pero no consigue fijar un modelo estable del eco.**
-El objetivo se movía debajo de sus pies.
+Translation: **the AEC adapts, but fails to lock onto a stable model of the echo.**
+The target was moving under its feet.
 
-## La hipótesis — y el breakthrough
+## The hypothesis — and the breakthrough
 
-El sospechoso: el **beamformer adaptativo**. El XVF rastrea la fuente (DoA); al
-re-orientarse, cambia continuamente la función de transferencia mic→eco. El AEC
-tiene un **target no estacionario** que nunca puede fijar.
+The suspect: the **adaptive beamformer**. The XVF tracks the source (DoA); by
+re-orienting itself, it continuously changes the mic→echo transfer function. The AEC
+has a **non-stationary target** that it can never lock onto.
 
-La prueba: **congelar el beam** antes del ruido.
+The test: **freeze the beam** before the noise.
 
 ```
 AEC_FIXEDBEAMSONOFF   (33/37) = 1
-AEC_FIXEDBEAMSAZIMUTH (33/81) = 0 rad (al frente)
+AEC_FIXEDBEAMSAZIMUTH (33/81) = 0 rad (to the front)
 AEC_FIXEDBEAMSELEVATION (33/82) = 0
 ```
 
-Resultado, **reproducible en dos runs idénticos**:
+Result, **reproducible in two identical runs**:
 
-| Métrica | Beam adaptativo | Beam **FIJO** |
+| Metric | Adaptive beam | **FIXED** beam |
 |---|---|---|
-| `AECCONVERGED` | 0 (jamás) | **1** |
-| `converged_at` | −1 (nunca en 90 s) | **1 segundo** |
-| pico del filtro | ~0.003, jitteando | **0.024–0.032, estable** |
-| `path_change` | — | **0** (path estacionario) |
-| taps no-cero | escuálido | **345–399** |
+| `AECCONVERGED` | 0 (never) | **1** |
+| `converged_at` | −1 (never in 90 s) | **1 second** |
+| filter peak | ~0.003, jittering | **0.024–0.032, stable** |
+| `path_change` | — | **0** (stationary path) |
+| non-zero taps | sparse | **345–399** |
 
 ```mermaid
 flowchart LR
-    subgraph adaptativo["Beam ADAPTATIVO"]
-        A1[DoA rastrea al hablante] --> A2[path mic→eco cambia]
-        A2 --> A3[AEC: target no estacionario]
-        A3 --> A4[nunca fija · converged=0]
+    subgraph adaptativo["ADAPTIVE beam"]
+        A1[DoA tracks the speaker] --> A2[mic→echo path changes]
+        A2 --> A3[AEC: non-stationary target]
+        A3 --> A4[never locks · converged=0]
     end
-    subgraph fijo["Beam FIJO"]
-        F1[beam clavado al frente] --> F2[path estacionario]
-        F2 --> F3[AEC fija en ~1s]
-        F3 --> F4[converged=1 · filtro 0.025]
+    subgraph fijo["FIXED beam"]
+        F1[beam nailed to the front] --> F2[stationary path]
+        F2 --> F3[AEC locks in ~1s]
+        F3 --> F4[converged=1 · filter 0.025]
     end
     style A4 fill:#bf4b00,color:#fff
     style F4 fill:#5fd39b,color:#0e0f13
 ```
 
-**El beamformer adaptativo era la causa raíz.** No era un límite de hardware ni un
-knob mal puesto: era una configuración de la que nadie había tirado.
+**The adaptive beamformer was the root cause.** It wasn't a hardware limit or a
+misplaced knob: it was a configuration no one had pulled.
 
-## El trade-off honesto
+## The honest trade-off
 
-Full-duplex desbloqueado, pero con letra pequeña:
+Full-duplex unlocked, but with fine print:
 
 ```mermaid
 flowchart TB
-    subgraph A["Beam fijo → full-duplex"]
+    subgraph A["Fixed beam → full-duplex"]
         direction TB
-        a1[✓ AEC converge] --> a2[✓ le hablas por encima, natural]
-        a2 --> a3[✗ pierdes el seguimiento por la sala]
+        a1[✓ AEC converges] --> a2[✓ you talk over it, natural]
+        a2 --> a3[✗ you lose tracking around the room]
     end
-    subgraph B["Beam adaptativo → half-duplex"]
+    subgraph B["Adaptive beam → half-duplex"]
         direction TB
-        b1[✓ te sigue por la sala] --> b2[✗ micro gateado mientras habla]
-        b2 --> b3[✗ interrumpes diciendo su nombre]
+        b1[✓ follows you around the room] --> b2[✗ mic gated while speaking]
+        b2 --> b3[✗ you interrupt by saying its name]
     end
 ```
 
-Para un altavoz de sobremesa, un beam fijo a la zona de uso suele bastar. Y el
-`config.full_duplex` **falla cerrado**: si el AEC no queda garantizado (el beam
-no se fija de verdad, verificado por readback), el firmware cae a half-duplex en
-vez de abrir el micro sobre un eco sin cancelar.
+For a desktop speaker, a fixed beam to the use area is usually enough. And the
+`config.full_duplex` **fails closed**: if the AEC is not guaranteed (the beam
+is not truly fixed, verified by readback), the firmware falls back to half-duplex instead
+of opening the mic over an uncancelled echo.
 
-## Lo que queda
+## What remains
 
-El full-duplex **con tracking** simultáneo — que te siga por la sala *y* cancele
-el eco a la vez — sigue pendiente. Los dos caminos abiertos:
+Simultaneous full-duplex **with tracking** — following you around the room *and* cancelling
+the echo at the same time — remains pending. The two open paths:
 
-1. **Canal comms del XVF** (LEFT): tiene supresor residual **no lineal** que no
-   necesita el AEC lineal convergido; podría dar full-duplex con beam adaptativo.
-2. **Congelar el beam solo durante la adaptación** y reabrirlo después.
+1. **XVF comms channel** (LEFT): it has a **non-linear** residual suppressor that does not
+   need the converged linear AEC; it could provide full-duplex with an adaptive beam.
+2. **Freeze the beam only during adaptation** and reopen it afterwards.
 
-Y una parte es **física**: mic-array y altavoz en la misma caja. El eco no
-estacionario es en parte diseño acústico — donde los Echo comerciales invierten
-en aislamiento y geometría.
+And a part is **physical**: mic-array and speaker in the same box. The non-stationary
+echo is partly acoustic design — where commercial Echos invest
+in isolation and geometry.
 
 ---
 
-*Todo el diagnóstico se hizo en remoto, con auto-tests de ruido en el propio
-device leídos por telemetría — pero esa es otra historia
+*All diagnostics were done remotely, with noise self-tests on the device itself
+read by telemetry — but that is another story
 ([post 3](./blog-3-desarrollo-con-ia-y-telemetria.md)).*

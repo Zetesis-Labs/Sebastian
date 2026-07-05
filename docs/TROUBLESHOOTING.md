@@ -1,130 +1,130 @@
-# Sebastian — Playbook de depuración
+# Sebastian — Debugging Playbook
 
-Referencia **síntoma → causa raíz → solución** destilada de una sesión de depuración larga y real del altavoz de voz Sebastian (ReSpeaker XVF3800 + XIAO ESP32-S3, firmware en Zig, agente LiveKit + OpenAI Realtime).
+A distilled **symptom → root cause → solution** reference from a real, long debugging session of the Sebastian voice speaker (ReSpeaker XVF3800 + XIAO ESP32-S3, Zig firmware, LiveKit + OpenAI Realtime agent).
 
-## Regla de oro
+## Golden Rule
 
-Cuando algo falle, **prioriza el datasheet y la medición directa sobre las conjeturas**. Graba el audio real, mira el RMS y el espectro, y sobre todo **ESCÚCHALO**. Los números (niveles RMS, picos) describen *nivel*, no *inteligibilidad*: un audio puede tener buen RMS y sonar a lata. Y no reimplementes en software lo que el XVF3800 ya hace en hardware (AEC, beamforming, supresión de ruido): duplicar esas etapas casi siempre empeora el resultado en vez de mejorarlo. La mayoría de los callejones sin salida de esta sesión vinieron de adivinar en lugar de medir, y de "ayudar" al XVF por software.
-
----
-
-## 1. El micro entrega todo ceros (el agente nunca transcribe)
-
-**Síntoma:** en el DIN del I2S se lee `0x00000000` de forma constante; el agente no transcribe nada de lo que dice el usuario.
-
-**Causa raíz:** dos problemas a la vez. El XVF3800 tenía el firmware equivocado (el "non-master" / `i2s_dfu` 1.0.4, que **no** hace streaming del audio del micro). Además, el XVF **arranca muteado**.
-
-**Solución:** hacer DFU del XVF al firmware I2S-master "inthost" (1.0.7) por I2C desde el firmware del ESP (`xvf_dfu.zig`), y quitar el mute vía I2C en la GPIO30. Verificar en el log de arranque que aparece la versión 1.0.7 del XVF y `XVF mute readback: UNMUTED`.
+When something fails, **prioritize the datasheet and direct measurement over guesswork**. Record the actual audio, look at the RMS and the spectrum, and above all **LISTEN TO IT**. Numbers (RMS levels, peaks) describe *level*, not *intelligibility*: audio can have good RMS and sound tinny. And don't reimplement in software what the XVF3800 already does in hardware (AEC, beamforming, noise suppression): duplicating those stages almost always worsens the result instead of improving it. Most of the dead ends in this session came from guessing instead of measuring, and from "helping" the XVF via software.
 
 ---
 
-## 2. En modo I2S esclavo el ESP lee 0 bytes / la lectura retorna al instante sin datos
+## 1. The mic delivers all zeros (the agent never transcribes)
 
-**Síntoma:** en modo I2S slave, la lectura del ESP devuelve inmediatamente sin datos (no hay reloj).
+**Symptom:** `0x00000000` is constantly read on the I2S DIN; the agent doesn't transcribe anything the user says.
 
-**Causa raíz:** el canal RX de I2S se habilitó en `board.init()` **antes** de que el XVF estuviera generando reloj, así que nunca se enganchó al clock.
+**Root cause:** two problems at once. The XVF3800 had the wrong firmware (the "non-master" / `i2s_dfu` 1.0.4, which **does not** stream mic audio). Additionally, the XVF **boots muted**.
 
-**Solución:** deshabilitar y volver a habilitar el canal RX **después** de que el XVF esté arriba (se hace en la primera llamada a `read_frame()`). Confirmado con una "sonda de reloj" (clock probe) que, una vez arreglado, bloqueó ~5 ms y devolvió una trama completa de datos.
-
----
-
-## 3. `Guru Meditation Error ... find_desc_for_source ... LoadProhibited` y boot-loop
-
-**Síntoma:** `Guru Meditation Error ... find_desc_for_source ... LoadProhibited` durante la asignación de interrupciones de I2S-slave o I2C; la placa entra en boot-loop.
-
-**Causa raíz:** dos cosas. (a) Una inestabilidad intermitente en la asignación de interrupciones. (b) Compartir un único canal I2S dúplex entre la tarea de lectura del micro y el renderer del altavoz corrompía el DMA.
-
-**Solución:** usar **dos puertos I2S separados** (RX del micro en `I2S_NUM_1`, TX del altavoz en `I2S_NUM_0`), nunca un canal dúplex compartido. Si sigue en boot-loop, hacer power-cycle.
+**Solution:** perform a DFU of the XVF to the "inthost" I2S-master firmware (1.0.7) via I2C from the ESP firmware (`xvf_dfu.zig`), and unmute it via I2C on GPIO30. Verify in the boot log that XVF version 1.0.7 and `XVF mute readback: UNMUTED` appear.
 
 ---
 
-## 4. Boot-loop y esptool no conecta ("Failed to connect to ESP32-S3: No serial data received")
+## 2. In I2S slave mode the ESP reads 0 bytes / the read returns instantly without data
 
-**Síntoma:** la placa entra en boot-loop y esptool no logra conectar: `Failed to connect to ESP32-S3: No serial data received`.
+**Symptom:** in I2S slave mode, the ESP read returns immediately without data (there is no clock).
 
-**Causa raíz:** el firmware crashea o se cuelga tan rápido que el USB-JTAG no consigue sincronizar; además, un binario concreto puede desplazar la IRAM y destapar un crash latente.
+**Root cause:** the I2S RX channel was enabled in `board.init()` **before** the XVF was generating a clock, so it never locked onto the clock.
 
-**Solución:** hacer power-cycle físico (desconectar el USB 3 s y volver a conectar); o mantener pulsado el botón BOOT (el que está hundido) mientras se enchufa el USB (modo download manual); después flashear un binario conocido-bueno. **La placa no está bricked.**
+**Solution:** disable and re-enable the RX channel **after** the XVF is up (done on the first call to `read_frame()`). Confirmed with a "clock probe" that, once fixed, blocked for ~5 ms and returned a full frame of data.
+
+---
+
+## 3. `Guru Meditation Error ... find_desc_for_source ... LoadProhibited` and boot-loop
+
+**Symptom:** `Guru Meditation Error ... find_desc_for_source ... LoadProhibited` during I2S-slave or I2C interrupt allocation; the board goes into a boot-loop.
+
+**Root cause:** two things. (a) An intermittent instability in interrupt allocation. (b) Sharing a single duplex I2S channel between the mic read task and the speaker renderer corrupted the DMA.
+
+**Solution:** use **two separate I2S ports** (mic RX on `I2S_NUM_1`, speaker TX on `I2S_NUM_0`), never a shared duplex channel. If it continues in a boot-loop, power-cycle it.
+
+---
+
+## 4. Boot-loop and esptool does not connect ("Failed to connect to ESP32-S3: No serial data received")
+
+**Symptom:** the board enters a boot-loop and esptool fails to connect: `Failed to connect to ESP32-S3: No serial data received`.
+
+**Root cause:** the firmware crashes or hangs so fast that the USB-JTAG cannot sync; additionally, a specific binary can shift the IRAM and expose a latent crash.
+
+**Solution:** perform a physical power-cycle (disconnect USB for 3 s and reconnect); or hold down the BOOT button (the recessed one) while plugging in the USB (manual download mode); then flash a known-good binary. **The board is not bricked.**
 
 ---
 
 ## 5. `Guru Meditation ... vApplicationStackOverflowHook` (stack overflow)
 
-**Síntoma:** `Guru Meditation ... vApplicationStackOverflowHook`, desbordamiento de pila.
+**Symptom:** `Guru Meditation ... vApplicationStackOverflowHook`, stack overflow.
 
-**Causa raíz:** una tarea de FreeRTOS tenía un buffer local grande (un buffer de lectura de I2S de ~2 KB) sobre un stack demasiado pequeño (4 KB).
+**Root cause:** a FreeRTOS task had a large local buffer (a ~2 KB I2S read buffer) on a stack that was too small (4 KB).
 
-**Solución:** mover los buffers grandes a estáticos a nivel de módulo y/o aumentar el stack de la tarea (parámetro de tamaño de stack en `xTaskCreatePinnedToCore`).
-
----
-
-## 6. La voz suena a "helicóptero" y/o "ultratumba" (fantasmal, con warble), pero el RMS no muestra huecos
-
-**Síntoma:** la voz suena a helicóptero y/o de ultratumba (fantasmagórica, ondulante), aunque el RMS no muestra caídas ni huecos.
-
-**Causa raíz:** tres, todas corregidas.
-- (a) Una tarea productora libre (free-running) + ring buffer derivaban contra el dominio de reloj del consumidor (XVF a 48 kHz vs. consumidor de LiveKit); el ring se vaciaba periódicamente y repetía/mantenía muestras → warble periódico.
-- (b) Un AGC por-muestra que escalaba cada muestra según su propia magnitud **deformaba** la forma de onda → voz robótica/fantasmal.
-- (c) Una condición de carrera entre cores: tanto el productor como el consumidor escribían el índice de lectura del ring buffer.
-
-**Solución:** eliminar el ring buffer por completo y leer el I2S **directamente** dentro de `read_frame()` (paced por el consumidor — la demanda del pipeline *es* el reloj, sin deriva); usar **ganancia fija**, nunca un AGC por-muestra; y si alguna vez se usa un ring, hacerlo estrictamente single-producer/single-consumer (solo el consumidor escribe el índice de lectura).
+**Solution:** move large buffers to module-level statics and/or increase the task stack (stack size parameter in `xTaskCreatePinnedToCore`).
 
 ---
 
-## 7. La voz está "entrecortada" (trozos de silencio)
+## 6. The voice sounds like a "helicopter" and/or "from beyond the grave" (ghostly, with warble), but the RMS shows no gaps
 
-**Síntoma:** la voz es entrecortada, con fragmentos de silencio.
+**Symptom:** the voice sounds like a helicopter and/or from beyond the grave (ghostly, warbling), although the RMS shows no drops or gaps.
 
-**Causa raíz:** el ring buffer sufría underrun y una ruta demasiado agresiva de "reconstruir el colchón" insertaba ~256 ms de silencio en cada pequeño underrun.
+**Root cause:** three, all fixed.
+- (a) A free-running producer task + ring buffer drifted against the consumer's clock domain (XVF at 48 kHz vs. LiveKit consumer); the ring periodically emptied and repeated/held samples → periodic warble.
+- (b) A per-sample AGC that scaled each sample according to its own magnitude **deformed** the waveform → robotic/ghostly voice.
+- (c) A race condition between cores: both the producer and the consumer were writing the read index of the ring buffer.
 
-**Solución:** la lectura directa paced por el consumidor (sin ring) elimina esto. Si se usa buffering, ante un underrun breve **mantener la última muestra** en vez de insertar un colchón de silencio.
-
----
-
-## 8. La voz es inteligible pero suena "enlatada" (metálica, a lata)
-
-**Síntoma:** voz inteligible pero con timbre de lata/metálico.
-
-**Causa raíz:** **doble supresión de ruido**. La salida LEFT del XVF ya lleva la NS on-chip del XVF, y el agente aplica encima su propia cancelación de ruido BVC; dos pasadas de NS generan artefactos de musical-noise.
-
-**Solución:** usar el slot **RIGHT** del I2S (el beam ASR crudo, sin NS on-chip) y dejar que la BVC del agente haga la **única** pasada de NS. Salvedad honesta: XMOS no lo exige explícitamente; fue una elección empírica y conviene hacer un A/B por entorno.
+**Solution:** completely eliminate the ring buffer and read the I2S **directly** inside `read_frame()` (paced by the consumer — the pipeline demand *is* the clock, no drift); use **fixed gain**, never a per-sample AGC; and if a ring is ever used, make it strictly single-producer/single-consumer (only the consumer writes the read index).
 
 ---
 
-## 9. La voz está "saturada/distorsionada" (clipping)
+## 7. The voice is "choppy" (chunks of silence)
 
-**Síntoma:** voz saturada, con distorsión de recorte.
+**Symptom:** the voice is choppy, with fragments of silence.
 
-**Causa raíz:** la ganancia fija de 32→16 bits (right shift) era demasiado pequeña, así que el habla fuerte se recortaba (clamp) en 32768.
+**Root cause:** the ring buffer suffered an underrun and an overly aggressive "rebuild the cushion" path inserted ~256 ms of silence on every small underrun.
 
-**Solución:** calibrar el shift a partir del RMS/pico del WAV grabado — objetivo ~-18 dBFS de RMS con picos por debajo de fondo de escala (en este proyecto `SHIFT=13` para el canal RIGHT/ASR). Nota: el nivel de voz varía ~4× entre sesiones, así que una ganancia fija es un compromiso; la solución profesional sería un **AGC de envolvente lenta** (ganancia constante dentro de un bloque, adaptada despacio). Un **AGC por-muestra NO debe usarse** (distorsiona, ver entrada 6).
-
----
-
-## 10. La IA "habla sola" / ignora al usuario / responde incoherencias
-
-**Síntoma:** la IA habla consigo misma, ignora al usuario o responde sinsentidos.
-
-**Causa raíz:** **múltiples procesos del agente** corriendo a la vez (uv lanza un wrapper + un worker; los procesos zombies se acumulan).
-
-**Solución:** `pkill -9 -f "agent.py"` y arrancar exactamente **uno**: `uv run agent.py dev`.
+**Solution:** direct reading paced by the consumer (no ring) eliminates this. If buffering is used, on a brief underrun **hold the last sample** instead of inserting a cushion of silence.
 
 ---
 
-## 11. El agente nunca entra en la sala (la room muestra 1 participante)
+## 8. The voice is intelligible but sounds "tinny" (metallic)
 
-**Síntoma:** el agente no se une a la sala; `lk room list` muestra 1 solo participante.
+**Symptom:** intelligible voice but with a tinny/metallic timbre.
 
-**Causa raíz:** el agente solo hace auto-dispatch a una sala **nueva**.
+**Root cause:** **double noise suppression**. The LEFT output of the XVF already carries the XVF's on-chip NS, and the agent applies its own BVC noise cancellation on top; two passes of NS generate musical-noise artifacts.
 
-**Solución:** `lk room delete sebastian`, luego resetear el dispositivo para que se una a una sala fresca; confirmar que `lk room list` muestra 2 participantes.
+**Solution:** use the **RIGHT** I2S slot (the raw ASR beam, without on-chip NS) and let the agent's BVC do the **only** NS pass. Honest caveat: XMOS does not explicitly require this; it was an empirical choice and it's advisable to do an A/B per environment.
 
 ---
 
-## 12. No se puede saber si el audio es bueno solo con los números
+## 9. The voice is "saturated/distorted" (clipping)
 
-**Síntoma:** imposible juzgar la calidad del audio a partir de las cifras.
+**Symptom:** saturated voice, with clipping distortion.
 
-**Causa raíz:** los **niveles** de audio (RMS/pico) no son **inteligibilidad**.
+**Root cause:** the 32→16 bit fixed gain (right shift) was too small, so loud speech clamped at 32768.
 
-**Solución:** el agente graba el micro recibido en `/tmp/sebastian_rx.wav` — **ESCÚCHALO** con `afplay` y calcula un espectro aproximado (energía por frecuencia). Por ejemplo, una voz "de lata" muestra casi nada de energía por encima de ~2 kHz.
+**Solution:** calibrate the shift based on the RMS/peak of the recorded WAV — target ~-18 dBFS RMS with peaks below full scale (in this project `SHIFT=13` for the RIGHT/ASR channel). Note: the voice level varies ~4× between sessions, so a fixed gain is a compromise; the professional solution would be a **slow-envelope AGC** (constant gain within a block, adapted slowly). A **per-sample AGC MUST NOT be used** (it distorts, see entry 6).
+
+---
+
+## 10. The AI "talks to itself" / ignores the user / responds incoherently
+
+**Symptom:** the AI talks to itself, ignores the user, or responds with nonsense.
+
+**Root cause:** **multiple agent processes** running at the same time (uv launches a wrapper + a worker; zombie processes accumulate).
+
+**Solution:** `pkill -9 -f "agent.py"` and start exactly **one**: `uv run agent.py dev`.
+
+---
+
+## 11. The agent never enters the room (the room shows 1 participant)
+
+**Symptom:** the agent does not join the room; `lk room list` shows only 1 participant.
+
+**Root cause:** the agent only auto-dispatches to a **new** room.
+
+**Solution:** `lk room delete sebastian`, then reset the device to join a fresh room; confirm that `lk room list` shows 2 participants.
+
+---
+
+## 12. You can't tell if the audio is good just from the numbers
+
+**Symptom:** impossible to judge audio quality from the figures.
+
+**Root cause:** audio **levels** (RMS/peak) are not **intelligibility**.
+
+**Solution:** the agent records the received mic in `/tmp/sebastian_rx.wav` — **LISTEN TO IT** with `afplay` and calculate an approximate spectrum (energy per frequency). For example, a "tinny" voice shows almost no energy above ~2 kHz.

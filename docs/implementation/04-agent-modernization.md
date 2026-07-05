@@ -1,94 +1,94 @@
-> **Anexo del informe de implementación** ([`IMPLEMENTATION.md`](../../IMPLEMENTATION.md)). Texto íntegro de la exploración multi-agente del 2026-07-02 (8 agentes en paralelo + contraste cruzado). Donde este anexo contradiga las **Decisiones congeladas** del informe principal, prevalece el informe.
+> **Implementation Report Annex** ([`IMPLEMENTATION.md`](../../IMPLEMENTATION.md)). Full text of the multi-agent exploration from 2026-07-02 (8 parallel agents + cross-checking). Where this annex contradicts the **Frozen Decisions** of the main report, the main report prevails.
 
-# agent-modernization — Agente Python — migración a livekit-agents 1.6.4: AgentSession/Realtime, turn handling, MCP, dispatch explícito + token server, y lado agente del protocolo de invocación (IDLE/ARMED/ATTENDING/ENGAGED/LINGER)
+# agent-modernization — Python Agent — migration to livekit-agents 1.6.4: AgentSession/Realtime, turn handling, MCP, explicit dispatch + token server, and agent-side invocation protocol (IDLE/ARMED/ATTENDING/ENGAGED/LINGER)
 
-**Veredicto:** viable — Todas las APIs necesarias existen y fueron verificadas contra el código fuente del tag livekit-agents@1.6.4 y docs oficiales (jul-2026): AgentServer+dispatch por token, set_audio_enabled como gate, RPC bidireccional, MCPToolset y StopResponse como hook DDSD. El único recorte honesto: adaptive interruption y preemptive_generation NO aplican al modelo Realtime S2S (solo pipeline), y el gate DDSD real exige apagar el VAD de servidor de OpenAI (fase P1).
+**Verdict:** viable — All necessary APIs exist and were verified against the source code of the livekit-agents@1.6.4 tag and official docs (Jul-2026): AgentServer+dispatch by token, set_audio_enabled as gate, bidirectional RPC, MCPToolset, and StopResponse as DDSD hook. The only honest compromise: adaptive interruption and preemptive_generation DO NOT apply to the Realtime S2S model (only pipeline), and the real DDSD gate requires turning off OpenAI's server VAD (P1 phase).
 
-**Esfuerzo:** M — 4-5 días-persona para el área agente: upgrade+reestructura agent.py (1,5 d), token server + dispatch + despliegue (1 d), protocolo state/wake/LINGER + MCP HA (1,5 d), pruebas end-to-end con la placa y ajuste de la ventana LINGER (1 d). El lado firmware (HTTP token fetch + handlers RPC + gate) es otra área: +2-3 d no incluidos.
+**Effort:** M — 4-5 person-days for the agent area: upgrade+restructure agent.py (1.5 d), token server + dispatch + deployment (1 d), state/wake/LINGER protocol + MCP HA (1.5 d), end-to-end testing with the board and LINGER window adjustment (1 d). The firmware side (HTTP token fetch + RPC handlers + gate) is another area: +2-3 d not included.
 
-## Hallazgos
-- agent.py actual usa APIs 1.2 ya retiradas de los ejemplos oficiales: RoomInputOptions, WorkerOptions(entrypoint_fnc=...), y ctx.connect() manual tras session.start; graba WAV a /tmp incondicionalmente  
+## Findings
+- Current agent.py uses 1.2 APIs already removed from official examples: RoomInputOptions, WorkerOptions(entrypoint_fnc=...), and manual ctx.connect() after session.start; it records WAV to /tmp unconditionally  
   _agent/agent.py:60-79_
-- pyproject fija livekit-agents[openai]~=1.2; la última en PyPI es 1.6.4 (python >=3.10,<3.15 — compatible con el requires-python >=3.13 del proyecto)  
+- pyproject pins livekit-agents[openai]~=1.2; the latest on PyPI is 1.6.4 (python >=3.10,<3.15 — compatible with the project's requires-python >=3.13)  
   _agent/pyproject.toml:8 + https://pypi.org/project/livekit-agents/_
-- Forma actual de arrancar: AgentServer() + @server.rtc_session(agent_name=...) + cli.run_app(server) (Worker renombrado en 1.3.3, retrocompatible). session.start() conecta el JobContext internamente (task _job_ctx_connect): ctx.connect() explícito sobra  
-  _https://github.com/livekit/agents/releases/tag/livekit-agents%401.3.3 y agent_session.py del tag 1.6.4 (async def start → job_ctx.connect())_
-- Adaptive Interruption Handling, preemptive_generation y resume_false_interruption son SOLO pipeline STT-LLM-TTS: los docs exigen 'LLM is not a realtime model'. Con OpenAI Realtime la interrupción la gestiona su server VAD (interrupt_response=True). No prometer esas features en este stack S2S  
+- Current startup way: AgentServer() + @server.rtc_session(agent_name=...) + cli.run_app(server) (Worker renamed in 1.3.3, backwards compatible). session.start() connects the JobContext internally (task _job_ctx_connect): explicit ctx.connect() is superfluous  
+  _https://github.com/livekit/agents/releases/tag/livekit-agents%401.3.3 and agent_session.py from tag 1.6.4 (async def start → job_ctx.connect())_
+- Adaptive Interruption Handling, preemptive_generation, and resume_false_interruption are ONLY STT-LLM-TTS pipeline: the docs require 'LLM is not a realtime model'. With OpenAI Realtime the interruption is handled by its server VAD (interrupt_response=True). Do not promise these features in this S2S stack  
   _https://docs.livekit.io/agents/logic/turns/adaptive-interruption-handling/_
-- Turn Detector v1.0 (inference.TurnDetector(), audio-nativo, soporta español) SÍ combina con un RealtimeModel sin STT paralelo, siempre que se desactive la detección del modelo (turn_detection=None). v1 corre en LiveKit Inference (Cloud); v1-mini en CPU local para self-host  
+- Turn Detector v1.0 (inference.TurnDetector(), audio-native, supports Spanish) DOES combine with a RealtimeModel without parallel STT, provided that the model's detection is disabled (turn_detection=None). v1 runs on LiveKit Inference (Cloud); v1-mini on local CPU for self-host  
   _https://docs.livekit.io/agents/logic/turns/turn-detector/_
-- openai.realtime.RealtimeModel en 1.6.4: default model='gpt-realtime', voz default 'marin', semantic_vad por defecto (create_response/interrupt_response/eagerness), temperature deprecado, update_options(turn_detection=...) en runtime, y say() soportado vía capabilities.supports_say  
-  _livekit-plugins-openai/realtime/realtime_model.py del tag 1.6.4 (firma __init__ y update_options)_
-- session.input.set_audio_enabled(False) es el gate oficial de escucha (patrón push_to_talk.py): corta el audio hacia el modelo sin cerrar la sesión Realtime — es la palanca de LINGER/ARMED en el lado agente  
-  _https://github.com/livekit/agents/blob/livekit-agents%401.6.4/examples/voice_agents/push_to_talk.py y voice/io.py (AgentInput.set_audio_enabled)_
-- StopResponse lanzado en Agent.on_user_turn_completed descarta el turno sin generar respuesta — hook perfecto para el gate DDSD de LINGER — pero solo gobierna cuando la detección de turno es del lado cliente; con semantic_vad de servidor la respuesta la crea OpenAI y no se puede vetar  
-  _voice/agent_activity.py del tag 1.6.4 (_user_turn_completed: except StopResponse → return antes de _generate_reply)_
-- MCP en 1.6.4: tools=[mcp.MCPToolset(id=..., mcp_server=mcp.MCPServerHTTP(url, transport_type='streamable_http', headers={...}, allowed_tools=[...]))]. Home Assistant expone su MCP en http://<ha>:8123/api/mcp (Streamable HTTP) con long-lived access token como Bearer  
-  _livekit-agents/llm/mcp.py del tag 1.6.4 + https://www.home-assistant.io/integrations/mcp_server/_
-- Dispatch explícito: @server.rtc_session(agent_name='sebastian') desactiva el auto-dispatch; RoomAgentDispatch dentro del AccessToken despacha al agente cuando el device crea la sala (se ignora si la sala ya existe) — elimina el workaround sala-fresca+reset. AgentDispatchService.create_dispatch queda para recuperación/ops  
+- openai.realtime.RealtimeModel in 1.6.4: default model='gpt-realtime', default voice 'marin', semantic_vad by default (create_response/interrupt_response/eagerness), temperature deprecated, update_options(turn_detection=...) at runtime, and say() supported via capabilities.supports_say  
+  _livekit-plugins-openai/realtime/realtime_model.py from tag 1.6.4 (__init__ signature and update_options)_
+- session.input.set_audio_enabled(False) is the official listening gate (push_to_talk.py pattern): cuts audio to the model without closing the Realtime session — it is the LINGER/ARMED lever on the agent side  
+  _https://github.com/livekit/agents/blob/livekit-agents%401.6.4/examples/voice_agents/push_to_talk.py and voice/io.py (AgentInput.set_audio_enabled)_
+- StopResponse thrown in Agent.on_user_turn_completed discards the turn without generating a response — perfect hook for the LINGER DDSD gate — but only governs when turn detection is on the client side; with server semantic_vad the response is created by OpenAI and cannot be vetoed  
+  _voice/agent_activity.py from tag 1.6.4 (_user_turn_completed: except StopResponse → return before _generate_reply)_
+- MCP in 1.6.4: tools=[mcp.MCPToolset(id=..., mcp_server=mcp.MCPServerHTTP(url, transport_type='streamable_http', headers={...}, allowed_tools=[...]))]. Home Assistant exposes its MCP at http://<ha>:8123/api/mcp (Streamable HTTP) with long-lived access token as Bearer  
+  _livekit-agents/llm/mcp.py from tag 1.6.4 + https://www.home-assistant.io/integrations/mcp_server/_
+- Explicit dispatch: @server.rtc_session(agent_name='sebastian') disables auto-dispatch; RoomAgentDispatch inside the AccessToken dispatches the agent when the device creates the room (ignored if the room already exists) — eliminates the fresh-room+reset workaround. AgentDispatchService.create_dispatch remains for recovery/ops  
   _https://docs.livekit.io/agents/worker/agent-dispatch/_
-- SDK Python rtc verificado: perform_rpc(destination_identity, method, payload, response_timeout), register_rpc_method como decorador (RpcInvocationData: caller_identity, payload, límite 15KiB), publish_data(payload, reliable, topic), send_text. El C SDK vendorizado 0.3.10 ya expone el otro extremo: livekit_room_rpc_register/rpc_invoke y livekit_room_publish_data  
+- Python rtc SDK verified: perform_rpc(destination_identity, method, payload, response_timeout), register_rpc_method as decorator (RpcInvocationData: caller_identity, payload, 15KiB limit), publish_data(payload, reliable, topic), send_text. The vendored C SDK 0.3.10 already exposes the other end: livekit_room_rpc_register/rpc_invoke and livekit_room_publish_data  
   _python-sdks/livekit-rtc/participant.py:256-476 + firmware/managed_components/livekit__livekit/include/livekit.h:423-454_
-- Eventos de sesión reales: agent_state_changed (old_state/new_state; AgentState=initializing|idle|listening|thinking|speaking), user_state_changed (speaking|listening|away), user_input_transcribed (transcript,is_final,speaker_id), session_usage_updated ($/min; metrics_collected deprecado) — base directa del espejo state{} hacia el firmware  
-  _voice/events.py del tag 1.6.4:300-320 + https://docs.livekit.io/agents/build/events/_
-- El token embebido actual es de sandbox Cloud (iss API5JKjV7RkL9AE, identity esp32-respeaker, room sebastian, exp ~1 mes): sin rotación y sin RoomAgentDispatch — reflash para cualquier cambio  
+- Real session events: agent_state_changed (old_state/new_state; AgentState=initializing|idle|listening|thinking|speaking), user_state_changed (speaking|listening|away), user_input_transcribed (transcript,is_final,speaker_id), session_usage_updated ($/min; metrics_collected deprecated) — direct basis of the state{} mirror to the firmware  
+  _voice/events.py from tag 1.6.4:300-320 + https://docs.livekit.io/agents/build/events/_
+- The current embedded token is from the Cloud sandbox (iss API5JKjV7RkL9AE, identity esp32-respeaker, room sebastian, exp ~1 month): no rotation and no RoomAgentDispatch — reflash for any change  
   _firmware/main/secrets.zig:3_
 
-## Diseño
+## Design
 
-# Modernización del agente a livekit-agents 1.6.4
+# Agent modernization to livekit-agents 1.6.4
 
-## 1. Decisiones clave (verificadas contra el tag 1.6.4, no de memoria)
-- **Estructura nueva**: `AgentServer()` + `@server.rtc_session(agent_name="sebastian")` + `cli.run_app(server)`. `WorkerOptions` sigue funcionando pero los ejemplos oficiales ya no lo usan. `await ctx.connect()` desaparece: `session.start()` conecta el JobContext internamente.
-- **I/O de sala**: `RoomInputOptions` → `room_io.RoomOptions(participant_identity="esp32-respeaker", audio_input=room_io.AudioInputOptions(noise_cancellation=BVC()))`. `participant_identity` fija el RoomIO al device (nadie más alimenta al modelo). `close_on_disconnect=True` (default) cierra la sesión si el device cae — encaja con el ciclo de dispatch (§4).
-- **Honestidad 1.6**: `interruption.mode="adaptive"`, `preemptive_generation` y `resume_false_interruption` son **solo pipeline STT-LLM-TTS** ("LLM is not a realtime model"). Con OpenAI Realtime S2S la interrupción la hace su server VAD (`interrupt_response=True`). Lo que SÍ aplica a Realtime: Turn Detector v1.0 audio-nativo (`inference.TurnDetector()`, español) si se apaga la detección del modelo.
-- Modelo P0: `openai.realtime.RealtimeModel()` con `semantic_vad` de serie (defaults actuales: model `gpt-realtime`, voz `marin`). Medir $/min con `session_usage_updated` antes de tocar nada.
+## 1. Key decisions (verified against tag 1.6.4, not from memory)
+- **New structure**: `AgentServer()` + `@server.rtc_session(agent_name="sebastian")` + `cli.run_app(server)`. `WorkerOptions` still works but official examples no longer use it. `await ctx.connect()` disappears: `session.start()` connects the JobContext internally.
+- **Room I/O**: `RoomInputOptions` → `room_io.RoomOptions(participant_identity="esp32-respeaker", audio_input=room_io.AudioInputOptions(noise_cancellation=BVC()))`. `participant_identity` binds the RoomIO to the device (no one else feeds the model). `close_on_disconnect=True` (default) closes the session if the device drops — fits the dispatch cycle (§4).
+- **1.6 Honesty**: `interruption.mode="adaptive"`, `preemptive_generation` and `resume_false_interruption` are **only STT-LLM-TTS pipeline** ("LLM is not a realtime model"). With OpenAI Realtime S2S, interruption is done by its server VAD (`interrupt_response=True`). What DOES apply to Realtime: audio-native Turn Detector v1.0 (`inference.TurnDetector()`, Spanish) if the model's detection is turned off.
+- P0 Model: `openai.realtime.RealtimeModel()` with standard `semantic_vad` (current defaults: model `gpt-realtime`, voice `marin`). Measure $/min with `session_usage_updated` before touching anything.
 
-## 2. Turn handling por fases
-- **P0 (ENGAGED simple)**: semantic_vad de servidor; OpenAI crea las respuestas. `on_user_turn_completed` NO puede vetarlas → LINGER = ventana temporal sin gate (como el follow-up de Alexa).
-- **P1 (gate DDSD real)**: `RealtimeModel(turn_detection=None, input_audio_transcription=AudioTranscription(model="gpt-4o-transcribe"))` + `AgentSession(vad=silero.VAD.load(), turn_detection=inference.TurnDetector())`. Con detección en cliente el framework invoca `Sebastian.on_user_turn_completed(turn_ctx, new_message)`; lanzar `StopResponse` descarta el turno sin responder (verificado en `agent_activity.py::_user_turn_completed`). Ahí vive el gate DDSD: DoA estable (topic `doa`) + coherencia léxica (`user_input_transcribed`) + energía. STT paralelo (p.ej. Deepgram) solo si el transcript del Realtime llega tarde para el gate léxico.
-- El modo (P0/P1) se elige por env var al construir; `session.update_options(turn_detection=...)` existe pero el VAD del modelo se fija al crearlo.
+## 2. Turn handling by phases
+- **P0 (simple ENGAGED)**: server semantic_vad; OpenAI creates the responses. `on_user_turn_completed` CANNOT veto them → LINGER = time window without gate (like Alexa's follow-up).
+- **P1 (real DDSD gate)**: `RealtimeModel(turn_detection=None, input_audio_transcription=AudioTranscription(model="gpt-4o-transcribe"))` + `AgentSession(vad=silero.VAD.load(), turn_detection=inference.TurnDetector())`. With client-side detection the framework invokes `Sebastian.on_user_turn_completed(turn_ctx, new_message)`; raising `StopResponse` discards the turn without responding (verified in `agent_activity.py::_user_turn_completed`). The DDSD gate lives there: stable DoA (topic `doa`) + lexical coherence (`user_input_transcribed`) + energy. Parallel STT (e.g., Deepgram) only if the Realtime transcript arrives late for the lexical gate.
+- The mode (P0/P1) is chosen by env var at build time; `session.update_options(turn_detection=...)` exists but the model's VAD is fixed at creation.
 
 ## 3. MCP — Home Assistant
-- En el constructor del Agent: `tools=[mcp.MCPToolset(id="home-assistant", mcp_server=mcp.MCPServerHTTP("http://<ha>:8123/api/mcp", transport_type="streamable_http", headers={"Authorization": f"Bearer {HA_TOKEN}"}, allowed_tools=[...]))]`. (`mcp_servers=` sigue en la firma pero los docs empujan a `tools`.) HA: integración "MCP Server", auth por long-lived access token; `allowed_tools` para acotar superficie (luces/escenas sí, config no).
+- In the Agent's constructor: `tools=[mcp.MCPToolset(id="home-assistant", mcp_server=mcp.MCPServerHTTP("http://<ha>:8123/api/mcp", transport_type="streamable_http", headers={"Authorization": f"Bearer {HA_TOKEN}"}, allowed_tools=[...]))]`. (`mcp_servers=` remains in the signature but docs push to `tools`.) HA: "MCP Server" integration, auth via long-lived access token; `allowed_tools` to narrow surface (lights/scenes yes, config no).
 
-## 4. Dispatch explícito (mata el workaround sala-fresca+reset)
-- `agent_name="sebastian"` en el decorador desactiva el auto-dispatch.
-- **Recomendado: `RoomAgentDispatch` dentro del token del device** (`.with_room_config(RoomConfiguration(agents=[RoomAgentDispatch(agent_name="sebastian")]))`). El dispatch ocurre al CREARSE la sala → ciclo determinista: device conecta → sala "sebastian" se crea → agente entra; device cae → sesión se cierra → sala se vacía y muere → siguiente boot re-crea y re-despacha. La sala estable deja de ser un problema: su ciclo de vida es el del device.
-- `AgentDispatchService.create_dispatch` queda como endpoint admin del token server para recuperación (si el agente muere con el device dentro, el token no re-despacha porque la sala ya existe).
-- Ops: para probar sin placa, `lk dispatch create --agent-name sebastian --room test` (el playground ya no auto-invoca al agente).
+## 4. Explicit dispatch (kills the fresh-room+reset workaround)
+- `agent_name="sebastian"` in the decorator disables auto-dispatch.
+- **Recommended: `RoomAgentDispatch` inside the device token** (`.with_room_config(RoomConfiguration(agents=[RoomAgentDispatch(agent_name="sebastian")]))`). Dispatch occurs when the room is CREATED → deterministic cycle: device connects → "sebastian" room is created → agent enters; device drops → session closes → room empties and dies → next boot re-creates and re-dispatches. The stable room stops being a problem: its lifecycle is that of the device.
+- `AgentDispatchService.create_dispatch` remains as an admin endpoint of the token server for recovery (if the agent dies with the device inside, the token doesn't re-dispatch because the room already exists).
+- Ops: to test without board, `lk dispatch create --agent-name sebastian --room test` (the playground no longer auto-invokes the agent).
 
-## 5. Token server (renovación realista para ESP32)
-- FastAPI + livekit-api (snippet 3), API key/secret del proyecto Cloud real por env (adiós token sandbox).
-- **Recomendación: HTTP GET en boot**: el firmware hace `GET /token?device=esp32-respeaker` (header `X-Device-Secret`, secreto por dispositivo — solo da derecho a pedir tokens, rotable en servidor) antes de `livekit_room_connect(url, token)`. Respuesta `{url, token, ttl_s}`. **TTL 24 h**: LiveKit no expulsa al participante cuando el JWT caduca en vivo; solo hace falta token válido al (re)conectar, y el firmware repite el GET en cada ciclo de conexión. Cachear el último token en NVS como fallback si el token server está caído.
-- Descartados: token de larga vida embebido (statu quo: reflash, sin rotación) y TTLs de minutos (el C SDK 0.3.10 no expone hook de token-refresh en caliente).
-- Grants mínimos: `room_join, room="sebastian", can_publish, can_subscribe, can_publish_data`. Nada de `room_create/room_admin`.
+## 5. Token server (realistic renewal for ESP32)
+- FastAPI + livekit-api (snippet 3), project's real Cloud API key/secret via env (goodbye sandbox token).
+- **Recommendation: HTTP GET on boot**: the firmware does `GET /token?device=esp32-respeaker` (header `X-Device-Secret`, per-device secret — only gives right to request tokens, rotatable on server) before `livekit_room_connect(url, token)`. Response `{url, token, ttl_s}`. **TTL 24 h**: LiveKit does not kick the participant out when the JWT expires live; a valid token is only needed when (re)connecting, and the firmware repeats the GET on each connection cycle. Cache the latest token in NVS as a fallback if the token server is down.
+- Discarded: embedded long-lived token (status quo: reflash, no rotation) and minute-long TTLs (the C SDK 0.3.10 does not expose a hot token-refresh hook).
+- Minimum grants: `room_join, room="sebastian", can_publish, can_subscribe, can_publish_data`. No `room_create/room_admin`.
 
-## 6. Protocolo dispositivo↔agente (mapa de eventos)
-| Canal | Dir | Nombre | Payload | Uso |
+## 6. Device↔agent protocol (event map)
+| Channel | Dir | Name | Payload | Usage |
 |---|---|---|---|---|
-| RPC | dev→ag | `wake` | `{score,doa,ts}` | microWakeWord disparó (C: `livekit_room_rpc_invoke`) |
-| RPC | ag→dev | `state` | `{state:listening\|thinking\|speaking\|idle}` | espejo de `agent_state_changed` → LEDs + gate del firmware |
-| RPC | ag→dev | `announce` | `{chime:true}` | cortesía previa a proactividad |
+| RPC | dev→ag | `wake` | `{score,doa,ts}` | microWakeWord triggered (C: `livekit_room_rpc_invoke`) |
+| RPC | ag→dev | `state` | `{state:listening\|thinking\|speaking\|idle}` | mirror of `agent_state_changed` → LEDs + firmware gate |
+| RPC | ag→dev | `announce` | `{chime:true}` | courtesy prior to proactivity |
 | RPC | ag→dev | `set_volume` | `{level}` | whisper mode (P2) |
-| data lossy | dev→ag | topic `doa` | `{az,rms}` ~5 Hz | telemetría para el gate DDSD (`ctx.room.on("data_received")`) |
-- Python: `ctx.room.local_participant.register_rpc_method("wake")` (handler recibe `rtc.RpcInvocationData`) y `perform_rpc(destination_identity=..., method=..., payload=..., response_timeout=...)`; `publish_data(payload, reliable=, topic=)` si un broadcast basta. En el device ya existe el otro extremo: `livekit_room_rpc_register` (`livekit.h:446`).
+| data lossy | dev→ag | topic `doa` | `{az,rms}` ~5 Hz | telemetry for the DDSD gate (`ctx.room.on("data_received")`) |
+- Python: `ctx.room.local_participant.register_rpc_method("wake")` (handler receives `rtc.RpcInvocationData`) and `perform_rpc(destination_identity=..., method=..., payload=..., response_timeout=...)`; `publish_data(payload, reliable=, topic=)` if a broadcast is enough. On the device the other end already exists: `livekit_room_rpc_register` (`livekit.h:446`).
 
-## 7. LINGER — pausar/reanudar sin cerrar sesión
-- Palanca real: `session.input.set_audio_enabled(bool)` (patrón oficial push_to_talk). NO cierra el WS con OpenAI: corta el flujo de audio → 0 tokens en ARMED; el plugin gestiona solo reconexión y `max_session_duration`.
-- Ciclo: en `agent_state_changed` `speaking→listening` armar timer de 8 s; `user_state_changed→speaking` lo cancela (la conversación sigue); al expirar → `set_audio_enabled(False)` + RPC `state:idle` (el device vuelve a ARMED: silencio + wake word). RPC `wake` → `session.interrupt()` (barge-in si hablaba) + `set_audio_enabled(True)`.
-- El gate DDSD (P1, §2) veta turnos dentro de LINGER con `StopResponse`; en P0 la ventana responde a todo durante 8 s — asumido y documentado.
+## 7. LINGER — pause/resume without closing session
+- Real lever: `session.input.set_audio_enabled(bool)` (official push_to_talk pattern). DOES NOT close the WS with OpenAI: cuts the audio stream → 0 tokens in ARMED; the plugin only manages reconnection and `max_session_duration`.
+- Cycle: on `agent_state_changed` `speaking→listening` arm an 8 s timer; `user_state_changed→speaking` cancels it (the conversation continues); upon expiration → `set_audio_enabled(False)` + RPC `state:idle` (the device returns to ARMED: silence + wake word). RPC `wake` → `session.interrupt()` (barge-in if speaking) + `set_audio_enabled(True)`.
+- The DDSD gate (P1, §2) vetoes turns within LINGER with `StopResponse`; in P0 the window responds to everything for 8 s — assumed and documented.
 
-## 8. Pasos sobre este repo
-1. `agent/pyproject.toml`: `livekit-agents[openai]~=1.6.4`, `livekit-plugins-noise-cancellation~=0.2.6`; añadir `livekit-api`, `fastapi`, `uvicorn[standard]`; `uv sync`.
-2. Reescribir `agent/agent.py` (snippets 1+2): AgentServer, RoomOptions, protocolo, LINGER; grabación WAV solo con `SEBASTIAN_DEBUG_REC=1`; quitar el saludo incondicional de arranque (con wake word no se saluda en cada dispatch).
-3. Crear `agent/token_server.py` (snippet 3) + `.env` con `LIVEKIT_URL/API_KEY/API_SECRET` del proyecto Cloud real y `SEBASTIAN_DEVICE_SECRET`.
-4. Interfaz con firmware (otra área): GET del token en boot con `esp_http_client`; registrar handlers RPC `state/announce/set_volume`; invocar `wake` desde microWakeWord.
-5. Validar: `uv run agent.py console` (sin sala) → `dev`; `lk room list` debe mostrar agente+device en "sebastian" sin ningún `lk room delete`.
-6. Instrumentar `session_usage_updated` y decidir modelo por $/min real (gpt-realtime vs mini vs Gemini) — queda desacoplado por env var.
+## 8. Steps on this repo
+1. `agent/pyproject.toml`: `livekit-agents[openai]~=1.6.4`, `livekit-plugins-noise-cancellation~=0.2.6`; add `livekit-api`, `fastapi`, `uvicorn[standard]`; `uv sync`.
+2. Rewrite `agent/agent.py` (snippets 1+2): AgentServer, RoomOptions, protocol, LINGER; WAV recording only with `SEBASTIAN_DEBUG_REC=1`; remove the unconditional startup greeting (with wake word there is no greeting on every dispatch).
+3. Create `agent/token_server.py` (snippet 3) + `.env` with `LIVEKIT_URL/API_KEY/API_SECRET` from the real Cloud project and `SEBASTIAN_DEVICE_SECRET`.
+4. Interface with firmware (another area): GET of the token on boot with `esp_http_client`; register RPC handlers `state/announce/set_volume`; invoke `wake` from microWakeWord.
+5. Validate: `uv run agent.py console` (without room) → `dev`; `lk room list` should show agent+device in "sebastian" without any `lk room delete`.
+6. Instrument `session_usage_updated` and decide model based on real $/min (gpt-realtime vs mini vs Gemini) — left decoupled by env var.
 
-## Código
-**agent/agent.py** — Esqueleto modernizado a 1.6.4: AgentServer + dispatch explícito, RealtimeModel P0/P1, MCP de Home Assistant, gate cerrado al nacer (ARMED)
+## Code
+**agent/agent.py** — Skeleton modernized to 1.6.4: AgentServer + explicit dispatch, RealtimeModel P0/P1, Home Assistant MCP, gate closed at birth (ARMED)
 
 ```python
 """Sebastian — livekit-agents 1.6.4 (AgentServer + dispatch explícito)."""
@@ -160,7 +160,7 @@ if __name__ == "__main__":
     cli.run_app(server)
 ```
 
-**agent/protocol.py** — Lado agente de la máquina de estados: espejo state{} por RPC, wake entrante, ventana LINGER con set_audio_enabled y proactividad con cortesía
+**agent/protocol.py** — Agent side of the state machine: state{} mirror via RPC, incoming wake, LINGER window with set_audio_enabled, and proactivity with courtesy
 
 ```python
 import asyncio, json
@@ -230,7 +230,7 @@ async def announce(ctx: JobContext, session: AgentSession, device: str, text: st
     session.say(text)  # OpenAI Realtime soporta say (capabilities.supports_say)
 ```
 
-**agent/token_server.py** — Token server FastAPI: token por dispositivo con grants mínimos, TTL 24h y el dispatch explícito embebido (RoomAgentDispatch) — el firmware hace GET en boot
+**agent/token_server.py** — FastAPI token server: per-device token with minimum grants, 24h TTL, and embedded explicit dispatch (RoomAgentDispatch) — the firmware does a GET on boot
 
 ```python
 """GET /token?device=esp32-<unit> (header X-Device-Secret) -> {url, token, ttl_s}.
@@ -273,22 +273,22 @@ def issue_token(device: str, x_device_secret: str = Header(...)) -> dict:
 #     api.CreateAgentDispatchRequest(agent_name="sebastian", room=ROOM))
 ```
 
-## Riesgos
-- **C SDK 0.3.10 en Developer Preview: la superficie RPC/data puede cambiar entre bumps y el flujo de token por HTTP añade código Zig nuevo en el boot** → Fijar la versión del componente; probar el arranque degradado (token server caído → token cacheado en NVS + reintentos); revisar changelog antes de cada bump
-- **En P0 (semantic_vad de servidor) la ventana LINGER responde a CUALQUIER voz (TV, conversación cruzada): falsos positivos garantizados en entorno doméstico** → Ventana corta (5-8 s) y LED tenue que lo haga visible; priorizar el paso a P1 (turn_detection=None + inference.TurnDetector + StopResponse) donde el gate DDSD sí puede vetar
-- **El dispatch por token solo actúa al crear la sala: si el proceso agente muere con el device conectado, no hay re-dispatch automático** → Endpoint admin en el token server que llama a AgentDispatchService.create_dispatch; watchdog barato (cron que compara participantes de la sala con `lk room participants`)
-- **inference.TurnDetector v1 corre en LiveKit Inference (Cloud): dependencia de plan/cuota y de red; en self-host no está** → v1-mini corre local en CPU; dejar el selector de turn detector por config para el escenario self-host del roadmap (cortes)
-- **Transcripciones del Realtime llegan tarde y sin parciales: el gate léxico DDSD y el speaker-ID pueden quedarse sin señal a tiempo** → Añadir STT paralelo (Deepgram/Speechmatics) solo si la medición lo justifica — coste extra por minuto; empezar con señales acústicas (DoA/energía)
-- **Agente 24/7 en la sala + WS Realtime siempre abierto: minutos de participante en LiveKit Cloud y reconexiones OpenAI aunque el gasto de tokens en ARMED sea 0** → Medir con session_usage_updated + facturación Cloud; si duele, timeout de sala tras N min en ARMED (reconexión ~1-2 s) o self-host en cortes (ya previsto en ROADMAP P2)
+## Risks
+- **C SDK 0.3.10 in Developer Preview: the RPC/data surface can change between bumps and the HTTP token flow adds new Zig code on boot** → Pin the component version; test degraded startup (token server down → cached token in NVS + retries); review changelog before each bump
+- **In P0 (server semantic_vad) the LINGER window responds to ANY voice (TV, cross-conversation): guaranteed false positives in a domestic environment** → Short window (5-8 s) and dim LED to make it visible; prioritize the move to P1 (turn_detection=None + inference.TurnDetector + StopResponse) where the DDSD gate can indeed veto
+- **Dispatch by token only acts when creating the room: if the agent process dies with the device connected, there is no automatic re-dispatch** → Admin endpoint on the token server calling AgentDispatchService.create_dispatch; cheap watchdog (cron comparing room participants with `lk room participants`)
+- **inference.TurnDetector v1 runs on LiveKit Inference (Cloud): dependency on plan/quota and network; in self-host it's not there** → v1-mini runs locally on CPU; leave the turn detector selector by config for the self-host roadmap scenario (outages)
+- **Realtime transcripts arrive late and without partials: the DDSD lexical gate and speaker-ID may lack signal in time** → Add parallel STT (Deepgram/Speechmatics) only if measurement justifies it — extra cost per minute; start with acoustic signals (DoA/energy)
+- **24/7 Agent in the room + Realtime WS always open: participant minutes in LiveKit Cloud and OpenAI reconnections even if token spend in ARMED is 0** → Measure with session_usage_updated + Cloud billing; if it hurts, room timeout after N min in ARMED (reconnection ~1-2 s) or self-host during outages (already planned in P2 ROADMAP)
 
-## Preguntas abiertas
-- ¿Existe proyecto LiveKit Cloud propio con API key/secret accesibles? El token actual es de sandbox (iss API5JKjV7RkL9AE, demo-ja18uvd7.livekit.cloud) y sin claves no hay token server ni dispatch explícito.
-- ¿Dónde corre el token server y el worker 24/7: el Mac de desarrollo o ya directamente un Deployment en cortes (el GitOps de Mileto existe)? Afecta a cómo se expone el endpoint /token al ESP32 (LAN vs TLS público).
-- ¿Se acepta el coste de un STT paralelo en P1 para el gate léxico y el speaker-ID, o el DDSD arranca solo con señales acústicas (DoA/energía)?
-- ¿El device mantiene la sala LiveKit conectada 24/7 en ARMED o se decide ya el timeout de sala + reconexión al wake (economía de minutos Cloud)?
-- ¿Fijar gpt-realtime o arrancar directamente con gpt-realtime-mini / Gemini native audio para abaratar? La medición con session_usage_updated decidirá, pero hay que elegir el default del .env.
+## Open questions
+- Is there a custom LiveKit Cloud project with accessible API key/secret? The current token is from the sandbox (iss API5JKjV7RkL9AE, demo-ja18uvd7.livekit.cloud) and without keys there is no token server or explicit dispatch.
+- Where does the token server and the 24/7 worker run: the dev Mac or directly a Deployment on Miletus (the Mileto GitOps exists)? Affects how the /token endpoint is exposed to the ESP32 (LAN vs public TLS).
+- Is the cost of a parallel STT in P1 accepted for the lexical gate and speaker-ID, or does DDSD start only with acoustic signals (DoA/energy)?
+- Does the device keep the LiveKit room connected 24/7 in ARMED or is the room timeout + reconnection on wake already decided (Cloud minutes economy)?
+- Pin gpt-realtime or start directly with gpt-realtime-mini / Gemini native audio to reduce costs? Measurement with session_usage_updated will decide, but the default in the .env must be chosen.
 
-## Fuentes
+## Sources
 - https://github.com/livekit/agents/releases
 - https://github.com/livekit/agents/releases/tag/livekit-agents%401.3.3
 - https://github.com/livekit/agents/releases/tag/livekit-agents%401.6.0

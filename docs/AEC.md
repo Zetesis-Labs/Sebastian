@@ -1,73 +1,73 @@
-# AEC del XVF3800: diagnóstico y fix
+# XVF3800 AEC: diagnosis and fix
 
-**Resuelto 2026-07-02.** El AEC del XVF3800 nunca funcionó en este proyecto —
-no por delay, ni por cableado, ni por formato I2S: **el build de fábrica
-`inthost 1.0.7` de ReSpeaker trae `AEC_FAR_EXTGAIN = 0.0`** (escala lineal).
-Con ese valor el AEC asume que el altavoz reproduce silencio y **no adapta
-jamás**. El fix es una escritura I2C de 4 bytes en el boot:
+**Resolved 2026-07-02.** The XVF3800 AEC never worked in this project —
+not because of delay, nor wiring, nor I2S format: **the ReSpeaker factory build
+`inthost 1.0.7` comes with `AEC_FAR_EXTGAIN = 0.0`** (linear scale).
+With that value, the AEC assumes the speaker is playing silence and **never
+adapts**. The fix is a 4-byte I2C write on boot:
 `FAR_EXTGAIN = 1.0` (`xvf_aec.applyConfig()`).
 
-Verificado en hardware: `AECCONVERGED` pasó de 0 permanente a 1 en <5 s de
-tono; en sesión real el agente ya no se transcribe a sí mismo con el altavoz a
-plena escala.
+Verified on hardware: `AECCONVERGED` went from permanent 0 to 1 in <5 s of
+tone; in a real session the agent no longer transcribes itself with the speaker at
+full scale.
 
-**Hallazgo colateral (volumen):** `esp_codec_dev_set_out_vol` fue siempre un
-no-op — el `noop_codec_if` implementaba `set_vol`, lo que suprime el volumen
-software de esp_codec_dev (solo se crea si `codec->set_vol == NULL`). El
-histórico "bajamos a 35 para no acoplar" era placebo: el altavoz siempre sonó a
-full-scale. Arreglado quitando `set_vol` del noop; ahora `set_out_vol(100)` =
-0 dB reproduce la sonoridad de siempre y el mando es real (base para whisper
-mode y control de volumen por RPC).
+**Collateral finding (volume):** `esp_codec_dev_set_out_vol` was always a
+no-op — the `noop_codec_if` implemented `set_vol`, which suppresses the esp_codec_dev
+software volume (only created if `codec->set_vol == NULL`). The
+historical "we lower to 35 to prevent feedback" was a placebo: the speaker always played at
+full-scale. Fixed by removing `set_vol` from the noop; now `set_out_vol(100)` =
+0 dB reproduces the usual loudness and the control is real (foundation for whisper
+mode and volume control via RPC).
 
-## Por qué falló el intento anterior
+## Why the previous attempt failed
 
-La sesión pasada intentamos auto-calibrar `SYS_DELAY` barriendo valores en
-runtime y midiendo el residual. Nunca convergía porque **estábamos afinando el
-delay de un AEC que no adaptaba**: con FAR_EXTGAIN=0.0 no hay ningún valor de
-delay que funcione. Lección: verificar primero que el cancelador tiene señal y
-ganas de trabajar, después afinar.
+In the last session we tried to auto-calibrate `SYS_DELAY` by sweeping values at
+runtime and measuring the residual. It never converged because **we were tuning the
+delay of an AEC that wasn't adapting**: with FAR_EXTGAIN=0.0 there is no delay value
+that works. Lesson: first verify that the canceller has a signal and
+wants to work, then tune.
 
-## El método (reproducible)
+## The (reproducible) method
 
-1. **Conseguir la tabla de comandos con IDs de wire.** La doc de XMOS lista los
-   comandos sin resid/cmd numéricos; el mapa real está compilado en
-   `libcommand_map.dylib` del repo `respeaker/reSpeaker_XVF3800_USB_4MIC_ARRAY`
-   (`host_control/mac_arm64/`). Los accessors son `extern "C"`
+1. **Get the command table with wire IDs.** The XMOS doc lists the
+   commands without numeric resid/cmd; the real map is compiled in
+   `libcommand_map.dylib` from the `respeaker/reSpeaker_XVF3800_USB_4MIC_ARRAY` repo
+   (`host_control/mac_arm64/`). The accessors are `extern "C"`
    (`get_num_commands`, `get_cmd_id_info`, `get_cmd_val_info`, `get_cmd_name`):
-   un shim C++ de 30 líneas con `dlopen` vuelca los 147 comandos →
-   [`xvf3800_command_map.txt`](xvf3800_command_map.txt). Las funciones
-   `print_enum_*` del mismo dylib decodifican los enums del mux de audio.
+   a 30-line C++ shim with `dlopen` dumps the 147 commands →
+   [`xvf3800_command_map.txt`](xvf3800_command_map.txt). The `print_enum_*`
+   functions from the same dylib decode the audio mux enums.
 
-2. **Leer el estado del AEC por I2C** (`xvf_aec.zig`, protocolo device_control:
-   write `[resid, cmd|0x80, n+1]` → read `n+1` con status en el byte 0;
-   status `0x40` = retry, reintentar la transacción entera):
-   - `AEC_AECCONVERGED` (33/3, i32 RO) — latched; el dato clave
+2. **Read the AEC state via I2C** (`xvf_aec.zig`, device_control protocol:
+   write `[resid, cmd|0x80, n+1]` → read `n+1` with status in byte 0;
+   status `0x40` = retry, retry the entire transaction):
+   - `AEC_AECCONVERGED` (33/3, i32 RO) — latched; the key data
    - `AEC_RT60` (33/9, f32 RO), `AEC_AECPATHCHANGE` (33/0)
    - `AUDIO_MGR_SYS_DELAY` (35/26), `REF_GAIN` (35/1), `MIC_GAIN` (35/0)
-   - `AEC_FAR_EXTGAIN` (33/5, f32 RW) ← **el culpable**
+   - `AEC_FAR_EXTGAIN` (33/5, f32 RW) ← **the culprit**
 
-3. **Sonda de referencia in-band** (`xvf_aec.probeReference()`, desactivada en
-   el boot normal): el mux de salida del audio manager (`AUDIO_MGR_OP_R`, 35/19)
-   permite rutear señales internas a la salida I2S. Ruteando
-   `MUX_FAR_END[4]`/`MUX_FAR_END_W_GAIN[12]` al slot derecho y reproduciendo un
-   tono, medimos desde el ESP si la referencia llega al XVF. Resultado: llegaba
-   perfectamente (con el ×8 de REF_GAIN exacto) — descartó cableado/formato y
-   dejó solo la config del AEC como sospechosa.
+3. **In-band reference probe** (`xvf_aec.probeReference()`, disabled in
+   normal boot): the audio manager output mux (`AUDIO_MGR_OP_R`, 35/19)
+   allows routing internal signals to the I2S output. Routing
+   `MUX_FAR_END[4]`/`MUX_FAR_END_W_GAIN[12]` to the right slot and playing a
+   tone, we measure from the ESP if the reference reaches the XVF. Result: it arrived
+   perfectly (with the exact ×8 of REF_GAIN) — ruled out wiring/format and
+   left only the AEC config as a suspect.
 
-## Estado de fábrica del build ReSpeaker (referencia)
+## Factory state of the ReSpeaker build (reference)
 
 ```
-farends=1  sys_delay=-30  ref_gain=8.0  mic_gain=90.0  far_extgain=0.0  ← el bug
+farends=1  sys_delay=-30  ref_gain=8.0  mic_gain=90.0  far_extgain=0.0  ← the bug
 shf_bypass=0  far_end_dsp_enable=0  i2s_dac_dsp_enable=0
 op_all = [USER_CHOSEN 0] [RAW_MICS 0] [RAW_MICS 2] [AEC_RESIDUALS 3] [RAW_MICS 1] [RAW_MICS 3]
 ```
 
-Dato colateral valioso: el canal **RIGHT** que consumimos para wake word y STT
-es `MUX_AEC_RESIDUALS` ch3 (`OP_R=[7,3]`) — literalmente el residual del AEC,
-sin supresión de eco residual ni NS. Coherente con lo observado en
+Valuable collateral data: the **RIGHT** channel we consume for wake word and STT
+is `MUX_AEC_RESIDUALS` ch3 (`OP_R=[7,3]`) — literally the AEC residual,
+without residual echo suppression or NS. Consistent with what was observed in
 `MIC_CHANNEL_TUNING.md`.
 
-## Categorías del mux de salida (decodificadas del dylib)
+## Output mux categories (decoded from the dylib)
 
 ```
 0 MUX_SILENCE          1 MUX_RAW_MICS        2 MUX_UNPACKED_MICS
@@ -77,14 +77,14 @@ sin supresión de eco residual ni NS. Coherente con lo observado en
 12 MUX_FAR_END_W_GAIN
 ```
 
-## Pendiente / siguientes afinados
+## Pending / next tunings
 
-- `SYS_DELAY`: el default -30 funciona (converge); medir el delay real con
-  chirp + correlación si queremos exprimir ERLE.
-- El residual con tono puro a vol 60 cancela ~6 dB en pico — los armónicos del
-  altavocito no son cancelables linealmente; con voz real el comportamiento
-  end-to-end es bueno (sin auto-transcripción). Si hiciera falta más:
-  `PP_ECHOONOFF`/supresión residual en el canal comms, o el modelo NL del PP.
-- Subir volumen por encima de 60 cuando haya más horas de uso sin acople.
-- `AEC_RT60` sigue en 0 con tono estacionario; con voz debería estimar. Ojo si
-  nunca se mueve.
+- `SYS_DELAY`: the default -30 works (converges); measure the real delay with
+  chirp + correlation if we want to squeeze ERLE.
+- The residual with pure tone at vol 60 cancels ~6 dB peak — the harmonics of the
+  little speaker are not linearly cancellable; with real voice the end-to-end
+  behavior is good (no auto-transcription). If more is needed:
+  `PP_ECHOONOFF`/residual suppression on the comms channel, or the PP NL model.
+- Increase volume above 60 when there are more hours of use without feedback.
+- `AEC_RT60` stays at 0 with stationary tone; with voice it should estimate. Watch out if
+  it never moves.

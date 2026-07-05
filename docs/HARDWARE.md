@@ -1,73 +1,58 @@
 # Hardware — Seeed ReSpeaker XVF3800 + XIAO ESP32-S3
 
-Placa de array de 4 micrófonos con procesador de voz dedicado, pensada para
-captura de voz a 5 m y 360°.
+4-microphone array board with dedicated voice processor, designed for 5m and 360° voice capture.
 
-## Componentes
+## Components
 
-| Pieza | Qué hace |
+| Part | What it does |
 |---|---|
-| **XIAO ESP32-S3** | MCU host (WiFi/BT, corre el firmware). ESP32-S3R8: 8 MB flash, 8 MB PSRAM octal. |
-| **XMOS XVF3800** | Procesador de voz: AEC, beamforming, supresión de ruido, AGC, VAD, DoA. Entrega audio ya procesado. |
-| **TLV320AIC3104** | Codec analógico (DAC/amp) para la salida de altavoz / AUX. |
-| **PCAL6416A** | Expansor de IO (botones, LEDs). |
-| Array 4 mics | Captura far-field 360°. |
-| Amp 5 W + JST | Salida de altavoz. También jack AUX 3.5 mm. |
+| **XIAO ESP32-S3** | Host MCU (WiFi/BT, runs the firmware). ESP32-S3R8: 8 MB flash, 8 MB octal PSRAM. |
+| **XMOS XVF3800** | Voice processor: AEC, beamforming, noise suppression, AGC, VAD, DoA. Delivers already processed audio. |
+| **TLV320AIC3104** | Analog codec (DAC/amp) for speaker / AUX output. |
+| **PCAL6416A** | IO expander (buttons, LEDs). |
+| 4-mic array | 360° far-field capture. |
+| 5 W Amp + JST | Speaker output. Also 3.5 mm AUX jack. |
 
-## Topología de audio
+## Audio topology
 
 ```
 4 mics ──> XVF3800 (AEC/beamforming/NS) ──I2S(DIN)──> ESP32-S3
                                                           │
-ESP32-S3 ──I2S(DOUT)──> TLV320AIC3104 ──> altavoz 5 W / AUX
+ESP32-S3 ──I2S(DOUT)──> TLV320AIC3104 ──> 5 W speaker / AUX
 ```
 
-El XVF3800 (con firmware "inthost") es el **I2S MASTER**: genera el reloj a
-**48 kHz**, 32-bit por slot, estéreo. El **ESP32-S3 es esclavo**, y usa **dos
-puertos I2S separados** — RX (micro, I2S_NUM_1) y TX (altavoz, I2S_NUM_0) —
-compartiendo BCLK/WS. Un único canal dúplex compartido corrompía el DMA. MCLK no
-se usa. El AIC3104 también es esclavo del mismo reloj. Detalle en
-[ARCHITECTURE.md](ARCHITECTURE.md).
+The XVF3800 (with "inthost" firmware) is the **I2S MASTER**: it generates the clock at **48 kHz**, 32-bit per slot, stereo. The **ESP32-S3 is a slave**, and uses **two separate I2S ports** — RX (mic, I2S_NUM_1) and TX (speaker, I2S_NUM_0) — sharing BCLK/WS. A single shared duplex channel was corrupting the DMA. MCLK is not used. The AIC3104 is also a slave of the same clock. Details in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Pinout
 
-| Señal | GPIO |
+| Signal | GPIO |
 |---|---|
-| I2S BCLK (entrada, del XVF) | 8 |
-| I2S WS / LRCLK (entrada, del XVF) | 7 |
-| I2S DOUT (→ AIC3104, altavoz) | 44 |
-| I2S DIN (← XVF3800, micro) | 43 |
-| I2S MCLK | — (sin usar) |
+| I2S BCLK (input, from XVF) | 8 |
+| I2S WS / LRCLK (input, from XVF) | 7 |
+| I2S DOUT (→ AIC3104, speaker) | 44 |
+| I2S DIN (← XVF3800, mic) | 43 |
+| I2S MCLK | — (unused) |
 | I2C SDA | 5 |
 | I2C SCL | 6 |
 
-Formato I2S: **48 kHz**, 32-bit por slot, estéreo. Slot **izquierdo** = voz
-procesada con supresión de ruido (comunicación); slot **derecho** = haz ASR crudo
-(sin NS) — este proyecto usa el **derecho** (ver [ARCHITECTURE.md](ARCHITECTURE.md)
-y [XVF3800.md](XVF3800.md)).
+I2S format: **48 kHz**, 32-bit per slot, stereo. **Left** slot = processed voice with noise suppression (communication); **right** slot = raw ASR beam (no NS) — this project uses the **right** one (see [ARCHITECTURE.md](ARCHITECTURE.md) and [XVF3800.md](XVF3800.md)).
 
-## Direcciones I2C
+## I2C Addresses
 
-| Dispositivo | Dirección 7-bit |
+| Device | 7-bit Address |
 |---|---|
 | TLV320AIC3104 | `0x18` |
 | PCAL6416A (IO expander) | `0x21` |
 | XVF3800 | `0x2C` |
 
-El primer boot hace un escaneo I2C y debería listar estas tres direcciones. Es la
-mejor señal de que el cableado/alimentación están bien.
+The first boot performs an I2C scan and should list these three addresses. It is the best sign that wiring/power are fine.
 
-## Modos de firmware del XVF3800
+## XVF3800 firmware modes
 
-El XVF necesita el firmware **"inthost" (I2S master, 1.0.7)** para clockear el bus
-y streamear el micro. El firmware que trae por defecto ("non-master"/i2s_dfu) NO
-streamea audio. **Nuestro propio firmware Zig re-flashea el XVF por DFU sobre I2C
-en el primer arranque** (`xvf_dfu.zig`, sin ESPHome ni herramientas externas) y lo
-des-mutea. Todo el detalle del protocolo y las familias de firmware en
-[XVF3800.md](XVF3800.md).
+The XVF needs the **"inthost" (I2S master, 1.0.7)** firmware to clock the bus and stream the mic. The default firmware ("non-master"/i2s_dfu) DOES NOT stream audio. **Our own Zig firmware re-flashes the XVF via DFU over I2C on the first boot** (`xvf_dfu.zig`, without ESPHome or external tools) and unmutes it. Full details of the protocol and firmware families in [XVF3800.md](XVF3800.md).
 
-## Referencias
+## References
 
 - [reSpeaker XVF3800 + XIAO ESP32-S3 — getting started](https://wiki.seeedstudio.com/respeaker_xvf3800_xiao_getting_started/)
-- [Seeed esp32-client (Agora) — código I2S/codec de referencia](https://github.com/Seeed-Projects/seeed-respeaker-agora-tenframework)
+- [Seeed esp32-client (Agora) — reference I2S/codec code](https://github.com/Seeed-Projects/seeed-respeaker-agora-tenframework)
 - [LiveKit Client SDK for ESP32](https://github.com/livekit/client-sdk-esp32)

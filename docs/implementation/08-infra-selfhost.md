@@ -1,102 +1,102 @@
-> **Anexo del informe de implementación** ([`IMPLEMENTATION.md`](../../IMPLEMENTATION.md)). Texto íntegro de la exploración multi-agente del 2026-07-02 (8 agentes en paralelo + contraste cruzado). Donde este anexo contradiga las **Decisiones congeladas** del informe principal, prevalece el informe.
+> **Annex to the implementation report** ([`IMPLEMENTATION.md`](../../IMPLEMENTATION.md)). Full text of the multi-agent exploration from 2026-07-02 (8 agents in parallel + cross-checking). Where this annex contradicts the **Frozen decisions** of the main report, the report prevails.
 
-# infra-selfhost — Despliegue productivo: LiveKit self-hosted + token service + agente Sebastian en cortes (Talos/GitOps), con decisión cloud vs self-host
+# infra-selfhost — Productive deployment: LiveKit self-hosted + token service + Sebastian agent in cortes (Talos/GitOps), with cloud vs self-host decision
 
-**Veredicto:** viable con riesgos — Todo encaja con la infra existente (ArgoCD + Infisical + cert-manager en cortes) y el SDK C del firmware ya soporta ws:// y wss:// con CA bundle sin tocar código. Riesgos: hostNetwork en nodo único (un pod LiveKit por nodo, cortes sin HA) y pérdida de BVC al salir de LiveKit Cloud (mitigable: el beam ASR del XVF3800 ya hace AEC+beamforming en silicio).
+**Verdict:** viable with risks — Everything fits with the existing infra (ArgoCD + Infisical + cert-manager in cortes) and the firmware C SDK already supports ws:// and wss:// with CA bundle without touching code. Risks: hostNetwork on a single node (one LiveKit pod per node, cortes without HA) and loss of BVC when leaving LiveKit Cloud (mitigable: the XVF3800's ASR beam already does AEC+beamforming in silicon).
 
-**Esfuerzo:** M — 3,5 a 5 días de una persona (sin contar el upgrade a livekit-agents 1.6.4, que es otra misión; +1 d si se quiere wss con DNS interno + cert LE)
+**Effort:** M — 3.5 to 5 person-days (not counting the upgrade to livekit-agents 1.6.4, which is another mission; +1 d if wss with internal DNS + LE cert is desired)
 
-## Hallazgos
-- El SDK C de LiveKit vendorizado acepta ws:// y wss:// y ya adjunta el CA bundle de ESP-IDF (esp_crt_bundle_attach) al websocket de señalización: wss:// con cert Let's Encrypt funciona sin cambios de firmware; ws:// en LAN también es válido (el audio va cifrado igualmente por DTLS-SRTP, solo el signaling/JWT iría en claro).  
-  _firmware/managed_components/livekit__livekit/core/url.c:56 y core/signaling.c:261_
-- El firmware conecta con URL+token estáticos gitignorados (sandbox Cloud con exp ~agosto 2026): migrar a self-host es cambiar 2 strings en secrets.zig o pedir el token por HTTP a un token service.  
-  _firmware/main/app.zig:183 y firmware/main/secrets.zig:2-3_
-- Helm chart oficial livekit/livekit-server: requiere hostNetwork (puertos RTC directos en el nodo, 1 pod por nodo), UDP 50000-60000 + TCP 7881 + señalización 7880; Redis es OPCIONAL — solo necesario para multi-réplica o egress/ingress, así que en cortes (single-node, single-replica) no hace falta. TURN/coturn tampoco en LAN doméstica (dispositivo y servidor en la misma red).  
-  _https://docs.livekit.io/transport/self-hosting/kubernetes/ y https://github.com/livekit/livekit/blob/master/config-sample.yaml ("when redis is set, LiveKit will automatically operate in a fully distributed fashion")_
-- En Talos el rango NodePort por defecto (30000-32767) no cubre 50000-60000, así que NodePort queda descartado: hostNetwork es la opción correcta y Talos lo permite sin fricción en un nodo control-plane único.  
-  _px-platon/cortes/talconfig.yaml:11-13 (nodo único cortes 10.0.0.151)_
-- Pricing LiveKit Cloud (julio 2026): Build gratis = 5.000 min WebRTC + 1.000 min de agent session/mes, 100 conexiones concurrentes; Ship $50/mes = 150.000 min WebRTC + 5.000 min agent, overage $0,01/min. Un agente SELF-HOSTED que conecta a Cloud cuenta como participante WebRTC normal (no consume agent-session minutes, que son solo para agentes desplegados en Cloud). Dispositivo 24/7 + agente 24/7 = 86.400 min WebRTC/mes: revienta el free tier (5.000) pero cabe en Ship a $50/mes; bajo demanda (~180 min/mes) cabe de sobra en el free tier.  
+## Findings
+- The vendorized LiveKit C SDK accepts ws:// and wss:// and already attaches the ESP-IDF CA bundle (esp_crt_bundle_attach) to the signaling websocket: wss:// with Let's Encrypt cert works without firmware changes; ws:// in LAN is also valid (audio is still encrypted by DTLS-SRTP, only signaling/JWT would go in the clear).  
+  _firmware/managed_components/livekit__livekit/core/url.c:56 and core/signaling.c:261_
+- The firmware connects with gitignored static URL+token (Cloud sandbox with exp ~August 2026): migrating to self-host means changing 2 strings in secrets.zig or requesting the token via HTTP from a token service.  
+  _firmware/main/app.zig:183 and firmware/main/secrets.zig:2-3_
+- Official livekit/livekit-server Helm chart: requires hostNetwork (direct RTC ports on the node, 1 pod per node), UDP 50000-60000 + TCP 7881 + signaling 7880; Redis is OPTIONAL — only needed for multi-replica or egress/ingress, so in cortes (single-node, single-replica) it's not needed. TURN/coturn not needed in home LAN either (device and server on the same network).  
+  _https://docs.livekit.io/transport/self-hosting/kubernetes/ and https://github.com/livekit/livekit/blob/master/config-sample.yaml ("when redis is set, LiveKit will automatically operate in a fully distributed fashion")_
+- In Talos the default NodePort range (30000-32767) does not cover 50000-60000, so NodePort is ruled out: hostNetwork is the right choice and Talos allows it without friction on a single control-plane node.  
+  _px-platon/cortes/talconfig.yaml:11-13 (single node cortes 10.0.0.151)_
+- LiveKit Cloud pricing (July 2026): Build free = 5,000 WebRTC min + 1,000 agent session min/month, 100 concurrent connections; Ship $50/month = 150,000 WebRTC min + 5,000 agent min, overage $0.01/min. A SELF-HOSTED agent connecting to Cloud counts as a normal WebRTC participant (does not consume agent-session minutes, which are only for agents deployed in Cloud). 24/7 device + 24/7 agent = 86,400 WebRTC min/month: bursts the free tier (5,000) but fits in Ship at $50/month; on-demand (~180 min/month) fits well within the free tier.  
   _https://livekit.com/pricing_
-- BVC/Krisp sigue siendo solo-LiveKit-Cloud en 2026: con servidor self-hosted el filtro falla con "audio filter cannot be enabled: LiveKit Cloud is required". Alternativas self-host: plugin OSS livekit-plugins-dtln (Aloware, ONNX in-process, drop-in) o prescindir del filtro y confiar en el beam ASR post-AEC del XVF3800 (que es justo lo que el firmware ya publica).  
-  _https://github.com/livekit/livekit/issues/4029 y https://aloware.github.io/livekit-plugins-dtln/_
-- livekit-agents 1.6.4 (24-jun-2026) es la versión actual; el turn detector se precachea con `download-files` en el build de la imagen, corre en CPU con <500 MB RAM (v1-mini), y el worker expone health check HTTP en :8081. LiveKit recomienda 4 cores/8GB para 10-25 jobs concurrentes → para 1 sesión doméstica bastan ~1 CPU / 2Gi.  
-  _https://pypi.org/project/livekit-agents/ y https://docs.livekit.io/deploy/custom/deployments/_
-- El patrón GitOps del usuario ya contempla apps ajenas al monorepo ZP dentro de Mileto (langfuse, herschel): lo natural es un directorio manifests/sebastian/ + Application ArgoCD dedicada en apps/, con la imagen construida por CI del repo Sebastian — el monorepo ZetesisPortal no se entera.  
-  _px-platon/cortes/manifests/ y px-platon/cortes/apps/zetesis-portal/applicationset.yaml_
-- El ROADMAP ya prevé exactamente esto en P2 (self-host LiveKit + agente en cortes) y como economía del siempre-conectado propone timeout de sala en ARMED como alternativa (a), lo que haría viable el free tier en P0/P1.  
-  _ROADMAP.md:99-105 y ROADMAP.md:160_
+- BVC/Krisp remains LiveKit-Cloud-only in 2026: with self-hosted server the filter fails with "audio filter cannot be enabled: LiveKit Cloud is required". Self-host alternatives: livekit-plugins-dtln OSS plugin (Aloware, ONNX in-process, drop-in) or do without the filter and rely on the XVF3800's post-AEC ASR beam (which is exactly what the firmware already publishes).  
+  _https://github.com/livekit/livekit/issues/4029 and https://aloware.github.io/livekit-plugins-dtln/_
+- livekit-agents 1.6.4 (24-Jun-2026) is the current version; the turn detector is pre-cached with `download-files` in the image build, runs on CPU with <500 MB RAM (v1-mini), and the worker exposes an HTTP health check on :8081. LiveKit recommends 4 cores/8GB for 10-25 concurrent jobs → for 1 home session ~1 CPU / 2Gi is enough.  
+  _https://pypi.org/project/livekit-agents/ and https://docs.livekit.io/deploy/custom/deployments/_
+- The user's GitOps pattern already contemplates apps external to the ZP monorepo within Mileto (langfuse, herschel): the natural fit is a dedicated manifests/sebastian/ directory + ArgoCD Application in apps/, with the image built by the Sebastian repo's CI — the ZetesisPortal monorepo doesn't know about it.  
+  _px-platon/cortes/manifests/ and px-platon/cortes/apps/zetesis-portal/applicationset.yaml_
+- The ROADMAP already foresees exactly this in P2 (LiveKit self-host + agent in cortes) and as an economy measure for the always-connected it proposes room timeout in ARMED as an alternative (a), which would make the free tier viable in P0/P1.  
+  _ROADMAP.md:99-105 and ROADMAP.md:160_
 
-## Diseño
+## Design
 
-# Despliegue Sebastian: LiveKit self-hosted + token service + agente en cortes
+# Sebastian Deployment: LiveKit self-hosted + token service + agent in cortes
 
-## Arquitectura objetivo (P2)
+## Target architecture (P2)
 
 ```
 ESP32-S3 ──ws(s)://──► livekit-server (cortes, hostNetwork 10.0.0.151:7880)
-   ▲  token JWT            ▲ UDP 50000-50100 (media DTLS-SRTP, LAN directa)
+   ▲  token JWT            ▲ UDP 50000-50100 (media DTLS-SRTP, direct LAN)
    │                       │
-token-service (ClusterIP + Ingress interno)   sebastian-agent (Deployment,
+token-service (ClusterIP + internal Ingress)  sebastian-agent (Deployment,
    livekit-api Python, mint JWT + dispatch      livekit-agents 1.6.4 start,
-   con agent_name="sebastian")                  LIVEKIT_URL=ws://livekit:7880)
+   with agent_name="sebastian")                 LIVEKIT_URL=ws://livekit:7880)
 ```
 
-Todo en namespace `sebastian`, ArgoCD Application dedicada, secretos vía Infisical.
+Everything in namespace `sebastian`, dedicated ArgoCD Application, secrets via Infisical.
 
-## Paso 1 — LiveKit server (Helm)
+## Step 1 — LiveKit server (Helm)
 
-- `helm repo add livekit https://helm.livekit.io` → chart `livekit/livekit-server` como Application ArgoCD tipo Helm en `px-platon/cortes/apps/sebastian.yaml` (multi-source: chart + values en Mileto).
-- **Sin Redis** (réplica única, sin egress/ingress), **sin TURN** (LAN; el ESP32 y el server comparten red — coturn solo si algún día hay acceso desde fuera, y entonces por Tailscale mejor).
-- `hostNetwork` implícito del chart (puertos RTC directos). En Talos: NodePort no sirve (rango 30000-32767 < 50000); hostNetwork funciona sin config extra. Reducir el rango UDP a 100 puertos para un caso doméstico.
-- `loadBalancerType: disable`; el 7880 se expone o por hostNetwork directo (`ws://10.0.0.151:7880`) o por Ingress interno con TLS si se quiere wss.
-- API key/secret: generar con `livekit-server generate-keys` y subir a Infisical (`/sebastian`); el chart acepta `existingSecret` o keys inline — usar values con placeholder + ExternalSecret (ver riesgo de keys en values).
+- `helm repo add livekit https://helm.livekit.io` → chart `livekit/livekit-server` as Helm type ArgoCD Application in `px-platon/cortes/apps/sebastian.yaml` (multi-source: chart + values in Mileto).
+- **No Redis** (single replica, no egress/ingress), **no TURN** (LAN; the ESP32 and server share the network — coturn only if there is outside access someday, and then better via Tailscale).
+- Implicit `hostNetwork` from the chart (direct RTC ports). In Talos: NodePort doesn't work (range 30000-32767 < 50000); hostNetwork works without extra config. Reduce the UDP range to 100 ports for a home case.
+- `loadBalancerType: disable`; port 7880 is exposed either by direct hostNetwork (`ws://10.0.0.151:7880`) or by internal Ingress with TLS if wss is desired.
+- API key/secret: generate with `livekit-server generate-keys` and upload to Infisical (`/sebastian`); the chart accepts `existingSecret` or inline keys — use values with placeholder + ExternalSecret (see risk of keys in values).
 
-## Paso 2 — TLS y firmware
+## Step 2 — TLS and firmware
 
-- **P2 pragmático**: `ws://10.0.0.151:7880` directo. Cero TLS; el audio va cifrado por DTLS-SRTP igualmente; solo signaling+JWT en claro dentro de la LAN. Cambio en firmware: solo `secrets.zig`.
-- **Opcional (wss)**: cert-manager ya presente en cortes → Certificate Let's Encrypt (DNS-01) para `livekit.<dominio>` apuntando a 10.0.0.151 en DNS interno. El SDK C ya usa `esp_crt_bundle_attach` (signaling.c:261) y el bundle Mozilla incluye ISRG Root X1 → funciona sin tocar firmware (SNTP ya está).
+- **Pragmatic P2**: direct `ws://10.0.0.151:7880`. Zero TLS; audio is still encrypted by DTLS-SRTP anyway; only signaling+JWT in cleartext within the LAN. Firmware change: only `secrets.zig`.
+- **Optional (wss)**: cert-manager already present in cortes → Let's Encrypt Certificate (DNS-01) for `livekit.<domain>` pointing to 10.0.0.151 in internal DNS. The C SDK already uses `esp_crt_bundle_attach` (signaling.c:261) and the Mozilla bundle includes ISRG Root X1 → works without touching firmware (SNTP is already there).
 
-## Paso 3 — Token service
+## Step 3 — Token service
 
-- FastAPI + `livekit-api` (~40 líneas): `GET /token?identity=esp32-respeaker&room=sebastian` → JWT con `RoomJoin` + `RoomConfiguration(agents=[RoomAgentDispatch(agent_name="sebastian")])` (explicit dispatch del roadmap P0.6). TTL corto para clientes web, TTL largo (~90 días) para el dispositivo.
-- Imagen `python:3.13-slim` + uv; Deployment 1 réplica (50m/128Mi), Service ClusterIP, Ingress interno (misma clase que el resto de cortes). Secret `sebastian-secrets` (LIVEKIT_API_KEY/SECRET) vía ExternalSecret.
-- P0-P1: el dispositivo puede seguir con token estático embebido minteado a mano (`lk token create`); el token service entra cuando haya rotación o más dispositivos.
+- FastAPI + `livekit-api` (~40 lines): `GET /token?identity=esp32-respeaker&room=sebastian` → JWT with `RoomJoin` + `RoomConfiguration(agents=[RoomAgentDispatch(agent_name="sebastian")])` (explicit dispatch from P0.6 roadmap). Short TTL for web clients, long TTL (~90 days) for the device.
+- Image `python:3.13-slim` + uv; Deployment 1 replica (50m/128Mi), Service ClusterIP, internal Ingress (same class as the rest of cortes). Secret `sebastian-secrets` (LIVEKIT_API_KEY/SECRET) via ExternalSecret.
+- P0-P1: the device can continue with a static embedded token minted by hand (`lk token create`); the token service comes in when there is rotation or more devices.
 
-## Paso 4 — Agente Sebastian (Deployment)
+## Step 4 — Sebastian Agent (Deployment)
 
-- Dockerfile en `agent/` (repo Sebastian): uv + python 3.13, `uv run agent.py download-files` en build para cachear turn detector v1-mini (HF_HOME dentro de la imagen). Ver snippet.
-- Cambios de código previos (otra misión, pero condicionan el deploy): upgrade a livekit-agents 1.6.4, `agent_name="sebastian"` en WorkerOptions (explicit dispatch), **quitar BVC** cuando el server sea self-host (gate por env var `LIVEKIT_CLOUD=0`): el beam ASR del XVF ya llega limpio; si hiciera falta, `livekit-plugins-dtln` como sustituto OSS.
-- Recursos: requests 500m/1Gi, limits 2/2Gi (1 sesión + turn detector CPU <500MB). Liveness/readiness: HTTP GET :8081 (health del worker). `terminationGracePeriodSeconds: 600` para no cortar conversaciones en rollouts.
-- Env: `LIVEKIT_URL=ws://livekit-livekit-server.sebastian.svc:7880` (¡el agente va por Service interno, no por hostNetwork!), `LIVEKIT_API_KEY/SECRET` y `OPENAI_API_KEY` desde `sebastian-secrets`.
+- Dockerfile in `agent/` (Sebastian repo): uv + python 3.13, `uv run agent.py download-files` on build to cache v1-mini turn detector (HF_HOME inside the image). See snippet.
+- Prior code changes (another mission, but they condition the deploy): upgrade to livekit-agents 1.6.4, `agent_name="sebastian"` in WorkerOptions (explicit dispatch), **remove BVC** when the server is self-host (gate by env var `LIVEKIT_CLOUD=0`): the XVF ASR beam already arrives clean; if needed, `livekit-plugins-dtln` as OSS replacement.
+- Resources: requests 500m/1Gi, limits 2/2Gi (1 session + CPU turn detector <500MB). Liveness/readiness: HTTP GET :8081 (worker health). `terminationGracePeriodSeconds: 600` so as not to cut conversations on rollouts.
+- Env: `LIVEKIT_URL=ws://livekit-livekit-server.sebastian.svc:7880` (the agent goes via internal Service, not hostNetwork!), `LIVEKIT_API_KEY/SECRET` and `OPENAI_API_KEY` from `sebastian-secrets`.
 
-## Paso 5 — Encaje GitOps (Mileto)
+## Step 5 — GitOps Integration (Mileto)
 
-Recomendación: **manifests en Mileto + imagen desde el repo Sebastian** (patrón ya usado con langfuse/herschel; el monorepo ZP no conoce Sebastian y ArgoCD ya confía en Mileto):
-1. `manifests/infisical/components/secrets-sebastian/` (ExternalSecret) — secretos en Infisical path `/sebastian` del proyecto cortes-cluster.
+Recommendation: **manifests in Mileto + image from the Sebastian repo** (pattern already used with langfuse/herschel; the ZP monorepo doesn't know Sebastian and ArgoCD already trusts Mileto):
+1. `manifests/infisical/components/secrets-sebastian/` (ExternalSecret) — secrets in Infisical path `/sebastian` of the cortes-cluster project.
 2. `manifests/sebastian/` (kustomize: namespace, token-service, agent Deployment) + `helm/values-livekit.yaml`.
-3. `apps/sebastian-project.yaml` + `apps/sebastian.yaml` (Application multi-source: chart livekit + kustomize; sync-wave 0 secretos → 1 apps).
-4. CI en repo Sebastian (GH Actions): build+push `ghcr.io/<user>/sebastian-agent` y `sebastian-token` con tag por SHA/semver; bump manual del tag en Mileto (o Renovate/Image Updater más adelante). No tocar `envs/prod/env.json` de zetesis-portal.
+3. `apps/sebastian-project.yaml` + `apps/sebastian.yaml` (multi-source Application: livekit chart + kustomize; sync-wave 0 secrets → 1 apps).
+4. CI in Sebastian repo (GH Actions): build+push `ghcr.io/<user>/sebastian-agent` and `sebastian-token` with tag by SHA/semver; manual bump of the tag in Mileto (or Renovate/Image Updater later). Do not touch `envs/prod/env.json` from zetesis-portal.
 
-## Tabla de costes (pricing jul-2026)
+## Cost table (July 2026 pricing)
 
-| Escenario | Min/mes | Cloud Build (free) | Cloud Ship ($50) | Self-host cortes |
+| Scenario | Min/month | Cloud Build (free) | Cloud Ship ($50) | Self-host cortes |
 |---|---|---|---|---|
-| Dispositivo 24/7 + agente self-hosted worker | 86.400 WebRTC | ✗ (>5.000) | ✓ $50/mes | $0 marginal |
-| Ídem con agente hosteado en Cloud | 43.200 WebRTC + 43.200 agent | ✗ | ~$432/mes ($50 + 38.200×$0,01) | n/a |
-| Bajo demanda (timeout sala en ARMED, ~90 min uso) | ~180 WebRTC | ✓ $0 | — | $0 |
-| Self-host | — | — | — | $0 + operación (~1 pod, sin Redis) |
+| 24/7 device + self-hosted worker agent | 86,400 WebRTC | ✗ (>5,000) | ✓ $50/month | $0 marginal |
+| Same with agent hosted in Cloud | 43,200 WebRTC + 43,200 agent | ✗ | ~$432/month ($50 + 38,200×$0.01) | n/a |
+| On-demand (room timeout in ARMED, ~90 min use) | ~180 WebRTC | ✓ $0 | — | $0 |
+| Self-host | — | — | — | $0 + operation (~1 pod, no Redis) |
 
-## Recomendación por fase
+## Recommendation by phase
 
-- **P0-P1 (dev)**: seguir en LiveKit Cloud **free tier** implementando el timeout de sala en ARMED (ROADMAP opción a). BVC disponible; iteración sin operar infra. Renovar el token sandbox (expira ~ago-2026) o pasar ya a `lk token create` con proyecto propio.
-- **P2 (producción doméstica)**: self-host en cortes con ws:// LAN, token service, agente como Deployment, sin BVC (beam XVF; DTLN si hiciera falta). $0/mes, la voz no sale de casa salvo el tramo OpenAI Realtime, y habilita el siempre-conectado sin contar minutos.
+- **P0-P1 (dev)**: stay on LiveKit Cloud **free tier** implementing room timeout in ARMED (ROADMAP option a). BVC available; iteration without operating infra. Renew the sandbox token (expires ~Aug-2026) or switch now to `lk token create` with own project.
+- **P2 (home production)**: self-host in cortes with ws:// LAN, token service, agent as Deployment, without BVC (XVF beam; DTLN if needed). $0/month, voice doesn't leave the house except for the OpenAI Realtime segment, and enables always-connected without counting minutes.
 
-## Esfuerzo
+## Effort
 
-Helm LiveKit + values: 0,5 d · token service: 0,5 d · Dockerfile+Deployment agente: 1 d · wiring GitOps/Infisical/CI: 1 d · pruebas E2E con dispositivo (ws, latencia, sin BVC): 1 d.
+LiveKit Helm + values: 0.5 d · token service: 0.5 d · agent Dockerfile+Deployment: 1 d · GitOps/Infisical/CI wiring: 1 d · E2E tests with device (ws, latency, no BVC): 1 d.
 
-## Código
-**px-platon/cortes/helm/values-livekit.yaml (nuevo, en Mileto)** — values de Helm para livekit/livekit-server en cortes (single-node, LAN, sin Redis ni TURN) — Mileto: px-platon/cortes/helm/values-livekit.yaml
+## Code
+**px-platon/cortes/helm/values-livekit.yaml (new, in Mileto)** — Helm values for livekit/livekit-server in cortes (single-node, LAN, no Redis or TURN) — Mileto: px-platon/cortes/helm/values-livekit.yaml
 
 ```yaml
 replicaCount: 1
@@ -105,27 +105,27 @@ terminationGracePeriodSeconds: 300
 livekit:
   log_level: info
   rtc:
-    use_external_ip: false        # LAN: anuncia la IP del nodo (10.0.0.151)
+    use_external_ip: false        # LAN: announces the node's IP (10.0.0.151)
     port_range_start: 50000
-    port_range_end: 50100         # 100 puertos bastan para uso domestico
+    port_range_end: 50100         # 100 ports are enough for home use
     tcp_port: 7881
-  # sin redis: replica unica, sin egress/ingress
+  # no redis: single replica, no egress/ingress
   keys:
-    # generar con: docker run --rm livekit/livekit-server generate-keys
-    # inyectado via values secreto o ExternalSecret + helm secret ref
+    # generate with: docker run --rm livekit/livekit-server generate-keys
+    # injected via values secret or ExternalSecret + helm secret ref
     APIsebastian: "<LIVEKIT_API_SECRET>"
   turn:
-    enabled: false                # LAN directa; sin coturn
+    enabled: false                # direct LAN; without coturn
 
 loadBalancer:
-  type: disable                   # nada de LB cloud; hostNetwork expone 7880
+  type: disable                   # no cloud LB; hostNetwork exposes 7880
 
 resources:
   requests: { cpu: 250m, memory: 256Mi }
   limits:   { cpu: "2",  memory: 1Gi }
 ```
 
-**agent/Dockerfile (nuevo, repo Sebastian)** — Dockerfile del agente (repo Sebastian, agent/Dockerfile): uv + python 3.13 + precache del turn detector en build
+**agent/Dockerfile (new, Sebastian repo)** — Agent Dockerfile (Sebastian repo, agent/Dockerfile): uv + python 3.13 + turn detector precache on build
 
 ```dockerfile
 FROM python:3.13-slim
@@ -139,18 +139,18 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --locked --no-dev
 
 COPY agent.py ./
-# descarga los pesos del turn detector v1-mini (y demas modelos) a la imagen
+# downloads the v1-mini turn detector weights (and other models) to the image
 RUN uv run agent.py download-files
 
-# usuario no-root (la imagen corre en cortes)
+# non-root user (the image runs in cortes)
 RUN useradd -m agent && chown -R agent:agent /app
 USER agent
 
-EXPOSE 8081  # health check del worker
+EXPOSE 8081  # worker health check
 CMD ["uv", "run", "agent.py", "start"]
 ```
 
-**px-platon/cortes/manifests/sebastian/agent-deployment.yaml (nuevo, en Mileto)** — Deployment del agente + ExternalSecret siguiendo el patron Infisical de cortes — Mileto: manifests/sebastian/ y manifests/infisical/components/secrets-sebastian/
+**px-platon/cortes/manifests/sebastian/agent-deployment.yaml (new, in Mileto)** — Agent Deployment + ExternalSecret following the cortes Infisical pattern — Mileto: manifests/sebastian/ and manifests/infisical/components/secrets-sebastian/
 
 ```yaml
 apiVersion: external-secrets.io/v1beta1
@@ -170,10 +170,10 @@ kind: Deployment
 metadata: { name: sebastian-agent, namespace: sebastian }
 spec:
   replicas: 1
-  strategy: { type: Recreate }   # un worker; evita doble dispatch en rollout
+  strategy: { type: Recreate }   # one worker; avoids double dispatch on rollout
   template:
     spec:
-      terminationGracePeriodSeconds: 600   # deja acabar la conversacion
+      terminationGracePeriodSeconds: 600   # lets the conversation finish
       containers:
         - name: agent
           image: ghcr.io/OWNER/sebastian-agent:v0.1.0
@@ -181,7 +181,7 @@ spec:
             - name: LIVEKIT_URL
               value: ws://livekit-livekit-server.sebastian.svc.cluster.local:7880
             - name: LIVEKIT_CLOUD
-              value: "0"          # gate en agent.py: sin BVC en self-host
+              value: "0"          # gate in agent.py: no BVC in self-host
           envFrom: [ { secretRef: { name: sebastian-secrets } } ]
           ports: [ { containerPort: 8081, name: health } ]
           livenessProbe:
@@ -194,24 +194,24 @@ spec:
             limits:   { cpu: "2",  memory: 2Gi }
 ```
 
-## Riesgos
-- **hostNetwork en nodo único: cualquier otro pod que use los puertos 7880-7881/50000-50100 colisiona, y un upgrade del chart corta las salas activas (sin HA posible con 1 nodo).** → Rango UDP reducido (50000-50100), Recreate strategy asumida, y ventana de mantenimiento; el dispositivo ya reconecta solo al arrancar (requireLiveKitOk + reintentos).
-- **Pérdida de BVC al self-hostear: hoy agent.py depende de noise_cancellation.BVC() y falla en server self-hosted ("LiveKit Cloud is required").** → Gate por env var para desactivar BVC fuera de Cloud; el beam ASR post-AEC del XVF3800 ya es la señal limpia (decisión previa del firmware); plan B: livekit-plugins-dtln (OSS, ONNX, in-process).
-- **API keys de LiveKit inline en values de Helm (el chart las espera en livekit.keys) acabarían en git de Mileto.** → Values con placeholder + secret plugin/SOPS ya usado en Mileto (inline-secrets.sops.yaml existe), o montar la config completa desde un Secret generado por ExternalSecret en vez de keys inline.
-- **ws:// en LAN expone el JWT de señalización en claro; y si mañana se quiere acceso fuera de casa, faltará TURN/TLS.** → El media va siempre DTLS-SRTP; para remoto usar Tailscale (ya desplegado en cortes: manifests/tailscale) en lugar de abrir TURN a internet; wss interno con cert-manager como mejora incremental.
-- **Token estático embebido en firmware caduca (el actual expira ~agosto 2026) y obliga a reflashear.** → Token service con TTL 90 días + endpoint HTTP que el firmware consulte al boot (P2); mientras tanto, mintear tokens largos con lk CLI y documentar la fecha.
-- **Free tier Cloud en P0/P1 se agota si el timeout de sala en ARMED no se implementa (86.400 min/mes ≫ 5.000).** → Implementar primero la desconexión en ARMED (ROADMAP opción a); con ~180 min/mes reales sobra margen; si se agota, Ship $50/mes como colchón temporal.
-- **Verificación pendiente de si cortes tiene el ingress firewall de Talos activo (bloquearía UDP 50000-50100 y 7880/7881 hacia el nodo).** → Revisar talconfig.yaml/patches antes del despliegue y abrir los puertos en la NetworkRuleConfig si existe.
+## Risks
+- **hostNetwork on single node: any other pod using ports 7880-7881/50000-50100 collides, and a chart upgrade cuts active rooms (no HA possible with 1 node).** → Reduced UDP range (50000-50100), Recreate strategy assumed, and maintenance window; the device already reconnects automatically on boot (requireLiveKitOk + retries).
+- **Loss of BVC when self-hosting: today agent.py depends on noise_cancellation.BVC() and fails on self-hosted server ("LiveKit Cloud is required").** → Gate by env var to disable BVC outside Cloud; the post-AEC ASR beam from the XVF3800 is already the clean signal (prior firmware decision); plan B: livekit-plugins-dtln (OSS, ONNX, in-process).
+- **LiveKit API keys inline in Helm values (the chart expects them in livekit.keys) would end up in Mileto's git.** → Values with placeholder + plugin/SOPS secret already used in Mileto (inline-secrets.sops.yaml exists), or mount the full config from a Secret generated by ExternalSecret instead of inline keys.
+- **ws:// in LAN exposes the signaling JWT in cleartext; and if outside access is desired tomorrow, TURN/TLS will be missing.** → Media is always DTLS-SRTP; for remote use Tailscale (already deployed in cortes: manifests/tailscale) instead of opening TURN to the internet; internal wss with cert-manager as an incremental improvement.
+- **Static embedded token in firmware expires (current one expires ~August 2026) and forces reflashing.** → Token service with 90-day TTL + HTTP endpoint that the firmware queries at boot (P2); meanwhile, mint long tokens with lk CLI and document the date.
+- **Cloud free tier in P0/P1 runs out if the room timeout in ARMED is not implemented (86,400 min/month ≫ 5,000).** → Implement disconnection in ARMED first (ROADMAP option a); with ~180 real min/month there is plenty of margin; if it runs out, Ship $50/month as a temporary cushion.
+- **Pending verification if cortes has the Talos ingress firewall active (would block UDP 50000-50100 and 7880/7881 towards the node).** → Review talconfig.yaml/patches before deployment and open the ports in the NetworkRuleConfig if it exists.
 
-## Preguntas abiertas
-- ¿Registry destino para las imágenes sebastian-agent/sebastian-token: ghcr.io del usuario o el Harbor del cluster primario (px-socrates)? Condiciona los imagePullSecrets en cortes.
-- ¿Tiene cortes el ingress firewall de Talos configurado (NetworkRuleConfig)? Si sí, hay que abrir UDP 50000-50100 + TCP 7880/7881 explícitamente.
-- ¿Se quiere wss:// desde el día uno (requiere DNS interno resolviendo livekit.<dominio> → 10.0.0.151 + cert DNS-01) o basta ws:// LAN en P2?
-- ¿El path de Infisical será /sebastian en el proyecto cortes-cluster (nuevo) o se reutiliza /zetesis-portal? Recomendado path propio.
-- ¿Cuándo se hace el upgrade a livekit-agents 1.6.4 + explicit dispatch (agent_name)? El Deployment lo asume; con 1.2 el agente auto-dispatcharía a cualquier sala.
-- Al quitar BVC en self-host, ¿basta el beam ASR del XVF en entorno real (TV/música de fondo) o hay que integrar livekit-plugins-dtln? Requiere prueba A/B con grabaciones.
+## Open questions
+- Target registry for the sebastian-agent/sebastian-token images: the user's ghcr.io or the primary cluster Harbor (px-socrates)? Conditions the imagePullSecrets in cortes.
+- Does cortes have the Talos ingress firewall configured (NetworkRuleConfig)? If yes, UDP 50000-50100 + TCP 7880/7881 must be opened explicitly.
+- Is wss:// desired from day one (requires internal DNS resolving livekit.<domain> → 10.0.0.151 + DNS-01 cert) or is LAN ws:// enough in P2?
+- Will the Infisical path be /sebastian in the cortes-cluster project (new) or will /zetesis-portal be reused? Dedicated path recommended.
+- When will the upgrade to livekit-agents 1.6.4 + explicit dispatch (agent_name) happen? The Deployment assumes it; with 1.2 the agent would auto-dispatch to any room.
+- When removing BVC in self-host, is the XVF ASR beam enough in a real environment (TV/background music) or does livekit-plugins-dtln need to be integrated? Requires A/B testing with recordings.
 
-## Fuentes
+## Sources
 - https://docs.livekit.io/transport/self-hosting/kubernetes/
 - https://github.com/livekit/livekit-helm/blob/master/server-sample.yaml
 - https://github.com/livekit/livekit/blob/master/config-sample.yaml

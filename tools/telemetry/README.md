@@ -1,76 +1,76 @@
-# Telemetría del dispositivo — serial → OpenTelemetry → Grafana
+# Device Telemetry — serial → OpenTelemetry → Grafana
 
-Observabilidad completa del Sebastián en el Mac de desarrollo. El transporte es
-el **puerto serie**: sigue funcionando exactamente cuando WiFi/LiveKit fallan,
-que es cuando más lo necesitas. Nada de esto toca el firmware en runtime ni
-resetea el dispositivo al engancharse.
+Complete observability of Sebastian on the development Mac. The transport is
+the **serial port**: it keeps working exactly when WiFi/LiveKit fail,
+which is when you need it most. None of this touches the firmware at runtime nor
+resets the device upon attachment.
 
 ```
 device ──serial──▶ bridge.py ──OTLP/HTTP──▶ grafana/otel-lgtm ──▶ Grafana :3000
-                   (parseo → métricas          (Collector + Prometheus
-                    + logs OTel)                + Loki + Grafana)
+                   (parsing → metrics          (Collector + Prometheus
+                    + OTel logs)                + Loki + Grafana)
 agent.py (Python) ──OTLP/HTTP─────────────────────▲
-                   (agent/telemetry.py: logs + métricas de sesión)
+                   (agent/telemetry.py: logs + session metrics)
 ```
 
-Las dos mitades de cada conversación en el mismo Grafana:
-`service_name="sebastian-device"` (firmware, vía serial) y
-`service_name="sebastian-agent"` (LiveKit/OpenAI/Home Assistant, vía OTel SDK).
+The two halves of each conversation in the same Grafana:
+`service_name="sebastian-device"` (firmware, via serial) and
+`service_name="sebastian-agent"` (LiveKit/OpenAI/Home Assistant, via OTel SDK).
 
-## Arrancar
+## Startup
 
 ```bash
-# 1. Stack LGTM (una sola imagen con todo)
+# 1. LGTM Stack (a single image with everything)
 docker run -d --name sebastian-lgtm -p 3000:3000 -p 4317:4317 -p 4318:4318 \
     grafana/otel-lgtm:latest
 
-# 2. Bridge (deps inline via uv; NO puede haber otro proceso leyendo el puerto)
+# 2. Bridge (inline deps via uv; there CANNOT be another process reading the port)
 uv run tools/telemetry/bridge.py
 
-# 3. Dashboard (una vez, o tras recrear el contenedor)
+# 3. Dashboard (once, or after recreating the container)
 curl -s -X POST http://localhost:3000/api/dashboards/db -u admin:admin \
     -H "Content-Type: application/json" -d @tools/telemetry/dashboard.json
 ```
 
 Grafana: **http://localhost:3000** (admin/admin) → dashboard
-"Sebastián — Telemetría del dispositivo" (`/d/sebastian-device`).
+"Sebastian — Device Telemetry" (`/d/sebastian-device`).
 
-## Qué mide
+## What it measures
 
-| Métrica | Significado |
+| Metric | Meaning |
 |---|---|
-| `sebastian_pcm_peak` / `sebastian_pcm_dc` | Salud del canal I2S. `peak=0` = sordo; `dc` alto = canal clavado (audio machacado). Los dos estados degenerados que nos volvieron locos. |
-| `sebastian_wake_prob_max` | Probabilidad máx del modelo por ventana de 5s. |
-| `sebastian_wake_detections_total` / `sebastian_prob_spikes_total` | Detecciones y casi-detecciones (>30%, etiquetadas por decena). |
-| `sebastian_sessions_opened_total` / `closed_total` | Ciclo de sesiones LiveKit. |
-| `sebastian_session_active` / `sebastian_agent_state` | Estado en vivo (el agente publica speaking/listening por data channel). |
-| `sebastian_echo_gated_peak` / `sebastian_echo_live` | Eco residual mientras habla el agente. `gated_peak` = half-duplex (0 en full-duplex, no hay gate); `live_echo` = equivalente full-duplex (nivel de micro con el agente hablando — **alto = el AEC está fugando**). |
-| `sebastian_render_peak` / `sebastian_keepalive` | Salida del altavoz mientras habla el agente, y el keepalive que mantiene viva la sesión con esa señal — **independiente del data channel SCTP** (que se cae). Ver [esp-webrtc-solution#186](https://github.com/espressif/esp-webrtc-solution/issues/186). |
-| `sebastian_reboots_total{reason=…}` / `sebastian_panics_total` | Reinicios con su causa (`0xc`=crash SW, `0x15`=reset USB…). |
-| `sebastian_channel_heals_total` | Auto-curaciones del I2S (resyncs forzados). |
-| `sebastian_sctp_init_total` | Retries SCTP — tormenta = sesión huérfana del SDK. |
-| `sebastian_feed_max_us` / `gap_max_us` | Presupuesto real-time del wake task (feed <10ms = sano). |
-| `sebastian_preroll_sent_total` | Pre-rolls entregados al agente. |
-| `sebastian_muted` | 1 mientras el botón de mute está pulsado (el XVF streamea ceros — no confundir con canal muerto). |
-| `sebastian_serial_age_seconds` / `serial_attached` | **Heartbeat**: un gauge congelado parece sano; esto distingue "vivo y callado" de "muerto/desenchufado". Edad >15s = algo pasa. |
-| `sebastian_device_uptime_seconds` | Uptime desde los timestamps `I (ms)` de IDF — un salto hacia atrás = reinicio. |
-| `sebastian_sessions_closed_total{reason=…}` | Cierres etiquetados: `max_duration` vs `silence_timeout` vs `disconnected_early`. |
+| `sebastian_pcm_peak` / `sebastian_pcm_dc` | I2S channel health. `peak=0` = deaf; high `dc` = pegged channel (crushed audio). The two degenerate states that drove us crazy. |
+| `sebastian_wake_prob_max` | Max model probability per 5s window. |
+| `sebastian_wake_detections_total` / `sebastian_prob_spikes_total` | Detections and near-detections (>30%, labeled by decade). |
+| `sebastian_sessions_opened_total` / `closed_total` | LiveKit session cycle. |
+| `sebastian_session_active` / `sebastian_agent_state` | Live state (the agent publishes speaking/listening via data channel). |
+| `sebastian_echo_gated_peak` / `sebastian_echo_live` | Residual echo while the agent is speaking. `gated_peak` = half-duplex (0 in full-duplex, no gate); `live_echo` = full-duplex equivalent (mic level with the agent speaking — **high = the AEC is leaking**). |
+| `sebastian_render_peak` / `sebastian_keepalive` | Speaker output while the agent is speaking, and the keepalive that keeps the session alive with that signal — **independent of the SCTP data channel** (which drops). See [esp-webrtc-solution#186](https://github.com/espressif/esp-webrtc-solution/issues/186). |
+| `sebastian_reboots_total{reason=…}` / `sebastian_panics_total` | Reboots with their cause (`0xc`=SW crash, `0x15`=USB reset…). |
+| `sebastian_channel_heals_total` | I2S self-healing (forced resyncs). |
+| `sebastian_sctp_init_total` | SCTP retries — storm = orphaned SDK session. |
+| `sebastian_feed_max_us` / `gap_max_us` | Real-time budget of the wake task (feed <10ms = healthy). |
+| `sebastian_preroll_sent_total` | Pre-rolls delivered to the agent. |
+| `sebastian_muted` | 1 while the mute button is pressed (the XVF streams zeros — not to be confused with a dead channel). |
+| `sebastian_serial_age_seconds` / `serial_attached` | **Heartbeat**: a frozen gauge seems healthy; this distinguishes "alive and quiet" from "dead/unplugged". Age >15s = something is wrong. |
+| `sebastian_device_uptime_seconds` | Uptime from IDF `I (ms)` timestamps — a backward jump = reboot. |
+| `sebastian_sessions_closed_total{reason=…}` | Labeled closures: `max_duration` vs `silence_timeout` vs `disconnected_early`. |
 
-**Lado agente** (`sebastian_agent_*`): `jobs_total` (sesiones aceptadas),
-`turns_total{role}` (turnos de conversación), `tool_calls_total{tool}` (Home
+**Agent side** (`sebastian_agent_*`): `jobs_total` (accepted sessions),
+`turns_total{role}` (conversation turns), `tool_calls_total{tool}` (Home
 Assistant), `state_changes_total{state}`, `errors_total`.
 
-**Logs completos** en Loki: `{service_name="sebastian-device"}` — cada línea del
-serial con severidad (los `E (…)`/PANIC como error, `W (…)` como warning) — y
-`{service_name="sebastian-agent"}` con **la transcripción de cada turno**
-(`turn [user]: …` / `turn [assistant]: …`), las herramientas ejecutadas y los
-errores de sesión del lado Python.
+**Complete logs** in Loki: `{service_name="sebastian-device"}` — each serial
+line with severity (`E (…)`/PANIC as error, `W (…)` as warning) — and
+`{service_name="sebastian-agent"}` with **the transcription of each turn**
+(`turn [user]: …` / `turn [assistant]: …`), the executed tools and the
+session errors on the Python side.
 
-## Notas operativas
+## Operational notes
 
-- **Un solo lector del puerto**: para flashear, para el bridge (`pkill -f bridge.py`),
-  flashea, y relánzalo. Se auto-reconecta si el puerto re-enumera.
-- El bridge nunca toca DTR/RTS — engancharse no resetea el device.
-- Si cambias el formato de una línea de log del firmware, actualiza el regex
-  correspondiente en `bridge.py` (y viceversa: las líneas parseadas están
-  documentadas allí).
+- **A single port reader**: to flash, stop the bridge (`pkill -f bridge.py`),
+  flash, and relaunch it. It auto-reconnects if the port re-enumerates.
+- The bridge never touches DTR/RTS — attaching does not reset the device.
+- If you change the format of a firmware log line, update the corresponding regex
+  in `bridge.py` (and vice versa: the parsed lines are
+  documented there).

@@ -1,78 +1,78 @@
-# Sebastian — Guía de compilación, flasheo y ejecución
+# Sebastian — Build, Flash, and Run Guide
 
-Guía práctica de operador para el proyecto **Sebastian**: un altavoz de voz basado
-en **ReSpeaker XVF3800 + XIAO ESP32-S3** que se une a una sala de LiveKit, más un
-**agente Python** que conversa con él usando OpenAI Realtime.
+Practical operator guide for the **Sebastian** project: a voice speaker based
+on **ReSpeaker XVF3800 + XIAO ESP32-S3** that joins a LiveKit room, plus a
+**Python agent** that converses with it using OpenAI Realtime.
 
-El sistema tiene dos mitades:
+The system has two halves:
 
-- **`firmware/`** — firmware del ESP32-S3 (ESP-IDF v5.4 + Zig), se une a la sala LiveKit.
-- **`agent/`** — agente Python (LiveKit Agents + OpenAI Realtime) que se une a la misma sala.
+- **`firmware/`** — ESP32-S3 firmware (ESP-IDF v5.4 + Zig), joins the LiveKit room.
+- **`agent/`** — Python agent (LiveKit Agents + OpenAI Realtime) that joins the same room.
 
-Ambos se encuentran en la **misma sala de LiveKit** y ahí conversan.
+Both meet in the **same LiveKit room** and converse there.
 
 ---
 
-## 1. Requisitos previos
+## 1. Prerequisites
 
-- **ESP-IDF v5.4** instalado en `~/esp/esp-idf`. Se activa con:
+- **ESP-IDF v5.4** installed in `~/esp/esp-idf`. It is activated with:
   ```bash
   source ~/esp/esp-idf/export.sh
   ```
-- **Fork de Zig de Espressif** (`0.16-xtensa`): lo descarga automáticamente el
-  propio build (`cmake/zig.cmake`). **No hay que instalar nada a mano.**
-- **La placa** (ReSpeaker XVF3800 + XIAO ESP32-S3) enumera en macOS como
+- **Espressif's Zig fork** (`0.16-xtensa`): it is automatically downloaded by the
+  build itself (`cmake/zig.cmake`). **Nothing needs to be installed manually.**
+- **The board** (ReSpeaker XVF3800 + XIAO ESP32-S3) enumerates on macOS as
   `/dev/cu.usbmodem101`.
-- **Agente Python**: necesita [`uv`](https://github.com/astral-sh/uv) (astral uv),
-  una **clave de OpenAI** y **credenciales de LiveKit**.
+- **Python Agent**: requires [`uv`](https://github.com/astral-sh/uv) (astral uv),
+  an **OpenAI key**, and **LiveKit credentials**.
 
 ---
 
-## 2. Secretos (todos gitignoreados — NUNCA commitear)
+## 2. Secrets (all gitignored — NEVER commit)
 
-Ninguno de estos ficheros está en git. Hay que crearlos localmente.
+None of these files are in git. They must be created locally.
 
 ### `firmware/main/secrets.zig`
 
-Una sola const: la URL del **token server** (`agent/token_server.py`) en la LAN
-del dispositivo. El firmware ya no lleva un JWT estático — pide uno fresco (con el
-dispatch del agente embebido) en cada sesión. Forma:
+A single const: the URL of the **token server** (`agent/token_server.py`) on the device's LAN.
+The firmware no longer carries a static JWT — it requests a fresh one (with the
+embedded agent dispatch) in each session. Format:
 
 ```zig
-pub const token_server_url = "http://<ip-lan-del-server>:8787/token";
+pub const token_server_url = "http://<lan-ip-of-server>:8787/token";
 ```
 
-Arranca el token server con `uv run token_server.py` desde `agent/` (usa el mismo
-`.env` que el agente). La `server_url` de LiveKit ya no se pone aquí: la devuelve
-el token server en la respuesta.
+Start the token server with `uv run token_server.py` from `agent/` (it uses the same
+`.env` as the agent). LiveKit's `server_url` is no longer placed here: it is returned
+by the token server in the response.
 
 ### `firmware/sdkconfig`
 
-Contiene el SSID/contraseña de WiFi **reales**. Los valores de
-`sdkconfig.defaults` son marcadores de posición (`"changeme"`). Hay que fijar:
+Contains the **actual** WiFi SSID/password. The values in
+`sdkconfig.defaults` are placeholders (`"changeme"`). You need to set:
 
 ```
-CONFIG_LK_EXAMPLE_WIFI_SSID="<tu-ssid>"
-CONFIG_LK_EXAMPLE_WIFI_PASSWORD="<tu-password>"
+CONFIG_LK_EXAMPLE_WIFI_SSID="<your-ssid>"
+CONFIG_LK_EXAMPLE_WIFI_PASSWORD="<your-password>"
 ```
 
-> `sdkconfig` se genera en el primer `idf.py build` a partir de `sdkconfig.defaults`.
-> Edita ahí las credenciales reales; está gitignoreado.
+> `sdkconfig` is generated during the first `idf.py build` from `sdkconfig.defaults`.
+> Edit the actual credentials there; it is gitignored.
 
 ### `agent/.env`
 
-Variables del agente (ver `agent/.env.example`):
+Agent variables (see `agent/.env.example`):
 
 ```
 OPENAI_API_KEY=<...>
-LIVEKIT_URL=wss://<tu-proyecto>.livekit.cloud
+LIVEKIT_URL=wss://<your-project>.livekit.cloud
 LIVEKIT_API_KEY=<...>
 LIVEKIT_API_SECRET=<...>
 ```
 
 ---
 
-## 3. Compilar el firmware
+## 3. Build the firmware
 
 ```bash
 source ~/esp/esp-idf/export.sh
@@ -80,19 +80,19 @@ cd ~/Developer/Sebastian/firmware
 idf.py build
 ```
 
-> Las líneas del tipo `unsupported hash type blake2` son avisos inofensivos de
-> pyenv; se pueden ignorar.
+> Lines like `unsupported hash type blake2` are harmless warnings from
+> pyenv; they can be ignored.
 
-La placa es un **ESP32-S3R8** (8 MB flash, 8 MB PSRAM octal). El target y la
-configuración de flash/PSRAM ya vienen fijados en `sdkconfig.defaults`.
+The board is an **ESP32-S3R8** (8 MB flash, 8 MB octal PSRAM). The target and the
+flash/PSRAM configuration are already set in `sdkconfig.defaults`.
 
 ---
 
-## 4. Flashear
+## 4. Flashing
 
-### Método fiable (recomendado)
+### Reliable method (recommended)
 
-El XIAO ESP32-S3 usa **USB-JTAG nativo**; el `default_reset` de esptool lo activa.
+The XIAO ESP32-S3 uses **native USB-JTAG**; esptool's `default_reset` activates it.
 
 ```bash
 python -m esptool --chip esp32s3 -p /dev/cu.usbmodem101 --before default_reset --after hard_reset \
@@ -100,76 +100,76 @@ python -m esptool --chip esp32s3 -p /dev/cu.usbmodem101 --before default_reset -
   0x0 build/bootloader/bootloader.bin 0x8000 build/partition_table/partition-table.bin 0x10000 build/sebastian.bin
 ```
 
-### Alternativa
+### Alternative
 
 ```bash
 idf.py -p /dev/cu.usbmodem101 flash
 ```
 
-### Nota — DFU del XVF3800 en el primer arranque
+### Note — XVF3800 DFU on first boot
 
-En el **primer arranque** el firmware actualiza (DFU) el XVF3800 a la firmware
-**I2S-master** por I2C. Tarda **~30-60 s** (ver `docs/XVF3800.md`). Ocurre **una
-sola vez**: en arranques posteriores el XVF ya está en 1.0.7 y se lo salta.
-
----
-
-## 5. Recuperación de flasheo (importante)
-
-Si la placa está en bucle de crash o colgada, esptool falla con
-`Failed to connect: No serial data received`. Arreglos, en orden:
-
-1. **Reintentar** el comando de esptool varias veces — el reset por USB-JTAG a
-   veces necesita 2-3 intentos.
-2. **Ciclo de alimentación físico**: desenchufa el USB, espera ~3 s, vuelve a
-   enchufar y flashea.
-3. **Modo descarga manual**: mantén pulsado el botón **BOOT** (recessed) de la
-   PLACA mientras enchufas el USB.
-
-> La placa **no se brickea** con esto: se recupera.
+On the **first boot**, the firmware updates (DFU) the XVF3800 to the
+**I2S-master** firmware via I2C. It takes **~30-60 s** (see `docs/XVF3800.md`). This happens **only
+once**: on subsequent boots the XVF is already at 1.0.7 and skips it.
 
 ---
 
-## 6. Ejecutar el agente
+## 5. Flashing recovery (important)
+
+If the board is in a crash loop or hung, esptool fails with
+`Failed to connect: No serial data received`. Fixes, in order:
+
+1. **Retry** the esptool command several times — the USB-JTAG reset
+   sometimes needs 2-3 attempts.
+2. **Physical power cycle**: unplug the USB, wait ~3 s, plug it back
+   in, and flash.
+3. **Manual download mode**: press and hold the **BOOT** button (recessed) on the
+   BOARD while plugging in the USB.
+
+> The board **does not get bricked** by this: it recovers.
+
+---
+
+## 6. Run the agent
 
 ```bash
 cd ~/Developer/Sebastian/agent
-uv sync            # solo la primera vez
+uv sync            # only the first time
 uv run agent.py dev
 ```
 
-> `uv run agent.py start` es el modo de worker de producción; `dev` es local con hot-reload.
+> `uv run agent.py start` is production worker mode; `dev` is local with hot-reload.
 
-### CRÍTICO: un solo agente a la vez
+### CRITICAL: only one agent at a time
 
-Ejecuta **exactamente UN** proceso de agente. Varios agentes hacen que el
-asistente **"hable consigo mismo"** o se comporte de forma errática.
+Run **exactly ONE** agent process. Multiple agents cause the
+assistant to **"talk to itself"** or behave erratically.
 
-Para matar procesos sueltos y arrancar uno limpio:
+To kill rogue processes and start a clean one:
 
 ```bash
 pkill -9 -f "agent.py"
-# ...luego arranca uno solo
+# ...then start just one
 uv run agent.py dev
 ```
 
 ---
 
-## 7. Dispatch: meter el agente en la sala del dispositivo
+## 7. Dispatch: get the agent into the device's room
 
-El agente **solo se auto-une a una sala de LiveKit NUEVA (fresca)**. Para meterlo
-en la sala junto con el dispositivo: **borra la sala** y **resetea el dispositivo**
-para que se re-una en una sala fresca.
+The agent **only auto-joins a NEW (fresh) LiveKit room**. To put it
+in the room together with the device: **delete the room** and **reset the device**
+so it rejoins a fresh room.
 
 ```bash
-# Requiere las env vars LIVEKIT_URL / LIVEKIT_API_KEY / LIVEKIT_API_SECRET
+# Requires the env vars LIVEKIT_URL / LIVEKIT_API_KEY / LIVEKIT_API_SECRET
 lk room delete sebastian
 
-# Resetea la placa (se re-une fresca)
+# Reset the board (rejoins fresh)
 python -m esptool --chip esp32s3 -p /dev/cu.usbmodem101 --before default_reset --after hard_reset chip_id
 ```
 
-Verifica que la sala tiene **2 participantes** (dispositivo + agente):
+Verify that the room has **2 participants** (device + agent):
 
 ```bash
 lk room list
@@ -177,21 +177,21 @@ lk room list
 
 ---
 
-## 8. Verificación de audio
+## 8. Audio verification
 
-El agente graba el track de micrófono entrante en `/tmp/sebastian_rx.wav`
-(16 kHz mono). Para comprobar **lo que el agente realmente oye**:
+The agent records the incoming microphone track to `/tmp/sebastian_rx.wav`
+(16 kHz mono). To check **what the agent actually hears**:
 
 ```bash
-afplay /tmp/sebastian_rx.wav      # escuchar
+afplay /tmp/sebastian_rx.wav      # listen
 ```
 
-Para un análisis cuantitativo, un script corto en Python con los módulos `wave`
-y `array` que calcule RMS por ventana de 0.5 s, pico, cuenta de clipping y un
-espectro aproximado:
+For quantitative analysis, a short Python script with the `wave`
+and `array` modules that calculates RMS per 0.5 s window, peak, clipping count, and a
+rough spectrum:
 
-> Nota: `audioop` fue **eliminado en Python 3.13**, por eso se usa `array` en su
-> lugar.
+> Note: `audioop` was **removed in Python 3.13**, which is why `array` is used
+> instead.
 
 ```python
 import wave, array, math
@@ -203,7 +203,7 @@ with wave.open("/tmp/sebastian_rx.wav", "rb") as w:
 samples = array.array("h")
 samples.frombytes(frames)
 
-window = int(rate * 0.5)  # ventanas de 0.5 s
+window = int(rate * 0.5)  # 0.5 s windows
 peak = max(abs(s) for s in samples)
 clipping = sum(1 for s in samples if abs(s) >= 32700)
 
@@ -216,50 +216,50 @@ for i in range(0, len(samples), window):
     print(f"t={i / rate:5.1f}s  rms={rms:8.1f}")
 ```
 
-> **Lección clave**: los **NIVELES** de audio no son lo mismo que la
-> **INTELIGIBILIDAD**. Hay que **escuchar** y/o mirar el **espectro** — un RMS
-> sano no garantiza que se entienda nada.
+> **Key takeaway**: audio **LEVELS** are not the same as
+> **INTELLIGIBILITY**. You have to **listen** and/or look at the **spectrum** — a healthy
+> RMS does not guarantee that anything can be understood.
 
 ---
 
-## 9. Monitor serie
+## 9. Serial monitor
 
 ```bash
 cat /dev/cu.usbmodem101
-# o bien
+# or else
 idf.py -p /dev/cu.usbmodem101 monitor
 ```
 
-En el arranque, el log de init muestra:
+On boot, the init log shows:
 
-- **Escaneo I2C**: espera `0x18` (AIC3104) y `0x2C` (XVF3800).
-- La **DFU/versión del XVF**.
+- **I2C scan**: expects `0x18` (AIC3104) and `0x2C` (XVF3800).
+- The **DFU/version of the XVF**.
 - `mic source started`.
-- El estado de la sala (room state).
+- The room state.
 
 ---
 
-## 10. Flujo de trabajo completo (resumen)
+## 10. Full workflow (summary)
 
 ```bash
-# 1. Compilar
+# 1. Build
 source ~/esp/esp-idf/export.sh
 cd ~/Developer/Sebastian/firmware
 idf.py build
 
-# 2. Flashear
+# 2. Flash
 idf.py -p /dev/cu.usbmodem101 flash
 
-# 3. Arrancar UN agente
+# 3. Start ONE agent
 cd ~/Developer/Sebastian/agent
 pkill -9 -f "agent.py"
 uv run agent.py dev
 
-# 4. Dispatch a sala fresca
+# 4. Dispatch to a fresh room
 lk room delete sebastian
 python -m esptool --chip esp32s3 -p /dev/cu.usbmodem101 --before default_reset --after hard_reset chip_id
 
-# 5. Verificar
-lk room list                 # -> 2 participantes
-afplay /tmp/sebastian_rx.wav # -> escuchar lo que oye el agente
+# 5. Verify
+lk room list                 # -> 2 participants
+afplay /tmp/sebastian_rx.wav # -> listen to what the agent hears
 ```

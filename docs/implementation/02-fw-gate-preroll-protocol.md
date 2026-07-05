@@ -1,162 +1,162 @@
-> **Anexo del informe de implementación** ([`IMPLEMENTATION.md`](../../IMPLEMENTATION.md)). Texto íntegro de la exploración multi-agente del 2026-07-02 (8 agentes en paralelo + contraste cruzado). Donde este anexo contradiga las **Decisiones congeladas** del informe principal, prevalece el informe.
+> **Implementation report annex** ([`IMPLEMENTATION.md`](../../IMPLEMENTATION.md)). Full text of the multi-agent exploration from 2026-07-02 (8 agents in parallel + cross-check). Where this annex contradicts the **Frozen decisions** of the main report, the main report prevails.
 
-# fw-gate-preroll-protocol — Gate de publicación + pre-roll + máquina de estados de invocación en firmware Zig, y protocolo dispositivo↔agente sobre LiveKit C SDK 0.3.10
+# fw-gate-preroll-protocol — Publish gate + pre-roll + invocation state machine in Zig firmware, and device↔agent protocol over LiveKit C SDK 0.3.10
 
-**Veredicto:** viable con riesgos — Toda la superficie de API necesaria existe y está verificada en el código vendorizado (publish_data, RPC entrante, data streams) y en livekit-agents 1.6.4 (perform_rpc, byte streams, io.AudioInput encadenable). Los riesgos reales son la condición Developer Preview del C SDK (sin RPC saliente desde el device, sin buffering de data packets) y que la opción "inyectar pre-roll al track" es inviable con el pipeline actual, lo que obliga a la vía data-stream.
+**Verdict:** viable with risks — All the necessary API surface exists and is verified in the vendored code (publish_data, incoming RPC, data streams) and in livekit-agents 1.6.4 (perform_rpc, byte streams, chainable io.AudioInput). The real risks are the Developer Preview condition of the C SDK (no outgoing RPC from the device, no buffering of data packets) and that the "inject pre-roll to track" option is unviable with the current pipeline, which forces the data-stream route.
 
-**Esfuerzo:** M — 6–8 días de una persona: 3–4 firmware (bindings, invocation.zig, mic_src, xvf_ui), 2–3 agente (byte stream handler, PrerollInput, RPCs, verificación WW), 1 integración E2E con botón-tap como wake sintético. No incluye entrenar la wake word ni la migración completa a livekit-agents 1.6.4.
+**Effort:** M — 6–8 person-days: 3–4 firmware (bindings, invocation.zig, mic_src, xvf_ui), 2–3 agent (byte stream handler, PrerollInput, RPCs, WW verification), 1 E2E integration with button-tap as synthetic wake. Does not include training the wake word nor the complete migration to livekit-agents 1.6.4.
 
-## Hallazgos
-- El C SDK 0.3.10 vendorizado NO tiene RPC saliente: livekit.h referencia livekit_room_rpc_invoke en un comentario pero ni el header ni rpc_manager.h/c lo implementan (solo register/unregister/handle_packet). Dirección device→agent queda limitada a publish_data (user packets) y data streams; agent→device usa RPC.  
+## Findings
+- The vendored C SDK 0.3.10 DOES NOT have outgoing RPC: livekit.h references livekit_room_rpc_invoke in a comment but neither the header nor rpc_manager.h/c implement it (only register/unregister/handle_packet). Device→agent direction is limited to publish_data (user packets) and data streams; agent→device uses RPC.  
   _firmware/managed_components/livekit__livekit/include/livekit.h:210-212 vs core/rpc_manager.h:44-56_
-- Los handlers RPC se invocan síncronos desde la tarea de esp_peer con la invocación en stack: send_result DEBE llamarse antes de retornar (no hay respuesta diferida) y el ctx del handler llega NULL. Obliga a patrón parsear→encolar→responder.  
+- RPC handlers are invoked synchronously from the esp_peer task with the invocation on the stack: send_result MUST be called before returning (no deferred response) and the handler's ctx arrives NULL. This forces a parse→enqueue→respond pattern.  
   _firmware/managed_components/livekit__livekit/core/rpc_manager.c:134-146_
-- El pipeline de captura reescribe el pts por contador de frames tras cada read_frame — el updatePts de mic_src.zig se ignora. No existe interfaz para 'adelantar pts': la opción (a) de pre-roll no tiene palanca de timestamps.  
+- The capture pipeline rewrites the pts by frame counter after each read_frame — the updatePts of mic_src.zig is ignored. There is no interface to 'advance pts': the pre-roll option (a) lacks a timestamp lever.  
   _firmware/managed_components/espressif__esp_capture/impl/capture_gmf_path/src/elements/gmf_audio_src.c:118_
-- La cola source→encoder es de solo 3 frames de 10 ms ((audio_frame_size+32)*3): drenar 2 s de pre-roll queda limitado por la CPU del encoder Opus, no puede ser un burst instantáneo. Además read_frame entrega frames de 10 ms (480 muestras @48k) → decimar ×3 da 160 muestras @16k, exactamente el hop de microWakeWord.  
+- The source→encoder queue is only 3 frames of 10 ms ((audio_frame_size+32)*3): draining 2 s of pre-roll is limited by the Opus encoder CPU, it cannot be an instant burst. Also read_frame delivers 10 ms frames (480 samples @48k) → decimate ×3 gives 160 samples @16k, exactly the microWakeWord hop.  
   _firmware/managed_components/espressif__esp_capture/impl/capture_gmf_path/src/elements/gmf_audio_src.c:150,169_
-- LiveKit ya tiene el patrón 'pre-roll por byte stream' como feature de producto (pre-connect audio buffer, topic lk.agent.pre-connect-audio-buffer, PCM s16 u Opus), pero exige attributes trackId/sampleRate/channels que livekit_data_stream_options_t del C SDK no puede enviar (sin campo attributes en el writer) → hay que replicarlo con topic propio y handler propio en el agente.  
-  _https://github.com/livekit/agents/blob/main/livekit-agents/livekit/agents/voice/room_io/_pre_connect_audio.py y core/data_stream_writer.c (grep attributes: vacío)_
-- livekit-agents 1.6.4 (PyPI 2026-06-24) da todo el lado agente: local_participant.perform_rpc(destination_identity, method, payload≤15KiB), room.register_byte_stream_handler(topic), y io.AudioInput es un async-iterator encadenable vía source= con on_attached/on_detached — base perfecta para anteponer el pre-roll a session.input.audio.  
-  _https://docs.livekit.io/transport/data/rpc/ y https://github.com/livekit/agents/blob/main/livekit-agents/livekit/agents/voice/io.py_
-- El supuesto 'silencio ≈ 0 red' del ROADMAP no se cumple tal cual: el DTX de esp_opus_enc solo puede activarse a 8/12/16 kHz (publicamos a 48 kHz) y además enable_dtx=false por defecto sin que el SDK lo exponga. El silencio de ARMED seguirá costando unos pocos kbps.  
+- LiveKit already has the 'pre-roll by byte stream' pattern as a product feature (pre-connect audio buffer, topic lk.agent.pre-connect-audio-buffer, PCM s16 or Opus), but it requires trackId/sampleRate/channels attributes that the C SDK's livekit_data_stream_options_t cannot send (no attributes field in the writer) → it must be replicated with its own topic and custom handler in the agent.  
+  _https://github.com/livekit/agents/blob/main/livekit-agents/livekit/agents/voice/room_io/_pre_connect_audio.py and core/data_stream_writer.c (grep attributes: empty)_
+- livekit-agents 1.6.4 (PyPI 2026-06-24) provides the entire agent side: local_participant.perform_rpc(destination_identity, method, payload≤15KiB), room.register_byte_stream_handler(topic), and io.AudioInput is a chainable async-iterator via source= with on_attached/on_detached — perfect foundation to prepend the pre-roll to session.input.audio.  
+  _https://docs.livekit.io/transport/data/rpc/ and https://github.com/livekit/agents/blob/main/livekit-agents/livekit/agents/voice/io.py_
+- The assumed 'silence ≈ 0 network' of the ROADMAP is not strictly fulfilled: esp_opus_enc's DTX can only be activated at 8/12/16 kHz (we publish at 48 kHz) and also enable_dtx=false by default without the SDK exposing it. The ARMED silence will still cost a few kbps.  
   _firmware/managed_components/espressif__esp_audio_codec/include/encoder/impl/esp_opus_enc.h:89-105_
-- publish_data falla en seco si el engine no está CONNECTED ('TODO: Implement buffering for reliable packets'): los eventos wake/button necesitan reintento propio con backoff en la tarea de invocación.  
+- publish_data fails outright if the engine is not CONNECTED ('TODO: Implement buffering for reliable packets'): wake/button events need their own retry with backoff in the invocation task.  
   _firmware/managed_components/livekit__livekit/core/engine.c:1291-1294_
-- xvf_ui.zig hoy es dueño del mute: fuerza mic.setMuted(xvf.readMuted()) cada 80 ms desde su task — si no se refactoriza, pisará el gate de la máquina de estados cada ciclo.  
+- xvf_ui.zig currently owns the mute: it forces mic.setMuted(xvf.readMuted()) every 80 ms from its task — if not refactored, it will trample the state machine's gate every cycle.  
   _firmware/main/xvf_ui.zig:42-43_
-- Zig del proyecto = fork Espressif 0.16.0-xtensa: std.json.parseFromSliceLeaky + FixedBufferAllocator sigue siendo la vía de parseo sin heap, pero la serialización (std.json.Stringify) quedó inestable tras writergate (regresiones reportadas en 0.15/0.16-dev) → emitir JSON con std.fmt.bufPrint y plantillas comptime.  
-  _docs/FIRMWARE.md:11 y https://github.com/ziglang/zig/issues/24468_
+- Project Zig = Espressif fork 0.16.0-xtensa: std.json.parseFromSliceLeaky + FixedBufferAllocator remains the heapless parsing route, but serialization (std.json.Stringify) became unstable after writergate (regressions reported in 0.15/0.16-dev) → emit JSON with std.fmt.bufPrint and comptime templates.  
+  _docs/FIRMWARE.md:11 and https://github.com/ziglang/zig/issues/24468_
 
-## Diseño
+## Design
 
-# Gate + pre-roll + invocación (firmware) y protocolo device↔agente
+# Gate + pre-roll + invocation (firmware) and device↔agent protocol
 
-## 1. Máquina de estados — `firmware/main/invocation.zig` (nuevo)
+## 1. State machine — `firmware/main/invocation.zig` (new)
 
 ```
-        WW local / botón-tap (device)          turno detectado (agente)
+        local WW / button-tap (device)         turn detected (agent)
 ARMED ─────────────────────► ATTENDING ─────────────────────► ENGAGED
-  ▲  gate cerrado            │ gate ABIERTO ya (optimista)      │ gate abierto
-  │  (publica silencio)      │ + wake evt + pre-roll stream     │ speaking ⇒ half_duplex
+  ▲  gate closed             │ gate OPEN already (optimistic)   │ gate open
+  │  (publishes silence)     │ + wake evt + pre-roll stream     │ speaking ⇒ half_duplex
   │                          │                                  ▼
-  ├── watchdog 8 s ◄─────────┘ veto agente (state:"idle")     LINGER (ttl 8 s, gate abierto)
-  └────────── expira ttl (device) / state:"idle" (agente) ◄─────┘
+  ├── watchdog 8 s ◄─────────┘ agent veto (state:"idle")      LINGER (ttl 8 s, gate open)
+  └────────── ttl expires (device) / state:"idle" (agent) ◄─────┘
 ```
 
-| Transición | Dueño | Mecanismo |
+| Transition | Owner | Mechanism |
 |---|---|---|
-| ARMED→ATTENDING | device | microWakeWord o botón tap → `onWakeDetected()` abre gate sin RTT |
-| ATTENDING→ENGAGED | agente | RPC `sebastian.state {"state":"listening"}` tras re-verificar WW con el pre-roll |
-| ATTENDING→ARMED | ambos | veto del agente (`"idle"`) o watchdog device 8 s sin RPC |
-| ENGAGED interno | agente | `state: listening/thinking/speaking` (speaking ⇒ razón `half_duplex` ON) |
-| ENGAGED→LINGER | agente | `{"state":"linger","ttl_ms":8000}` — gate sigue abierto; el DDSD vive en el agente |
-| LINGER→ATTENDING | agente | DDSD acepta la réplica → `"listening"` (renueva ttl) |
-| LINGER→ARMED | device | expira ttl → cierra gate y publica evt `{"type":"state","state":"armed"}` |
-| *→ARMED | device | botón long-press / desconexión de sala |
+| ARMED→ATTENDING | device | microWakeWord or button tap → `onWakeDetected()` opens gate without RTT |
+| ATTENDING→ENGAGED | agent | RPC `sebastian.state {"state":"listening"}` after re-verifying WW with the pre-roll |
+| ATTENDING→ARMED | both | agent veto (`"idle"`) or device watchdog 8 s without RPC |
+| ENGAGED internal | agent | `state: listening/thinking/speaking` (speaking ⇒ reason `half_duplex` ON) |
+| ENGAGED→LINGER | agent | `{"state":"linger","ttl_ms":8000}` — gate stays open; the DDSD lives in the agent |
+| LINGER→ATTENDING | agent | DDSD accepts the reply → `"listening"` (renews ttl) |
+| LINGER→ARMED | device | ttl expires → closes gate and publishes evt `{"type":"state","state":"armed"}` |
+| *→ARMED | device | button long-press / room disconnection |
 
-IDLE (desconectar sala, economía Cloud) se pospone: en P0 IDLE≡ARMED. La tarea
-`invocation` (core 1, prio 5) consume una cola FreeRTOS (eventos de RPC/botón/WW)
-y corre timeouts; los handlers RPC solo parsean+encolan (§4).
+IDLE (disconnect room, Cloud economy) is postponed: in P0 IDLE≡ARMED. The
+`invocation` task (core 1, prio 5) consumes a FreeRTOS queue (RPC/button/WW events)
+and runs timeouts; RPC handlers only parse+enqueue (§4).
 
-## 2. Gate: sustituye `muted_flag` de mic_src
+## 2. Gate: replaces `muted_flag` in mic_src
 
-`gate: std.atomic.Value(u8)` con razones OR-eadas: `button` (mute físico —
-congela también ring y WW: privacidad real), `state` (ARMED) y `half_duplex`
-(agente hablando; necesario hasta cerrar el hallazgo AEC #2). `readFrame` emite
-silencio si `gate != 0` — mismo camino que el `muted_flag` actual; el pts no se
-toca (gmf_audio_src.c:118 lo recalcula por contador e ignora el nuestro).
+`gate: std.atomic.Value(u8)` with OR-ed reasons: `button` (physical mute —
+also freezes ring and WW: real privacy), `state` (ARMED) and `half_duplex`
+(agent speaking; necessary until AEC finding #2 is closed). `readFrame` emits
+silence if `gate != 0` — same path as the current `muted_flag`; pts is not
+touched (gmf_audio_src.c:118 recalculates it by counter and ignores ours).
 
-`xvf_ui.zig` deja de poseer el mute: su task pasa de `mic.setMuted(readMuted())`
-a `invocation.setButtonMute(muted)`, y pinta patrones según estado: ARMED = dim
-actual · ATTENDING/listening = beam brillante lockeado al DoA del wake ·
-thinking = spinner · speaking = pulso · LINGER = dim pulsante · button-mute = off.
-En `xvf_dfu.zig` añadir `readAzimuthDeg()` (mismo resid 33 / cmd 75, beam
-auto-select en radianes) para `wake.doa_deg` y la telemetría `doa`.
+`xvf_ui.zig` stops owning the mute: its task changes from `mic.setMuted(readMuted())`
+to `invocation.setButtonMute(muted)`, and paints patterns according to state: ARMED = current dim
+· ATTENDING/listening = bright beam locked to the wake's DoA ·
+thinking = spinner · speaking = pulse · LINGER = pulsing dim · button-mute = off.
+In `xvf_dfu.zig` add `readAzimuthDeg()` (same resid 33 / cmd 75, beam
+auto-select in radians) for `wake.doa_deg` and `doa` telemetry.
 
-## 3. Pre-roll: análisis y decisión
+## 3. Pre-roll: analysis and decision
 
-Ring en PSRAM: `heap_caps_malloc(64 KB, MALLOC_CAP_SPIRAM)` = 2 s @16 kHz mono
-i16 (+64 KB staging), alimentado desde `readFrame` decimando ×3 cada frame de
-10 ms (480 muestras 48k → 160 @16k = hop exacto de microWakeWord).
+Ring in PSRAM: `heap_caps_malloc(64 KB, MALLOC_CAP_SPIRAM)` = 2 s @16 kHz mono
+i16 (+64 KB staging), fed from `readFrame` decimating ×3 every 10 ms
+frame (480 samples 48k → 160 @16k = exact microWakeWord hop).
 
-- **(a) Inyectar al track drenando más rápido que tiempo real — DESCARTADA.**
-  (1) no hay palanca de pts: el pipeline lo reescribe por contador de frames;
-  (2) la cola src→encoder es de 3×10 ms → el "burst" queda limitado por la CPU
-  del encoder Opus, pico de CPU justo cuando el WW necesita margen; (3) los ~2 s
-  de backlog llegan al jitter buffer (NetEQ) del SDK Rust del agente, que ante
-  eso acelera o FLUSHEA — perderíamos precisamente el pre-roll. No determinista.
-- **(b) Pre-roll por data stream — RECOMENDADA.** Determinista: canal reliable,
-  chunking automático (15000 B → 5 chunks ≈ 64 KB, <200 ms en WiFi), el track
-  queda siempre tiempo-real y el agente recibe el PCM exacto para re-verificar
-  la WW (señal #2 del ROADMAP) + contexto STT. Es el mismo patrón que el
-  "pre-connect audio buffer" oficial de LiveKit; el topic nativo
-  `lk.agent.pre-connect-audio-buffer` no es usable (exige attributes que el C
-  SDK no puede enviar) → topic propio `sebastian.preroll` + handler propio.
-- **(c) Sin pre-roll:** pierde la wake word (no hay re-verificación) y el
-  arranque del comando. Solo degradación runtime si (b) falla.
+- **(a) Inject to track draining faster than real-time — DISCARDED.**
+  (1) no pts lever: the pipeline rewrites it by frame counter;
+  (2) the src→encoder queue is 3×10 ms → the "burst" is limited by the Opus encoder
+  CPU, a CPU spike exactly when the WW needs headroom; (3) the ~2 s
+  backlog reaches the jitter buffer (NetEQ) of the agent's Rust SDK, which in response
+  accelerates or FLUSHES — we would lose precisely the pre-roll. Non-deterministic.
+- **(b) Pre-roll via data stream — RECOMMENDED.** Deterministic: reliable channel,
+  automatic chunking (15000 B → 5 chunks ≈ 64 KB, <200 ms on WiFi), the track
+  always remains real-time and the agent receives the exact PCM to re-verify
+  the WW (ROADMAP signal #2) + STT context. It is the same pattern as the
+  official LiveKit "pre-connect audio buffer"; the native topic
+  `lk.agent.pre-connect-audio-buffer` is not usable (requires attributes that the C
+  SDK cannot send) → custom topic `sebastian.preroll` + custom handler.
+- **(c) No pre-roll:** loses the wake word (no re-verification) and the
+  start of the command. Only a runtime degradation if (b) fails.
 
-Flujo (b): `onWakeDetected` → 1) abre gate (optimista, sin RTT; el pre-roll cubre
-[-2 s, apertura] → sin costura con el vivo); 2) snapshot ring→staging (memcpy
-PSRAM); 3) `publish_data` reliable `sebastian.evt` con `wake{...}`; 4)
-`data_stream_open/write/close` en `sebastian.preroll`: header binario 12 B
-(magic "SBPR", ver u8, wake_id u32, sr u16=16000) + s16le. Agente:
-`register_byte_stream_handler` → openWakeWord/clasificador sobre el PCM → si OK,
-antepone los frames con `PrerollInput(io.AudioInput)` encadenada a
-`session.input.audio` y responde RPC `state:"listening"`; si KO, veto `"idle"`.
+Flow (b): `onWakeDetected` → 1) opens gate (optimistic, no RTT; pre-roll covers
+[-2 s, opening] → seamless with live); 2) snapshot ring→staging (memcpy
+PSRAM); 3) `publish_data` reliable `sebastian.evt` with `wake{...}`; 4)
+`data_stream_open/write/close` on `sebastian.preroll`: binary header 12 B
+(magic "SBPR", ver u8, wake_id u32, sr u16=16000) + s16le. Agent:
+`register_byte_stream_handler` → openWakeWord/classifier on the PCM → if OK,
+prepends the frames with `PrerollInput(io.AudioInput)` chained to
+`session.input.audio` and replies RPC `state:"listening"`; if KO, veto `"idle"`.
 
-## 4. Protocolo (0.3.10: sin RPC saliente del device — verificado)
+## 4. Protocol (0.3.10: no outgoing RPC from device — verified)
 
-| Msg | Dir | Canal | Racional |
+| Msg | Dir | Channel | Rationale |
 |---|---|---|---|
-| `wake {wake_id,score,doa_deg,speaker_hint:null}` | dev→ag | publish_data reliable, topic `sebastian.evt` | único canal saliente garantizado; el "ack" es el RPC `state` del agente |
-| `button {type:"tap"\|"long"\|"double"}` | dev→ag | ídem | evento crítico |
-| `state {state:"armed"}` (espejo) | dev→ag | ídem | el agente sigue el gate |
-| `doa {deg,level}` @5 Hz | dev→ag | publish_data **lossy**, topic `sebastian.doa` | telemetría perdible (DDSD, multi-device) |
+| `wake {wake_id,score,doa_deg,speaker_hint:null}` | dev→ag | publish_data reliable, topic `sebastian.evt` | only guaranteed outgoing channel; the "ack" is the agent's `state` RPC |
+| `button {type:"tap"\|"long"\|"double"}` | dev→ag | ditto | critical event |
+| `state {state:"armed"}` (mirror) | dev→ag | ditto | the agent follows the gate |
+| `doa {deg,level}` @5 Hz | dev→ag | publish_data **lossy**, topic `sebastian.doa` | lossy telemetry (DDSD, multi-device) |
 | pre-roll | dev→ag | data stream bytes `sebastian.preroll` | 64 KB chunked reliable |
-| `state {state, ttl_ms?}` | ag→dev | **RPC** `sebastian.state` | ack síncrono: el agente sabe que el gate cambió |
-| `led {pattern,r,g,b}` / `volume {level}` | ag→dev | RPC `sebastian.led` / `sebastian.volume` | respuesta = estado aplicado |
-| `announce {chime}` | ag→dev | RPC `sebastian.announce` | respuesta síncrona `{"busy":true}` si `mic_level` delata conversación (señal #5) |
+| `state {state, ttl_ms?}` | ag→dev | **RPC** `sebastian.state` | synchronous ack: the agent knows the gate changed |
+| `led {pattern,r,g,b}` / `volume {level}` | ag→dev | RPC `sebastian.led` / `sebastian.volume` | response = applied state |
+| `announce {chime}` | ag→dev | RPC `sebastian.announce` | synchronous response `{"busy":true}` if `mic_level` gives away conversation (signal #5) |
 
-Restricciones duras: el handler RPC corre en la tarea esp_peer con la invocación
-en stack (`send_result` antes de retornar, ctx=NULL) → parsear, encolar,
-responder, jamás bloquear. `publish_data` falla si engine≠CONNECTED (sin
-buffering) → reintentos con backoff en la tarea invocation. Identidad del agente:
-capturar en `on_participant_info` (kind==AGENT, state ACTIVE) para
-`destination_identities` y filtro de remitente en RPC/datos.
+Hard constraints: the RPC handler runs in the esp_peer task with the invocation
+on the stack (`send_result` before returning, ctx=NULL) → parse, enqueue,
+respond, never block. `publish_data` fails if engine≠CONNECTED (no
+buffering) → retries with backoff in the invocation task. Agent identity:
+capture in `on_participant_info` (kind==AGENT, state ACTIVE) for
+`destination_identities` and sender filter in RPC/data.
 
-## 5. JSON en Zig (fork 0.16-xtensa)
+## 5. JSON in Zig (0.16-xtensa fork)
 
-Entrante (≤ ~200 B): `std.json.parseFromSliceLeaky(Msg, fba.allocator(), payload,
-.{ .ignore_unknown_fields = true })` con `FixedBufferAllocator` sobre buffer
-estático de 1 KB — cero heap. Saliente: NO stringify (inestable post-writergate);
-`std.fmt.bufPrint` con plantillas comptime — los 4 mensajes tienen forma fija.
+Incoming (≤ ~200 B): `std.json.parseFromSliceLeaky(Msg, fba.allocator(), payload,
+.{ .ignore_unknown_fields = true })` with `FixedBufferAllocator` over a 1 KB
+static buffer — zero heap. Outgoing: NO stringify (unstable post-writergate);
+`std.fmt.bufPrint` with comptime templates — the 4 messages have fixed shape.
 
-## 6. Orden de implementación
+## 6. Implementation order
 
-1. `csdk.zig`: bindings del snippet-a + tipar los callbacks opacos de `livekit_room_options_t`.
-2. `invocation.zig` (snippet-b): estados+gate+cola+timeouts; `app.zig` lo inicializa tras `joinRoom` y registra los 4 RPC.
-3. `mic_src.zig` (snippet-c): scratch + decimador ×3 + `feed16k` + `gateOpen`; eliminar `muted_flag`/`setMuted` público (conservar `level()`).
-4. `xvf_ui.zig`: botón→`setButtonMute` + patrones por estado; `xvf_dfu.zig`: `readAzimuthDeg()`.
-5. Agente (1.6.4): `register_byte_stream_handler` + `PrerollInput` + `perform_rpc` + verificación WW del pre-roll.
-6. E2E con botón-tap como wake sintético (aún sin WW): valida gate, pre-roll y protocolo completos antes del spike microWakeWord.
+1. `csdk.zig`: bindings of snippet-a + typing the opaque callbacks of `livekit_room_options_t`.
+2. `invocation.zig` (snippet-b): states+gate+queue+timeouts; `app.zig` initializes it after `joinRoom` and registers the 4 RPCs.
+3. `mic_src.zig` (snippet-c): scratch + decimate ×3 + `feed16k` + `gateOpen`; remove public `muted_flag`/`setMuted` (keep `level()`).
+4. `xvf_ui.zig`: button→`setButtonMute` + patterns per state; `xvf_dfu.zig`: `readAzimuthDeg()`.
+5. Agent (1.6.4): `register_byte_stream_handler` + `PrerollInput` + `perform_rpc` + WW verification of pre-roll.
+6. E2E with button-tap as synthetic wake (still without WW): validates full gate, pre-roll and protocol before the microWakeWord spike.
 
-## Código
-**firmware/main/csdk.zig** — (a) Bindings extern mínimos a añadir: publish_data + RPC entrante + data streams + PSRAM + colas, transcritos de los headers vendorizados 0.3.10
+## Code
+**firmware/main/csdk.zig** — (a) Minimum extern bindings to add: publish_data + incoming RPC + data streams + PSRAM + queues, transcribed from the vendored 0.3.10 headers
 
 ```zig
 // --- Data packets (device→agent: wake/button/doa) — livekit.h:382-423 ---
 pub const livekit_data_payload_t = extern struct { bytes: [*]u8, size: usize };
 pub const livekit_data_publish_options_t = extern struct {
     payload: *livekit_data_payload_t,
-    topic: [*:0]const u8, // char* en C; el SDK no lo muta
+    topic: [*:0]const u8, // char* in C; the SDK does not mutate it
     lossy: bool,
     destination_identities: ?[*][*:0]const u8 = null,
     destination_identities_count: c_int = 0,
 };
 pub extern fn livekit_room_publish_data(handle: livekit_room_handle_t, options: *livekit_data_publish_options_t) c_int;
 
-// --- RPC entrante (agent→device) — livekit_rpc.h:69-111, livekit.h:446 ---
+// --- Incoming RPC (agent→device) — livekit_rpc.h:69-111, livekit.h:446 ---
 pub const LIVEKIT_RPC_RESULT_OK: c_int = 0;
 pub const livekit_rpc_result_t = extern struct {
     id: [*:0]const u8,
@@ -168,14 +168,14 @@ pub const livekit_rpc_invocation_t = extern struct {
     id: [*:0]u8,
     method: [*:0]u8,
     caller_identity: [*:0]u8,
-    payload: ?[*:0]u8, // NULL o cstring válido (garantizado por el SDK)
+    payload: ?[*:0]u8, // NULL or valid cstring (guaranteed by SDK)
     send_result: *const fn (*const livekit_rpc_result_t, ?*anyopaque) callconv(.c) bool,
     ctx: ?*anyopaque,
 };
 pub const livekit_rpc_handler_t = *const fn (*const livekit_rpc_invocation_t, ?*anyopaque) callconv(.c) void;
 pub extern fn livekit_room_rpc_register(handle: livekit_room_handle_t, method: [*:0]const u8, handler: livekit_rpc_handler_t) c_int;
 
-// --- Data stream saliente (pre-roll) — livekit_data_stream.h:79-90, livekit.h:545-568 ---
+// --- Outgoing data stream (pre-roll) — livekit_data_stream.h:79-90, livekit.h:545-568 ---
 pub const livekit_data_stream_handle_t = ?*anyopaque;
 pub const livekit_data_stream_options_t = extern struct {
     topic: [*:0]const u8,
@@ -187,7 +187,7 @@ pub extern fn livekit_room_data_stream_open(h: livekit_room_handle_t, o: *const 
 pub extern fn livekit_room_data_stream_write(h: livekit_room_handle_t, s: livekit_data_stream_handle_t, data: [*]const u8, size: usize) c_int;
 pub extern fn livekit_room_data_stream_close(h: livekit_room_handle_t, s: livekit_data_stream_handle_t) c_int;
 
-// --- Tipar callbacks hoy opacos en livekit_room_options_t (livekit.h:117-126,175-188) ---
+// --- Type currently opaque callbacks in livekit_room_options_t (livekit.h:117-126,175-188) ---
 pub const livekit_data_received_t = extern struct {
     payload: livekit_data_payload_t,
     topic: ?[*:0]u8,
@@ -200,7 +200,7 @@ pub const livekit_participant_info_t = extern struct {
 pub const LIVEKIT_PARTICIPANT_KIND_AGENT: c_int = 4;
 pub const LIVEKIT_PARTICIPANT_STATE_ACTIVE: c_int = 2;
 
-// --- PSRAM + cola FreeRTOS (para invocation.zig) ---
+// --- PSRAM + FreeRTOS queue (for invocation.zig) ---
 pub const MALLOC_CAP_SPIRAM: u32 = 1 << 10;
 pub extern fn heap_caps_malloc(size: usize, caps: u32) ?*anyopaque;
 pub const QueueHandle_t = ?*anyopaque;
@@ -209,18 +209,18 @@ pub extern fn xQueueGenericSend(q: QueueHandle_t, item: *const anyopaque, ticks:
 pub extern fn xQueueReceive(q: QueueHandle_t, item: *anyopaque, ticks: u32) c_int;
 ```
 
-**firmware/main/invocation.zig** — (b) Esqueleto de la máquina de estados: gate atómico con razones, ring de pre-roll en PSRAM, apertura optimista y handler RPC no bloqueante
+**firmware/main/invocation.zig** — (b) State machine skeleton: atomic gate with reasons, pre-roll ring in PSRAM, optimistic opening and non-blocking RPC handler
 
 ```zig
-//! invocation.zig — estados ARMED/ATTENDING/ENGAGED/LINGER, gate y pre-roll.
+//! invocation.zig — ARMED/ATTENDING/ENGAGED/LINGER states, gate and pre-roll.
 const std = @import("std");
 const c = @import("csdk.zig");
 
 pub const State = enum(u8) { armed, attending, engaged, linger };
-pub const Reason = struct { // bitmask del gate (0 == abierto)
-    pub const button: u8 = 1 << 0; // mute físico: congela también ring y WW
-    pub const state: u8 = 1 << 1; // cerrado por estado (ARMED)
-    pub const half_duplex: u8 = 1 << 2; // agente hablando (hasta cerrar AEC #2)
+pub const Reason = struct { // gate bitmask (0 == open)
+    pub const button: u8 = 1 << 0; // physical mute: also freezes ring and WW
+    pub const state: u8 = 1 << 1; // closed by state (ARMED)
+    pub const half_duplex: u8 = 1 << 2; // agent speaking (until AEC #2 is closed)
 };
 const Event = union(enum) {
     rpc_state: struct { st: State, ttl_ms: u32 },
@@ -228,7 +228,7 @@ const Event = union(enum) {
     button_tap: void,
 };
 
-var gate = std.atomic.Value(u8).init(Reason.state); // arranca en ARMED
+var gate = std.atomic.Value(u8).init(Reason.state); // starts in ARMED
 var state = std.atomic.Value(u8).init(@intFromEnum(State.armed));
 var room: c.livekit_room_handle_t = null;
 var evq: c.QueueHandle_t = null;
@@ -236,8 +236,8 @@ var wake_id: u32 = 0;
 
 const RING = 2 * 16000; // 2 s @16 kHz mono i16 = 64 KB
 var ring: [*]i16 = undefined;
-var staging: [*]i16 = undefined; // snapshot para enviar sin que el vivo lo pise
-var wr = std.atomic.Value(u32).init(0); // índice [0,RING); solo escribe AUD_SRC
+var staging: [*]i16 = undefined; // snapshot to send without the live feed overwriting it
+var wr = std.atomic.Value(u32).init(0); // index [0,RING); only AUD_SRC writes
 
 pub fn init(r: c.livekit_room_handle_t) void {
     room = r;
@@ -245,50 +245,50 @@ pub fn init(r: c.livekit_room_handle_t) void {
     staging = @ptrCast(@alignCast(c.heap_caps_malloc(RING * 2, c.MALLOC_CAP_SPIRAM).?));
     evq = c.xQueueGenericCreate(8, @sizeOf(Event), 0);
     _ = c.livekit_room_rpc_register(room, "sebastian.state", onRpcState);
-    // ídem sebastian.led / sebastian.volume / sebastian.announce
+    // ditto sebastian.led / sebastian.volume / sebastian.announce
     _ = c.xTaskCreatePinnedToCore(task, "invocation", 6144, null, 5, null, 1);
 }
 
 pub fn gateOpen() bool { return gate.load(.acquire) == 0; }
 pub fn currentState() State { return @enumFromInt(state.load(.acquire)); }
 
-/// Desde mic_src.readFrame (tarea AUD_SRC), ya decimado a 16 kHz.
+/// From mic_src.readFrame (AUD_SRC task), already decimated to 16 kHz.
 pub fn feed16k(samples: []const i16) void {
-    if (gate.load(.acquire) & Reason.button != 0) return; // hard-mute = privacidad
+    if (gate.load(.acquire) & Reason.button != 0) return; // hard-mute = privacy
     var w = wr.load(.monotonic);
     for (samples) |s| { ring[w] = s; w = (w + 1) % RING; }
     wr.store(w, .release);
-    // futuro: wakeword.feed(samples) — mismo hop de 160 muestras
+    // future: wakeword.feed(samples) — same hop of 160 samples
 }
 
-/// WW local o botón-tap: apertura OPTIMISTA (sin RTT) + evento + pre-roll.
+/// Local WW or button-tap: OPTIMISTIC opening (no RTT) + event + pre-roll.
 pub fn onWakeDetected(score: f32, doa_deg: u16) void {
-    clearReason(Reason.state); // gate abierto YA: el pre-roll cubre [-2 s, aquí]
+    clearReason(Reason.state); // gate OPEN NOW: pre-roll covers [-2 s, here]
     state.store(@intFromEnum(State.attending), .release);
     const end = wr.load(.acquire);
-    for (0..RING) |i| staging[i] = ring[(end + i) % RING]; // viejo→nuevo
+    for (0..RING) |i| staging[i] = ring[(end + i) % RING]; // old→new
     const ev = Event{ .wake = .{ .score = score, .doa_deg = doa_deg } };
     _ = c.xQueueGenericSend(evq, &ev, 0, 0); // task: publishWake() + sendPreroll()
 }
 
 fn onRpcState(inv: *const c.livekit_rpc_invocation_t, _: ?*anyopaque) callconv(.c) void {
-    // Corre en la tarea esp_peer, invocación en stack: encolar y responder AHORA.
+    // Runs in the esp_peer task, invocation on stack: enqueue and respond NOW.
     if (parseStateJson(inv.payload)) |ev| _ = c.xQueueGenericSend(evq, &ev, 0, 0);
     var res = c.livekit_rpc_result_t{ .id = inv.id, .code = c.LIVEKIT_RPC_RESULT_OK, .payload = "{\"ok\":true}" };
     _ = inv.send_result(&res, inv.ctx);
 }
-// task(): xQueueReceive + aplicar transiciones/razones + watchdogs 8s/ttl +
-// publishWake/sendPreroll (data stream "sebastian.preroll": header SBPR + staging)
+// task(): xQueueReceive + apply transitions/reasons + watchdogs 8s/ttl +
+// publishWake/sendPreroll ("sebastian.preroll" data stream: SBPR header + staging)
 ```
 
-**firmware/main/mic_src.zig** — (c) Hook del gate en readFrame: convertir siempre a scratch (nivel+ring+WW viven aunque el gate cierre), decimar ×3 y publicar voz o silencio
+**firmware/main/mic_src.zig** — (c) Gate hook in readFrame: always convert to scratch (level+ring+WW live even if the gate closes), decimate ×3 and publish voice or silence
 
 ```zig
-// Sustituye a muted_flag/setMuted: el gate vive en invocation.zig.
+// Replaces muted_flag/setMuted: the gate lives in invocation.zig.
 const invocation = @import("invocation.zig");
 
-var scratch: [MAX_SAMPLES]i16 = undefined; // mono 48k tras SHIFT + softClip
-var deci: [MAX_SAMPLES / 3 + 1]i16 = undefined; // 16 kHz para ring + WW
+var scratch: [MAX_SAMPLES]i16 = undefined; // mono 48k after SHIFT + softClip
+var deci: [MAX_SAMPLES / 3 + 1]i16 = undefined; // 16 kHz for ring + WW
 
 fn readFrame(_: *c.esp_capture_audio_src_iface_t, frame: *c.esp_capture_stream_frame_t) callconv(.c) c_int {
     if (!instance.started) return c.ESP_CAPTURE_ERR_NOT_SUPPORTED;
@@ -297,49 +297,49 @@ fn readFrame(_: *c.esp_capture_audio_src_iface_t, frame: *c.esp_capture_stream_f
     resyncRxOnce();
     const got = readI2s(total) orelse return c.ESP_CAPTURE_ERR_INTERNAL;
 
-    // SIEMPRE convertir: mic_level, pre-roll y (futuro) WW corren con gate cerrado.
-    writeCapturedSamples(&scratch, got, total); // igual que hoy pero a scratch
+    // ALWAYS convert: mic_level, pre-roll and (future) WW run with closed gate.
+    writeCapturedSamples(&scratch, got, total); // same as today but to scratch
 
-    // 48k→16k ×3. Placeholder: media de 3 (suficiente para pre-roll/STT);
-    // cambiar por FIR anti-alias de esp-dsp cuando entre microWakeWord.
+    // 48k→16k ×3. Placeholder: average of 3 (enough for pre-roll/STT);
+    // change to esp-dsp anti-alias FIR when microWakeWord enters.
     const n16 = total / 3;
     var i: usize = 0;
     while (i < n16) : (i += 1) {
         const a = @as(i32, scratch[i * 3]) + scratch[i * 3 + 1] + scratch[i * 3 + 2];
         deci[i] = @intCast(@divTrunc(a, 3));
     }
-    invocation.feed16k(deci[0..n16]); // ring PSRAM (frames de 10 ms → 160 muestras)
+    invocation.feed16k(deci[0..n16]); // PSRAM ring (10 ms frames → 160 samples)
 
     const out: [*]i16 = @ptrCast(@alignCast(frame.data));
     if (invocation.gateOpen()) {
         @memcpy(out[0..total], scratch[0..total]);
     } else {
-        fillSilence(out, total); // cerrado: silencio al room; pts sigue corriendo
+        fillSilence(out, total); // closed: silence to the room; pts keeps running
     }
-    updatePts(frame, total); // inocuo: gmf_audio_src recalcula pts por contador
+    updatePts(frame, total); // harmless: gmf_audio_src recalculates pts by counter
     return c.ESP_CAPTURE_ERR_OK;
 }
 ```
 
-## Riesgos
-- **C SDK en Developer Preview: publish_data sin buffering (falla si engine≠CONNECTED) y APIs sujetas a cambio; el pin actual es 0.3.10.** → Reintento con backoff en la tarea invocation para wake/button; congelar la versión y revisar changelog antes de cada bump (si un 0.3.x futuro añade rpc_invoke saliente, migrar wake a RPC con ack real).
-- **Handler RPC bloqueante o lento tumba la tarea de esp_peer (audio y señalización comparten proceso).** → Patrón obligatorio parsear→encolar→send_result inmediato; payloads ≤1 KB; validar sender_identity contra la identidad del agente.
-- **El burst de 64 KB del pre-roll comparte el mismo DTLS/SCTP que el audio Opus en subida: posible jitter puntual en el arranque del turno.** → Enviar el stream desde la tarea invocation justo tras abrir el gate (el vivo aún es silencio de arranque de frase); si se observa jitter, trocear los write() con pausas de 10 ms o bajar el pre-roll a 1,5 s (48 KB).
-- **Falso positivo del WW abre el gate optimista durante ~200-500 ms hasta el veto del agente: fuga breve de audio a la nube.** → Umbral on-device razonable + veto rápido (re-verificación solo sobre el tramo de la WW), LED encendido siempre que el gate esté abierto (honestidad visible), y botón/config para modo 'apertura solo tras ack' si el usuario lo prefiere.
-- **xvf_ui pisa el gate: hoy fuerza mic.setMuted(readMuted()) cada 80 ms.** → Refactor incluido en el diseño (paso 4): xvf_ui solo informa del botón vía invocation.setButtonMute y lee el estado para pintar.
-- **Half-duplex mientras el hallazgo AEC #2 siga abierto: sin barge-in en P0 y el LINGER pierde solapes con la cola del TTS.** → Mantener razón half_duplex activable por config; al cerrar AEC #2 (P1), desactivarla y habilitar Adaptive Interruption Handling en el agente.
-- **Silencio en ARMED no es gratis (DTX de Opus inaplicable a 48 kHz y no expuesto por el SDK): consumo de red y de minutos LiveKit Cloud 24/7.** → Aceptarlo en P0 (pocos kbps); plan real = fase IDLE con desconexión de sala + token server, o self-host de LiveKit en cortes (ya en ROADMAP P2).
-- **std.json del fork Zig 0.16-xtensa podría tener huecos (writergate).** → Solo se usa parseFromSliceLeaky (parseo); si el fork falla, parser manual trivial para 4 mensajes de forma fija (~100 líneas).
+## Risks
+- **C SDK in Developer Preview: publish_data without buffering (fails if engine≠CONNECTED) and APIs subject to change; current pin is 0.3.10.** → Retry with backoff in the invocation task for wake/button; freeze the version and review changelog before every bump (if a future 0.3.x adds outgoing rpc_invoke, migrate wake to RPC with real ack).
+- **Blocking or slow RPC handler crashes the esp_peer task (audio and signaling share process).** → Mandatory pattern parse→enqueue→immediate send_result; payloads ≤1 KB; validate sender_identity against the agent's identity.
+- **The 64 KB pre-roll burst shares the same DTLS/SCTP as the upstream Opus audio: possible momentary jitter at the start of the turn.** → Send the stream from the invocation task right after opening the gate (the live feed is still phrase-start silence); if jitter is observed, chunk the write()s with 10 ms pauses or reduce the pre-roll to 1.5 s (48 KB).
+- **WW false positive opens the optimistic gate for ~200-500 ms until the agent's veto: brief audio leak to the cloud.** → Reasonable on-device threshold + fast veto (re-verification only over the WW segment), LED always on while the gate is open (visible honesty), and button/config for 'open only after ack' mode if the user prefers.
+- **xvf_ui tramples the gate: currently forces mic.setMuted(readMuted()) every 80 ms.** → Refactor included in the design (step 4): xvf_ui only reports the button via invocation.setButtonMute and reads the state to paint.
+- **Half-duplex while AEC finding #2 remains open: no barge-in in P0 and LINGER misses overlaps with the TTS tail.** → Keep the half_duplex reason activatable by config; when closing AEC #2 (P1), deactivate it and enable Adaptive Interruption Handling in the agent.
+- **Silence in ARMED is not free (Opus DTX inapplicable at 48 kHz and not exposed by the SDK): network consumption and LiveKit Cloud minutes 24/7.** → Accept it in P0 (few kbps); real plan = IDLE phase with room disconnection + token server, or self-hosted LiveKit during outages (already in ROADMAP P2).
+- **std.json from the 0.16-xtensa Zig fork could have holes (writergate).** → Only parseFromSliceLeaky is used (parsing); if the fork fails, a trivial manual parser for 4 fixed-shape messages (~100 lines).
 
-## Preguntas abiertas
-- ¿Formato del pre-roll: s16le crudo (64 KB, cero CPU) como propone el diseño, o comprimirlo (segundo encoder Opus vía esp_audio_codec, ~4x menos red pero +RAM/CPU)? Confirmar con medición WiFi real.
-- ¿Re-verificación WW en el agente: openWakeWord sobre el PCM de 16 kHz, o STT del pre-roll + match textual de 'Sebastián'? (latencia del veto vs dependencias).
-- ¿Identidad del agente fija por convención (agent_name en explicit dispatch, p.ej. 'sebastian-agent') o solo descubierta por on_participant_info kind==AGENT? El diseño usa ambas (convención + verificación).
-- ¿Se adelanta la fase IDLE (desconexión de sala + reconexión al despertar) a P0 para cortar el coste de minutos de LiveKit Cloud, sabiendo que exige el token server?
-- ¿El gate en LINGER debe bajar la sensibilidad (p.ej. exigir mic_level mínimo antes de considerar réplica) para no enviar 8 s de ruido de sala tras cada turno?
-- Confirmar en hardware que el snapshot de 64 KB PSRAM→PSRAM (memcpy en la tarea invocation) no roba tiempo a AUD_SRC — si compite, hacer el copy por trozos de 8 KB.
+## Open questions
+- Pre-roll format: raw s16le (64 KB, zero CPU) as proposed by the design, or compress it (second Opus encoder via esp_audio_codec, ~4x less network but +RAM/CPU)? Confirm with real WiFi measurement.
+- WW re-verification in the agent: openWakeWord on the 16 kHz PCM, or STT of the pre-roll + text match of 'Sebastián'? (latency of the veto vs dependencies).
+- Agent identity fixed by convention (agent_name in explicit dispatch, e.g. 'sebastian-agent') or only discovered by on_participant_info kind==AGENT? The design uses both (convention + verification).
+- Should the IDLE phase (room disconnection + reconnection on wake) be advanced to P0 to cut the cost of LiveKit Cloud minutes, knowing it requires the token server?
+- Should the gate in LINGER lower the sensitivity (e.g. require minimum mic_level before considering a reply) to avoid sending 8 s of room noise after each turn?
+- Confirm on hardware that the 64 KB PSRAM→PSRAM snapshot (memcpy in the invocation task) does not steal time from AUD_SRC — if it competes, do the copy in 8 KB chunks.
 
-## Fuentes
+## Sources
 - https://docs.livekit.io/agents/multimodality/audio/
 - https://github.com/livekit/agents/blob/main/livekit-agents/livekit/agents/voice/room_io/_pre_connect_audio.py
 - https://github.com/livekit/agents/blob/main/livekit-agents/livekit/agents/voice/io.py

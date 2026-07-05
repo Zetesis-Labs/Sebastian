@@ -1,29 +1,24 @@
-# Un altavoz conversacional en un ESP32-S3: Zig, I2S a pelo y LiveKit
+# A conversational speaker on an ESP32-S3: Zig, raw I2S and LiveKit
 
-> Serie técnica de **Zetesis** sobre **Sebastian**. Este post es el "cómo está
-> hecho": la arquitectura del firmware y las decisiones de bajo nivel.
+> Technical series from **Zetesis** about **Sebastian**. This post is the "how it's made": the firmware architecture and low-level decisions.
 
-Sebastian es un altavoz de voz de conversación natural corriendo en un
-**XIAO ESP32-S3** (240 MHz, 8 MB flash, 8 MB PSRAM octal) con un
-**ReSpeaker XVF3800** (XMOS VocalFusion) haciendo el trabajo sucio de audio
-far-field, hablando con **LiveKit Cloud** por WebRTC y un agente Python con
-**OpenAI Realtime**. Sin nube propia de audio, sin DSP en el S3: el S3 orquesta.
+Sebastian is a natural conversation voice speaker running on a **XIAO ESP32-S3** (240 MHz, 8 MB flash, 8 MB octal PSRAM) with a **ReSpeaker XVF3800** (XMOS VocalFusion) doing the dirty work of far-field audio, talking to **LiveKit Cloud** via WebRTC and a Python agent with **OpenAI Realtime**. No custom audio cloud, no DSP on the S3: the S3 orchestrates.
 
-## Vista de conjunto
+## Overview
 
 ```mermaid
 flowchart TB
-    subgraph device["Dispositivo"]
+    subgraph device["Device"]
         XVF[XVF3800<br/>AEC · beamforming · DoA<br/>I2S MASTER 48kHz] 
-        S3[XIAO ESP32-S3<br/>firmware Zig · I2S slave]
+        S3[XIAO ESP32-S3<br/>Zig firmware · I2S slave]
         MODEL[microWakeWord<br/>TFLM streaming 62KB]
         XVF <-->|I2C control · 2x I2S| S3
         S3 --- MODEL
     end
-    subgraph cloud["Nube"]
+    subgraph cloud["Cloud"]
         LK[LiveKit Cloud<br/>WebRTC / SFU]
-        AG[Agente Python<br/>livekit-agents 1.6<br/>OpenAI Realtime]
-        TS[Token server<br/>dispatch explícito]
+        AG[Python Agent<br/>livekit-agents 1.6<br/>OpenAI Realtime]
+        TS[Token server<br/>explicit dispatch]
         HA[Home Assistant<br/>MCP]
     end
     S3 <-->|Opus/WebRTC · DTLS/SCTP| LK
@@ -34,116 +29,73 @@ flowchart TB
     style S3 fill:#ff7d00,color:#201306
 ```
 
-## Por qué Zig (y no ESPHome, ni `@cImport`)
+## Why Zig (and not ESPHome, or `@cImport`)
 
-El firmware es **Zig sobre ESP-IDF v5.4** + el **LiveKit C SDK** (`client-sdk-esp32`,
-en Developer Preview). Decisiones:
+The firmware is **Zig on ESP-IDF v5.4** + the **LiveKit C SDK** (`client-sdk-esp32`, in Developer Preview). Decisions:
 
-- **No ESPHome.** ESPHome es declarativo y no llega a este nivel de control del
-  I2S, el DFU del XVF, o el pipeline de captura. Necesitábamos C-nivel.
-- **Bindings `extern` a mano en `csdk.zig`, no `@cImport`.** `@cImport` sobre los
-  headers de esp-idf arrastra tipos gigantes (p. ej. `esp_http_client_config_t`) y
-  peta translate-c. Declaramos solo lo que usamos como `extern fn`, y donde el API
-  C es más ergonómico dejamos **shims C finos** (`token_http.c`, `provisioning.c`)
-  llamados desde Zig.
-- **Trampa Zig cazada en campo:** `@min(comptime, x)` **estrecha el tipo del
-  resultado** al rango del valor (u9 con 480) → overflow aguas abajo. Cinco
-  crashes idénticos. Regla: reproducir la lógica pura en host con el zig del
-  toolchain antes de flashear. Igual con `@intFromFloat` sobre floats que vienen
-  de lecturas I2C: un valor basura reinició el device mid-sesión → guardas NaN /
-  clamp obligatorias.
+- **No ESPHome.** ESPHome is declarative and does not reach this level of control of the I2S, the XVF's DFU, or the capture pipeline. We needed C-level.
+- **Manual `extern` bindings in `csdk.zig`, not `@cImport`.** `@cImport` over the esp-idf headers pulls in giant types (e.g. `esp_http_client_config_t`) and crashes translate-c. We declare only what we use as `extern fn`, and where the C API is more ergonomic we leave **thin C shims** (`token_http.c`, `provisioning.c`) called from Zig.
+- **Zig trap caught in the field:** `@min(comptime, x)` **narrows the result type** to the value range (u9 with 480) → downstream overflow. Five identical crashes. Rule: reproduce pure logic on the host with the toolchain's zig before flashing. Same with `@intFromFloat` on floats coming from I2C reads: a garbage value rebooted the device mid-session → mandatory NaN / clamp guards.
 
-## El I2S: dos puertos, un reloj, cero ring buffer
+## The I2S: two ports, one clock, zero ring buffer
 
-El XVF es **I2S master a 48 kHz**; el S3 es esclavo. Se usan **dos puertos I2S
-separados** (RX e TX) que comparten BCLK/WS. El XVF saca **estéreo 32-bit**:
+The XVF is **I2S master at 48 kHz**; the S3 is a slave. **Two separate I2S ports** (RX and TX) are used, sharing BCLK/WS. The XVF outputs **32-bit stereo**:
 
-- **slot LEFT** = beam *comms* (AEC + beamforming + NS + de-reverb + limiter).
-- **slot RIGHT** = beam *ASR* crudo (post-AEC, sin post-procesado).
+- **LEFT slot** = beam *comms* (AEC + beamforming + NS + de-reverb + limiter).
+- **RIGHT slot** = raw *ASR* beam (post-AEC, without post-processing).
 
-Qué slot consumimos es una decisión de instalación resuelta en *comptime*
-(`config.mic_channel`).
+Which slot we consume is an installation decision resolved at *comptime* (`config.mic_channel`).
 
-La decisión de diseño que más costó: **`mic_src` lee el I2S dentro del propio
-`read_frame`** del pipeline de captura (consumer-paced). Nada de tarea productora
-+ ring buffer. Un ring buffer de rueda libre metía un **"helicóptero"/warble
-periódico** por drift entre dominios de reloj. Al leer bajo demanda, el reloj de
-48 kHz del XVF y el consumidor de LiveKit **son el mismo bucle** — drift cero.
+The hardest design decision: **`mic_src` reads the I2S inside the `read_frame`** of the capture pipeline itself (consumer-paced). No producer task + ring buffer. A free-wheeling ring buffer introduced a **periodic "helicopter"/warble** due to drift between clock domains. By reading on demand, the XVF's 48 kHz clock and the LiveKit consumer **are the same loop** — zero drift.
 
 ```mermaid
 flowchart LR
     XVF[XVF3800 48kHz master] -->|I2S RX 32-bit stereo| MS[mic_src.read_frame<br/>consumer-paced]
-    MS -->|decimación 3:1 + FIR| WW[wake / ASR 16kHz]
-    AG[agente TTS] -->|Opus| AR[av_render] -->|I2S TX| XVF
+    MS -->|3:1 decimation + FIR| WW[wake / ASR 16kHz]
+    AG[TTS agent] -->|Opus| AR[av_render] -->|I2S TX| XVF
     AR -.->|reference-output cb| KA[keepalive]
     style MS fill:#ff9000,color:#201306
 ```
 
-## Wake word: la decimación que casi lo mata
+## Wake word: the decimation that almost killed it
 
-El modelo (**microWakeWord**, streaming TFLM de 62 KB, tensores `[1,2,40]` con
-`MicroResourceVariables`) quiere **16 kHz mono**; el XVF da **48 kHz**. Hay que
-decimar 3:1. El detalle que costó una tarde: **el FIR anti-aliasing NO es
-opcional**. Sin él, coger-uno-de-cada-tres pliega la energía >8 kHz (sibilantes,
-ruido de sala) sobre el espectro y el modelo **colapsa a ~0% con voz en vivo**
-(aunque funcione con TTS de banda limitada). Con FIR: recall 99.3%. Además,
-`pymicro-features` escala por **25.6** — otro número mágico que no se puede omitir.
+The model (**microWakeWord**, 62 KB TFLM streaming, `[1,2,40]` tensors with `MicroResourceVariables`) wants **16 kHz mono**; the XVF outputs **48 kHz**. We have to decimate 3:1. The detail that cost an afternoon: **the anti-aliasing FIR is NOT optional**. Without it, taking-one-out-of-every-three folds the >8 kHz energy (sibilants, room noise) over the spectrum and the model **collapses to ~0% with live voice** (even if it works with band-limited TTS). With FIR: 99.3% recall. Besides, `pymicro-features` scales by **25.6** — another magic number that cannot be omitted.
 
-## La máquina de estados: wake gatea la sesión
+## The state machine: wake gates the session
 
-En reposo el coste es cero (sin LiveKit). El wake word gatea todo:
+At rest the cost is zero (no LiveKit). The wake word gates everything:
 
 ```mermaid
 stateDiagram-v2
     [*] --> Idle: boot
-    Idle --> Idle: escucha wake (25.6× · FIR)
-    Idle --> Connecting: "Sebastián" detectado
-    Connecting --> Active: sala CONNECTED + agente IN
+    Idle --> Idle: listening wake (25.6× · FIR)
+    Idle --> Connecting: "Sebastián" detected
+    Connecting --> Active: room CONNECTED + agent IN
     note right of Connecting
-      pre-roll event-driven:
-      ring 12s en PSRAM, ancla
-      2s antes del wake, envía
-      en el handoff (retry 500ms)
+      event-driven pre-roll:
+      12s ring in PSRAM, anchors
+      2s before wake, sends
+      on handoff (500ms retry)
     end note
-    Active --> Active: turno usuario / agente
+    Active --> Active: user / agent turn
     Active --> Idle: silence timeout / end_session / disconnect
     Idle --> [*]
 ```
 
-Detalles que costaron sesiones:
+Details that cost sessions:
 
-- **Dispatch explícito por token.** La `RoomConfiguration` del token **se ignora
-  si la sala ya existe** — esa era la causa del "no responde tras re-wake". Cada
-  token trae su dispatch del agente por API.
-- **Pre-roll event-driven, no por temporizador.** El handoff wake→live es un
-  **evento** (sala CONNECTED + agente dentro), no un `sleep(N)`: el ring de 12 s
-  en PSRAM se congela y se manda cuando la sala está lista, con reintento cada
-  500 ms. Así no se pierde lo que dijiste mientras `token.fetch()` corría.
-- **Half-duplex / full-duplex / LINGER / barge-in / keepalive** — el modelo de
-  turno vive en el firmware, espejado en el agente por un data channel
-  (`sebastian.agent_state`). El **keepalive** es fino: toma el *reference-output
-  callback* de `av_render` (`int(*)(uint8_t*,int,void*)` — el PCM que va al
-  altavoz) para saber si el agente habla, **independiente del data channel** (que
-  se cae). El `auto_clear_after_cb` mete ceros exactos en underrun, así que
-  no-silencio = agente hablando, sin ruido de fondo que confunda.
+- **Explicit dispatch by token.** The token's `RoomConfiguration` **is ignored if the room already exists** — that was the cause of the "no response after re-wake". Each token brings its API agent dispatch.
+- **Event-driven pre-roll, not timer-based.** The wake→live handoff is an **event** (room CONNECTED + agent inside), not a `sleep(N)`: the 12s ring in PSRAM is frozen and sent when the room is ready, with retries every 500 ms. That way, what you said while `token.fetch()` was running is not lost.
+- **Half-duplex / full-duplex / LINGER / barge-in / keepalive** — the turn model lives in the firmware, mirrored in the agent by a data channel (`sebastian.agent_state`). The **keepalive** is subtle: it takes the *reference-output callback* from `av_render` (`int(*)(uint8_t*,int,void*)` — the PCM going to the speaker) to know if the agent is speaking, **independent of the data channel** (which can drop). The `auto_clear_after_cb` injects exact zeros on underrun, so non-silence = agent speaking, without background noise to confuse it.
 
-## El agente: Realtime + grounding
+## The agent: Realtime + grounding
 
-El agente es `livekit-agents ~1.6` + **OpenAI Realtime** (semantic VAD). Detecta
-turnos, interrumpe, y tiene un **tool `end_session`** por voz. Grounding contra
-**Home Assistant vía MCP** con anti-alucinación (obligado a consultar el estado
-real de la casa antes de responder).
+The agent is `livekit-agents ~1.6` + **OpenAI Realtime** (semantic VAD). It detects turns, interrupts, and has a voice **`end_session` tool**. Grounding against **Home Assistant via MCP** with anti-hallucination (forced to query the real state of the house before responding).
 
-## En una frase
+## In a sentence
 
-El audio far-field (XVF3800) y el transporte (LiveKit/WebRTC) ya existían; el
-trabajo fue **el pegamento de bajo nivel**: I2S sin drift, DFU del XVF por I2C,
-decimación con FIR, un modelo de invocación event-driven, y un firmware Zig que
-no se cae. La conversación bidireccional funciona; lo que falta para "nivel Echo"
-está en el [roadmap](./ROADMAP.md).
+The far-field audio (XVF3800) and the transport (LiveKit/WebRTC) already existed; the work was **the low-level glue**: driftless I2S, I2C DFU for the XVF, FIR decimation, an event-driven invocation model, and a Zig firmware that does not crash. Two-way conversation works; what's missing for "Echo level" is in the [roadmap](./ROADMAP.md).
 
 ---
 
-*El eco y el full-duplex tienen su propia guerra en el
-[post 1](./blog-1-aec-full-duplex.md). Cómo depuramos todo esto en remoto, en el
-[post 3](./blog-3-desarrollo-con-ia-y-telemetria.md).*
+*Echo and full-duplex have their own war in [post 1](./blog-1-aec-full-duplex.md). How we debugged all this remotely, in [post 3](./blog-3-desarrollo-con-ia-y-telemetria.md).*
