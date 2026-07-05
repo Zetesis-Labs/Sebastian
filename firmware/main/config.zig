@@ -53,24 +53,33 @@ pub var fixed_beam_azimuth_deg: f32 = 0.0;
 /// the half-duplex gate + wake-word barge-in handle the echo.
 pub var full_duplex: bool = true;
 
+// The three boot self-tests stay COMPILE-TIME (`const`), NOT runtime `var`. As a
+// runtime var they defeat dead-code elimination, so xvf_aec's probe machinery —
+// including its ~15 KB of static tone/rx buffers (TONE_PAIRS, tone_buf,
+// probe_rx_buf) — is kept in internal RAM even in production. Those 15 KB starve
+// the TLS hardware-AES DMA allocation (`esp-aes: Failed to allocate memory`) and
+// LiveKit can't connect. Keeping them const lets the compiler elide the probes +
+// their buffers. Enabling a probe is therefore a reflash, not a re-provision —
+// which is fine: it's a bring-up/diagnostics-only mode.
+
 /// Run the AEC convergence self-test at boot (xvf_aec.probeReference): plays a
 /// session-level tone through the speaker and reports whether the AEC converges,
 /// with no session or human needed — the result lands in Grafana after a reset.
 /// Diagnostic only; leave false in production (it beeps for ~10s at boot).
-pub var probe_aec_on_boot: bool = false;
+pub const probe_aec_on_boot: bool = false;
 
 /// Dual-channel echo test at boot (xvf_aec.probeDualChannel): plays agent-like
 /// noise and compares residual echo on the comms (LEFT) vs raw ASR (RIGHT) beams,
 /// with the beam adaptive (worst case) and fixed (reference). Answers whether the
 /// comms channel's non-linear suppressor enables full-duplex WITH tracking.
 /// Diagnostic only; leave false in production (plays ~12s of noise at boot).
-pub var probe_dual_channel_on_boot: bool = false;
+pub const probe_dual_channel_on_boot: bool = false;
 
 /// Output-gain actuator test at boot (xvf_aec.probeOutputGain): plays noise at
 /// FAR_EXTGAIN 0 dB vs −12 dB and compares pre-AEC mic echo. Answers whether
 /// FAR_EXTGAIN is a usable master volume for echo-headroom auto-leveling.
 /// Diagnostic only; leave false in production (~7s of noise at boot).
-pub var probe_output_gain_on_boot: bool = false;
+pub const probe_output_gain_on_boot: bool = false;
 
 /// Override the defaults above with the values provisioned into NVS. Call once at
 /// boot, before the config is read (XVF/AEC apply, boot self-tests). Each missing
@@ -79,7 +88,4 @@ pub fn load() void {
     fixed_beam = sebastian_cfg_get_bool("fixed_beam", fixed_beam);
     fixed_beam_azimuth_deg = @floatFromInt(sebastian_cfg_get_i32("beam_az", @intFromFloat(fixed_beam_azimuth_deg)));
     full_duplex = sebastian_cfg_get_bool("full_duplex", full_duplex);
-    probe_aec_on_boot = sebastian_cfg_get_bool("probe_aec", probe_aec_on_boot);
-    probe_dual_channel_on_boot = sebastian_cfg_get_bool("probe_dual", probe_dual_channel_on_boot);
-    probe_output_gain_on_boot = sebastian_cfg_get_bool("probe_ogain", probe_output_gain_on_boot);
 }

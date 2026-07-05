@@ -211,9 +211,6 @@ static bool store_wifi(cJSON *root) {
     if (ok && cJSON_IsObject(audio)) {
         store_cfg_bool(h, "full_duplex", cJSON_GetObjectItem(audio, "fullDuplex"));
         store_cfg_bool(h, "fixed_beam", cJSON_GetObjectItem(audio, "fixedBeam"));
-        store_cfg_bool(h, "probe_aec", cJSON_GetObjectItem(audio, "probeAecOnBoot"));
-        store_cfg_bool(h, "probe_dual", cJSON_GetObjectItem(audio, "probeDualChannelOnBoot"));
-        store_cfg_bool(h, "probe_ogain", cJSON_GetObjectItem(audio, "probeOutputGainOnBoot"));
         cJSON *az = cJSON_GetObjectItem(audio, "fixedBeamAzimuthDeg");
         if (cJSON_IsNumber(az)) {
             double d = az->valuedouble;
