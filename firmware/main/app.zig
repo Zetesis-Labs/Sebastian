@@ -573,6 +573,9 @@ export fn app_main() callconv(.c) void {
     // Start the serial provisioning receiver early: it must be listening even if
     // WiFi never comes up (bad/absent creds) so the web installer can fix it.
     c.sebastian_provisioning_start();
+    // Pull mode/audio config from NVS (defaults from config.zig) before it is
+    // read: the XVF/AEC apply below and the boot self-tests depend on it.
+    cfg.load();
 
     const xvf_master = confirmXvfMaster();
     const xvf_unmuted = unmuteXvf();
