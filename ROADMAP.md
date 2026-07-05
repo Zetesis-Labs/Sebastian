@@ -419,3 +419,104 @@ explicit BCP-47 codes** (`es-ES` → APIError 1007 → Live session closes →
 agent goes mute with the device session open): the language is now
 configurable (`SEBASTIAN_GEMINI_LANGUAGE`) and by default **auto-detect** (commit
 `55b869f`).
+
+## 8. Beyond the assistant — the device as a thin audio endpoint (2026-07-05)
+
+Strategic pivot after shipping runtime modes and paying for a memory bug the hard
+way: stop adding capability **to the firmware** and start adding it **to the
+server**. The ESP32-S3 is at its internal-RAM edge (proven below), so the winning
+shape is a **dumb, low-footprint endpoint** (4-mic array + speaker + LED ring +
+on-device wake word + one WebRTC session) with **all brains server-side** (the
+agent, a media publisher, classifiers over the already-streamed audio). "Add a
+feature" then means writing server code with **zero firmware/RAM cost on the
+device** — cheap and, crucially, safe (no touching the fragile stack).
+
+### Shipped 2026-07-05
+
+- [x] **Mode-based web installer** (PR #2): the installer provisions an operating
+      **mode** (`full_duplex` / `half_duplex`) + `audio.fixedBeamAzimuthDeg` into
+      NVS; `config.zig::load()` reads them at boot. Switching full↔half duplex is
+      now a **re-provision, not a reflash**. `full_duplex`/`fixed_beam`/`azimuth`
+      became runtime `var`; `mic_channel` + `session.*` stay compile-time.
+- [x] **Memory bug + lesson.** Making the three `probe_*_on_boot` flags runtime
+      `var` (for a "diagnostics" mode) defeated Zig's **dead-code elimination**, so
+      `xvf_aec`'s ~15 KB of static probe buffers (`tone_buf` + `probe_rx_buf`,
+      `[960*2]i32` each) stayed resident in internal RAM. Those 15 KB starved the
+      TLS hardware-AES DMA (`esp-aes: Failed to allocate memory`) → the WSS
+      handshake looped `Connection already in progress` forever and LiveKit never
+      connected. It looked exactly like a network/IDF problem for hours; it was
+      not. **Fix:** probes back to comptime `const false` (compiler elides them +
+      the 15 KB, verified: `tone_buf` gone from the `.map`), diagnostics mode
+      dropped from the installer. **Rule for the whole codebase: never turn a
+      config `const` into a runtime `var` if it gates a code path with large static
+      buffers — `var` keeps them all.** The device runs with a thin internal-RAM
+      margin at the TLS handshake (exact KB unmeasured — no runtime heap log yet;
+      the 15 KB was the fail↔connect swing).
+
+### Foundation: self-host LiveKit on Cortes
+
+Elevated from a P2 economics option to **the enabler** for everything below.
+LiveKit is OSS (Apache-2.0); deploy the Helm chart on the Talos `cortes` cluster
+via Mileto GitOps (ArgoCD/Infisical). Wins: **24/7 at zero per-minute cost**,
+**LAN-local** (sub-ms; home audio stops round-tripping a third-party cloud), keys
+in Infisical, the Python agent as a Deployment. The device barely changes — it
+already gets `serverUrl` from the token response, so just point the token server
+at `wss://livekit.<lan>` and rotate keys. **Fiddly part:** WebRTC-on-K8s — exposing
+the media **UDP port range** + the **announced node IP** (hostNetwork or a UDP
+LoadBalancer on Talos). **Possible bonus to MEASURE, not assume:** `ws://` LAN
+signaling would skip the WSS handshake that starved esp-aes; media DTLS still uses
+AES, so it is not a guaranteed relief.
+
+### HA-native `media_player` without touching the firmware
+
+Requirement: HA sees the device as a controllable `media_player` (music via Music
+Assistant, announcements, notifications). Two routes:
+
+- **DLNA/UPnP MediaRenderer in firmware** → HA's built-in `dlna_dmr` auto-discovers
+  it. Zero HA-side code, LAN-local, serverless — **but adds a decode+HTTP+SSDP
+  stack to the RAM-tight device** as a mutually-exclusive mode. **Deferred**: only
+  worth it if we ever want native HA music with *no* always-on server.
+- **Custom HA integration backed by WebRTC (chosen).** A HA `custom_component`
+  exposing a `media_player` whose `play_media`/volume map to a **publisher** that
+  joins the LiveKit room and streams to the device. Music Assistant feeds it;
+  ducking/mixing handled server-side. → **native HA entity + zero device firmware +
+  one transport.** Cost: real dev we own (component + robust publisher), and it
+  depends on the (now self-hosted) LiveKit being up.
+
+### Notifications / announcements / Grafana → voice, via the agent
+
+Reuse the pipeline: the agent already does TTS and speaks through the device. Add a
+"say this" path (RPC/data-channel or a small HTTP API) → HA/Grafana call it →
+device speaks. Grafana alert → webhook → HA automation (or direct) → *"CPU 95% on
+cortes"*. **No DLNA, no publisher needed for this** — pure extension of the voice
+pipeline, highest value-per-effort.
+
+### Feature menu under this model (all server-side, device untouched)
+
+| Axis | Features | Reuses |
+|---|---|---|
+| **Mic ML** (on the streamed audio) | sound-event detection (glass break, smoke alarm, crying, barking) → HA; speaker ID / presence; **room transcription + summary**; baby-monitor / remote-listen | Zetesis transcription stack; the WebRTC mic already published |
+| **Homelab voice-ops** (very on-brand) | query Grafana/Prometheus/K8s by voice; conversational incident announcements; "restart pod X" | Grafana + agent + MCP already wired |
+| **Smarter assistant** | **RAG over the Zetesis knowledge base**; per-person memory; multilingual; personas/voices | mcp-typesense (already MCP-connected) |
+| **Home** | scenes/conditional routines; DoA follow-me; camera/doorbell announcements (+ vision on the snapshot) | HA MCP already wired |
+| **Media** | music (Music Assistant), TTS notifications from anything, timers/alarms/reminders, ambient/sleep sounds, multi-room/intercom | the media_player + WebRTC rooms |
+| **LED ring** | expose as an HA `light` entity, visual notifications, DoA | existing ring UI |
+
+### Suggested order
+
+1. **Self-host LiveKit on Cortes** — foundation for everything else.
+2. **Notifications / Grafana → agent speaks** — quick win, reuses the voice pipeline.
+3. **Custom HA `media_player` + publisher** — music via Music Assistant.
+4. **Sound-event detection + homelab voice-ops** — highest home value, reuse the
+   audio stream + Grafana/K8s.
+5. *(Optional)* measure whether `ws://` LAN signaling relieves the esp-aes margin.
+
+### Honest caveats
+
+- **Privacy**: streaming the mic to the server 24/7 has real implications — gate it
+  (only after wake, or an explicit "listen mode").
+- **WebRTC-on-K8s** UDP/IP exposure is the real time-sink of the foundation.
+- **RAM edge stands**: these features live server-side precisely because the device
+  can't take more. On-device modes (assistant / DLNA-if-ever / intercom) remain
+  **mutually exclusive**, not simultaneous.
+- Vision needs a camera; multi-room needs more units.
