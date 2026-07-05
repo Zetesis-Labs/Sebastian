@@ -16,18 +16,19 @@ The firmware-side receiver is implemented in `firmware/main/provisioning.c`. It:
 5. Stores into NVS (namespace `sebastian`): WiFi (`ssid`/`password`), and when
    present `livekit.tokenServerUrl`, the operating `mode`, and the audio
    behaviour it implies — `audio.fullDuplex`, `audio.fixedBeam`,
-   `audio.fixedBeamAzimuthDeg`, and the three boot self-tests
-   (`probeAecOnBoot` / `probeDualChannelOnBoot` / `probeOutputGainOnBoot`).
+   `audio.fixedBeamAzimuthDeg`.
 6. Replies `sebastian.config.ok` and restarts. On next boot the device reads
    NVS: `sebastian_net_connect()` uses the WiFi creds, `token.zig` reads
    `tokenServerUrl`, and `config.zig::load()` overrides its compiled defaults
-   with the stored audio/mode values **before** the XVF/AEC config is applied
-   and the boot self-tests run.
+   with the stored audio/mode values **before** the XVF/AEC config is applied.
 
 Not stored on-device (still compile-time — a reflash, not a re-provision):
-`audio.micChannel` (it feeds comptime slot/shift selection in `xvf_pcm.zig`) and
-`session.*` (the pure `session_core.zig` timing). They ride along in the payload
-for forward-compat and are schema-validated, but the firmware ignores them today.
+`audio.micChannel` (it feeds comptime slot/shift selection in `xvf_pcm.zig`),
+`session.*` (the pure `session_core.zig` timing), and the boot self-tests
+(`probeAecOnBoot` etc.). The self-tests are intentionally compile-time: as runtime
+flags they defeat dead-code elimination and keep ~15 KB of static probe buffers in
+internal RAM, which starves the TLS hardware-AES DMA and kills the LiveKit
+connection. Enabling one is a reflash.
 
 Still pending before public distribution: blank the factory
 `CONFIG_LK_EXAMPLE_WIFI_*` so no secrets are baked in, and have CI build +
@@ -74,10 +75,7 @@ valid for `schema = "sebastian.config.v1"`.
     "micChannel": "right",
     "fixedBeam": true,
     "fixedBeamAzimuthDeg": 0,
-    "fullDuplex": true,
-    "probeAecOnBoot": false,
-    "probeDualChannelOnBoot": false,
-    "probeOutputGainOnBoot": false
+    "fullDuplex": true
   },
   "session": {
     "silenceTimeoutMs": 12000,
@@ -96,8 +94,8 @@ valid for `schema = "sebastian.config.v1"`.
 | `livekit.deviceIdentity` / `room` / `agentName` | `agent/token_server.py` constants | ❌ token server owns these |
 | `telemetry.otlpEndpoint` / `grafanaUrl` | `tools/telemetry/bridge.py` / env | ❌ device-side OTLP is future work |
 | `mode`, `audio.fullDuplex`, `audio.fixedBeam`, `audio.fixedBeamAzimuthDeg` | NVS → `config.zig::load()` | ✅ applied at boot |
-| `audio.probeAecOnBoot` / `probeDualChannelOnBoot` / `probeOutputGainOnBoot` | NVS → `config.zig::load()` | ✅ boot self-tests |
 | `audio.micChannel` | `config.zig` comptime → `xvf_pcm.zig` slot/shift | ❌ reflash only |
+| boot self-tests (`probeAecOnBoot` etc.) | `config.zig` comptime (elides ~15 KB probe buffers) | ❌ reflash only |
 | `session.silenceTimeoutMs` / `voiceLevel` | `config.zig` / `session_core.zig` | ❌ reflash only |
 
 ## Security

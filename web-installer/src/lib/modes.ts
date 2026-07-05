@@ -130,15 +130,6 @@ export const MODES: ModeMeta[] = [
           "Where the fixed beam points. 0° = straight ahead of the array; positive = counter-clockwise. Aim it at where you sit: it improves pickup and helps the AEC converge.",
       },
       micChannel,
-      {
-        path: "audio.probeAecOnBoot",
-        label: "AEC self-test on boot",
-        type: "toggle",
-        advanced: true,
-        applied: true,
-        help:
-          "Plays a tone at boot and checks whether the AEC converges, with no human needed. Handy when installing; beeps ~10 s. Leave off in production.",
-      },
       ...sessionFields,
     ],
   },
@@ -167,51 +158,6 @@ export const MODES: ModeMeta[] = [
       },
     ],
     fields: [micChannel, ...sessionFields],
-  },
-  {
-    id: "diagnostics",
-    pill: "Setup only",
-    title: "Diagnostics",
-    sub: "Bring-up",
-    blurb:
-      "Runs the audio self-tests at boot and reports the results to Grafana. For validating a freshly assembled unit, not for daily use.",
-    best: "Validate hardware before deploying",
-    callout: {
-      tone: "warn",
-      text: "Plays tones/noise ~10–30 s on every boot. Don't leave this in production.",
-    },
-    locks: [
-      {
-        label: "Use",
-        value: "Temporary",
-        why: "Once the unit passes, re-provision it to Full- or Half-duplex for production.",
-      },
-    ],
-    fields: [
-      {
-        path: "audio.probeAecOnBoot",
-        label: "AEC convergence test",
-        type: "toggle",
-        applied: true,
-        help: "Plays a tone and measures whether the AEC converges. Result lands in Grafana after the reset.",
-      },
-      {
-        path: "audio.probeDualChannelOnBoot",
-        label: "Dual-channel test (ASR vs Comms)",
-        type: "toggle",
-        applied: true,
-        help:
-          "Compares residual echo on the Comms (left) beam vs the raw ASR (right) beam. Answers whether Comms enables full-duplex with tracking.",
-      },
-      {
-        path: "audio.probeOutputGainOnBoot",
-        label: "Output-gain test",
-        type: "toggle",
-        applied: true,
-        help:
-          "Plays noise at 0 dB vs −12 dB and compares pre-AEC echo. Answers whether FAR_EXTGAIN works as a master volume for echo headroom.",
-      },
-    ],
   },
 ];
 

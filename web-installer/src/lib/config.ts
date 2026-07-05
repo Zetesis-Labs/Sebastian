@@ -3,9 +3,9 @@ export const CONFIG_SCHEMA = "sebastian.config.v1";
 // Operating modes are the top-level, mutually-exclusive choice. Each mode locks
 // the interdependent audio settings (duplex + beam) so the operator can't pick a
 // combination that breaks echo cancellation; everything else stays tunable.
-export type OperatingMode = "full_duplex" | "half_duplex" | "diagnostics";
+export type OperatingMode = "full_duplex" | "half_duplex";
 
-export const OPERATING_MODES: OperatingMode[] = ["full_duplex", "half_duplex", "diagnostics"];
+export const OPERATING_MODES: OperatingMode[] = ["full_duplex", "half_duplex"];
 
 export interface DeviceConfig {
   schema: typeof CONFIG_SCHEMA;
@@ -23,9 +23,6 @@ export interface DeviceConfig {
     fixedBeam: boolean;
     fixedBeamAzimuthDeg: number;
     fullDuplex: boolean;
-    probeAecOnBoot: boolean;
-    probeDualChannelOnBoot: boolean;
-    probeOutputGainOnBoot: boolean;
   };
   session: { silenceTimeoutMs: number; voiceLevel: number };
 }
@@ -37,8 +34,6 @@ export const MODE_PRESETS: Record<OperatingMode, Partial<DeviceConfig["audio"]>>
   full_duplex: { fullDuplex: true, fixedBeam: true },
   // Half-duplex gates the mic while the agent speaks; an adaptive beam tracks the talker.
   half_duplex: { fullDuplex: false, fixedBeam: false },
-  // Diagnostics runs the boot self-tests against a fixed reference.
-  diagnostics: { fullDuplex: false, fixedBeam: true, probeAecOnBoot: true },
 };
 
 const isMode = (v: unknown): v is OperatingMode =>
@@ -65,17 +60,13 @@ export const defaultConfig = (): DeviceConfig => ({
     fixedBeam: true,
     fixedBeamAzimuthDeg: 0,
     fullDuplex: true,
-    probeAecOnBoot: false,
-    probeDualChannelOnBoot: false,
-    probeOutputGainOnBoot: false,
   },
   session: { silenceTimeoutMs: 12000, voiceLevel: 3000 },
 });
 
 // Fields the firmware stores in NVS + applies at boot. `mode` expands into
-// audio.fullDuplex/fixedBeam (applied), plus azimuth + the boot self-tests. Still
-// compile-time (reflash), so NOT applied: audio.micChannel and session.* — see
-// PROVISIONING.md.
+// audio.fullDuplex/fixedBeam (applied), plus the beam azimuth. Still compile-time
+// (reflash), so NOT applied: audio.micChannel and session.* — see PROVISIONING.md.
 export const APPLIED_FIELDS = [
   "mode",
   "wifi.ssid",
@@ -84,9 +75,6 @@ export const APPLIED_FIELDS = [
   "audio.fullDuplex",
   "audio.fixedBeam",
   "audio.fixedBeamAzimuthDeg",
-  "audio.probeAecOnBoot",
-  "audio.probeDualChannelOnBoot",
-  "audio.probeOutputGainOnBoot",
 ];
 
 export const serialize = (config: DeviceConfig): string => JSON.stringify(config, null, 2);
