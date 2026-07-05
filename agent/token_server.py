@@ -71,6 +71,22 @@ async def _dispatch_agent(lk: api.LiveKitAPI) -> None:
     # re-wake" bug. Dispatching explicitly here covers both cases; awaiting it
     # BEFORE returning the token means the device can never join first and
     # trigger a duplicate via the token's own dispatch.
+    #
+    # But there must be EXACTLY ONE agent in the room. If an agent is already
+    # present (a prior fetch this session, or a reconnect re-fetch), a second
+    # create_dispatch adds a second agent that talks over the first ("habla
+    # solo"). So dispatch only when the room currently has no agent participant;
+    # if the room doesn't exist yet (fresh wake) the lookup fails and we fall
+    # through to dispatch, which is exactly what we want.
+    try:
+        parts = await lk.room.list_participants(
+            api.ListParticipantsRequest(room=ROOM)
+        )
+        if any(p.kind == api.ParticipantInfo.Kind.AGENT for p in parts.participants):
+            print("[token-server] agent already in room — skipping dispatch", flush=True)
+            return
+    except Exception as e:  # room not created yet → dispatch below
+        print(f"[token-server] no room yet ({e!r}) — dispatching", flush=True)
     await lk.agent_dispatch.create_dispatch(
         api.CreateAgentDispatchRequest(agent_name=AGENT_NAME, room=ROOM)
     )
