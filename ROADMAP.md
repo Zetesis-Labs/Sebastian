@@ -214,6 +214,7 @@ model segment. The Python agent deploys as a Deployment on Cortes.
 2. [ ] **Wake word reliability**: lower threshold 0.62 → ~0.50 and measure false
        positives with the "session without user turn" proxy (transcriptions).
        If not enough, re-train with real captures (pre-rolls are a dataset).
+       Full anti-phantom plan (two-stage verify, speaker-ID, DoA fusion) in **§9**.
 3. [ ] **Determinism harness**: host Zig tests for pure logic
        (decimator, softClip, pre-roll window, barge chopping — the kind of bug that
        crashed 5 times today, catchable in seconds without hardware), Python device
@@ -305,6 +306,13 @@ runner **`herschel-runners`** and works. The **factory firmware is built in
 the Action itself** (esp-idf-ci-action, ~4-7 min) and published alongside the installer,
 with verification that the image carries no credentials. The flashed image
 is built by CI, a local binary is never uploaded.
+
+**Update (2026-07-05, PR #3):** the **web installer bundle itself is now also built
+in CI** (pnpm + Node 20, on `herschel-runners`) and `docs/installer/` is no longer
+committed to the repo (gitignored). A change under `web-installer/` auto-builds +
+deploys; the build is never checked in. (The recurring `deploy-pages` "try again
+later" is GitHub Pages platform flakiness, not the pipeline — a fresh
+`workflow_dispatch` run clears it.)
 
 ## 7. Exploiting the XVF DSP → full-duplex with tracking + auto-calibration (2026-07-04)
 
@@ -520,3 +528,58 @@ pipeline, highest value-per-effort.
   can't take more. On-device modes (assistant / DLNA-if-ever / intercom) remain
   **mutually exclusive**, not simultaneous.
 - Vision needs a camera; multi-room needs more units.
+
+## 9. Anti-phantom wake word — killing false activations (2026-07-05)
+
+A daily-use priority in its own right: the assistant must **not wake when nobody
+called it** (TV, music, a similar-sounding word, its own voice). Consolidates and
+makes actionable what was scattered across §2 (signals #2/#7), §6 #4 and Pending #2.
+
+### The framing that dictates the whole approach
+
+False positives (phantoms) and misses ("it didn't fire" — seen live at 81 %
+confidence) **pull in opposite directions on the on-device threshold**. So the fix
+is **not** to raise the threshold on the board — that trades recall away and worsens
+the miss problem. The right move is to **split recall from precision**:
+
+- **On the board → recall.** Keep the threshold **loose** (fires easily, never
+  misses you).
+- **On the server → precision.** Re-verify each trigger with real compute and
+  **abort silently** if it wasn't real.
+
+This is exactly the §8 thin-endpoint model: dumb board, brains server-side. Most of
+what follows is **server code, zero firmware/RAM cost**.
+
+### Options (highest leverage first)
+
+| # | Option | What it does | Roadmap ref | Cost |
+|---|---|---|---|---|
+| 1 | **Two-stage verification** | board fires loose → agent re-checks the **pre-roll** (openWakeWord / heavier classifier / ASR "did they say *Sebastián*?") → **abort session silently** if it fails. Gives recall **and** precision at once. | signal #2 | server-side, medium |
+| 2 | **Retrain on the phantoms** | the pre-rolls of false wakes are **hard negatives** → the model learns not to fire on the TV / music / near-homophones. Durable. | Pending #2 | training loop |
+| 3 | **Speaker verification** | only wake for **enrolled voices** → kills TV / media / guest phantoms wholesale (pre-roll embedding, ECAPA). | signal #7 | server-side, embeddings |
+| 4 | **DoA + energy fusion** | a real person arrives from a **stable direction**; diffuse TV/room noise doesn't → cheap discriminator on the already-streamed DoA. | §2 (DoA telemetry) | server-side, cheap |
+| 5 | **Context gating** | raise the bar / require verify **while music or the agent is playing** (where phantoms cluster; the agent's own voice saying the name is already forbidden in the instructions). Gate the wake on the AEC'd channel so the **own-speaker echo** can't self-trigger. | partial | medium |
+| 6 | **On-device threshold / window** | quick knob, but **sacrifices recall** (worsens "didn't fire"). Last resort, not the primary lever. | §6 #4 | trivial |
+
+### Honest caveats
+
+- **Two-stage verify still opens a brief session per board trigger** (a spurious
+  connect) just to abort before speaking. It kills the **audible** phantom, not the
+  connect. With **self-hosted LiveKit on LAN** (§8) that connect is nearly free; on
+  LiveKit Cloud it bills participant-seconds — a reason to pair this with the
+  self-host foundation.
+- **Own-speaker echo** (music/TTS re-triggering the wake) is a distinct source from
+  external phantoms — attack it with #5 (gate during playback / run the wake on the
+  AEC'd channel), not with the server re-verify.
+- All of this needs a **false-positive dataset** to tune against — the "session
+  without a user turn" proxy (Pending #2) is the cheap way to measure it before
+  re-training.
+
+### Suggested order
+
+1. **Two-stage server re-verify** (#1) — kills audible phantoms now, and lets the
+   board threshold go **loose** → also fixes the "didn't fire at 81 %" miss.
+2. **Measure** false positives with the session-without-turn proxy → build the
+   phantom dataset.
+3. **Retrain** (#2) on that dataset; add **DoA fusion** (#4) as a cheap gate.
+4. **Speaker-ID** (#3) if TV/guests turn out to be the dominant source.
