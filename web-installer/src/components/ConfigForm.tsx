@@ -34,7 +34,7 @@ export function ConfigForm({ config, onChange, issues }: Props) {
 
   return (
     <div className="mt-7 grid gap-7">
-      <Group title="Red">
+      <Group title="Network">
         <TextField
           label="WiFi SSID"
           applied
@@ -53,7 +53,7 @@ export function ConfigForm({ config, onChange, issues }: Props) {
         />
         <div className="sm:col-span-2">
           <Toggle
-            label="Red oculta"
+            label="Hidden network"
             checked={config.wifi.hidden}
             onChange={(v) => up("wifi", "hidden", v)}
           />
@@ -88,7 +88,7 @@ export function ConfigForm({ config, onChange, issues }: Props) {
         />
       </Group>
 
-      <Group title="Telemetría">
+      <Group title="Telemetry">
         <TextField
           label="OTLP endpoint"
           type="url"
@@ -142,7 +142,7 @@ export function ConfigForm({ config, onChange, issues }: Props) {
         />
       </Group>
 
-      <Group title="Sesión">
+      <Group title="Session">
         <TextField
           label="Silence timeout (ms)"
           type="number"
