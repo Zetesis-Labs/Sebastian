@@ -11,10 +11,12 @@ firmware/managed_components/
 firmware/include/bindings.h
 
 # --- Web installer generated artifacts ---
-# These binaries can embed local WiFi/token-server config. Publish only factory
-# images that are intentionally safe for distribution.
-docs/installer/firmware/*.bin
-docs/installer/*.local.json
+# The whole published site is built in CI (pages.yml: pnpm build → docs/installer,
+# then the factory firmware is merged in). Nothing here is hand-maintained, so the
+# build is never committed — the source of truth is web-installer/.
+docs/installer/
+# (Binaries under docs/installer/firmware/ can embed local WiFi/token config;
+# only the CI-built factory image, which carries no credentials, is published.)
 
 # --- Zig ---
 firmware/.zig-cache/
