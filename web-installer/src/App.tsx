@@ -195,8 +195,10 @@ export default function App() {
             title="Configure the unit"
             hint={
               <>
-                The fields with <span className="font-mono text-brand">NVS</span> are the ones the
-                firmware applies today.
+                Pick a mode, then fine-tune.{" "}
+                <span className="font-mono text-brand">NVS</span> fields apply today;{" "}
+                <span className="font-mono text-fg-muted">v2</span> fields are sent but need a
+                firmware update to take effect.
               </>
             }
           />

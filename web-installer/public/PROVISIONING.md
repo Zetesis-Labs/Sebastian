@@ -13,16 +13,25 @@ The firmware-side receiver is implemented in `firmware/main/provisioning.c`. It:
 2. Accepts only lines prefixed with `sebastian.config.v1 `.
 3. Parses the JSON payload (cJSON).
 4. Checks `schema == "sebastian.config.v1"`.
-5. Stores WiFi (`ssid`/`password`) and, when present, `livekit.tokenServerUrl`
-   in NVS (namespace `sebastian`).
-6. Replies `sebastian.config.ok` and restarts. On next boot
-   `sebastian_net_connect()` uses the NVS creds, falling back to the compiled
-   `CONFIG_LK_EXAMPLE_WIFI_*` when NVS is empty.
+5. Stores into NVS (namespace `sebastian`): WiFi (`ssid`/`password`), and when
+   present `livekit.tokenServerUrl`, the operating `mode`, and the audio
+   behaviour it implies — `audio.fullDuplex`, `audio.fixedBeam`,
+   `audio.fixedBeamAzimuthDeg`, and the three boot self-tests
+   (`probeAecOnBoot` / `probeDualChannelOnBoot` / `probeOutputGainOnBoot`).
+6. Replies `sebastian.config.ok` and restarts. On next boot the device reads
+   NVS: `sebastian_net_connect()` uses the WiFi creds, `token.zig` reads
+   `tokenServerUrl`, and `config.zig::load()` overrides its compiled defaults
+   with the stored audio/mode values **before** the XVF/AEC config is applied
+   and the boot self-tests run.
 
-Still pending before this is safe to distribute publicly: blank the factory
-`CONFIG_LK_EXAMPLE_WIFI_*` (so no secrets are baked in) and teach the CI to
-build + publish that factory image. The token-server URL is stored but not yet
-read back by `token.zig`.
+Not stored on-device (still compile-time — a reflash, not a re-provision):
+`audio.micChannel` (it feeds comptime slot/shift selection in `xvf_pcm.zig`) and
+`session.*` (the pure `session_core.zig` timing). They ride along in the payload
+for forward-compat and are schema-validated, but the firmware ignores them today.
+
+Still pending before public distribution: blank the factory
+`CONFIG_LK_EXAMPLE_WIFI_*` so no secrets are baked in, and have CI build +
+publish that factory image.
 
 Suggested acknowledgement:
 
@@ -45,6 +54,7 @@ valid for `schema = "sebastian.config.v1"`.
 ```json
 {
   "schema": "sebastian.config.v1",
+  "mode": "full_duplex",
   "wifi": {
     "ssid": "Home",
     "password": "secret",
@@ -65,7 +75,9 @@ valid for `schema = "sebastian.config.v1"`.
     "fixedBeam": true,
     "fixedBeamAzimuthDeg": 0,
     "fullDuplex": true,
-    "probeAecOnBoot": false
+    "probeAecOnBoot": false,
+    "probeDualChannelOnBoot": false,
+    "probeOutputGainOnBoot": false
   },
   "session": {
     "silenceTimeoutMs": 12000,
@@ -76,15 +88,17 @@ valid for `schema = "sebastian.config.v1"`.
 
 ## Firmware mapping
 
-| Field | Current source | Target storage |
+| Field | On-device source | Applied today? |
 |---|---|---|
-| `wifi.ssid` / `wifi.password` / `wifi.hidden` | `firmware/sdkconfig` | NVS, read before WiFi connect |
-| `livekit.tokenServerUrl` | `firmware/main/secrets.zig` | NVS, read by `token.zig` |
-| `livekit.deviceIdentity` / `room` / `agentName` | `agent/token_server.py` constants | Token server query params or per-device backend state |
-| `telemetry.otlpEndpoint` | `tools/telemetry/bridge.py` / env | Bridge/collector config; device-side WiFi OTLP is future work |
-| `telemetry.grafanaUrl` | operator docs | Installer/app link only |
-| `audio.*` | `firmware/main/config.zig` | NVS where safe; some values still need compile-time handling today |
-| `session.*` | `firmware/main/app.zig` constants | NVS/runtime config |
+| `wifi.ssid` / `wifi.password` | NVS, read by `sebastian_net_connect()` | ✅ before WiFi connect |
+| `wifi.hidden` | — | ❌ not consumed yet |
+| `livekit.tokenServerUrl` | NVS, read by `token.zig` | ✅ per-session token fetch |
+| `livekit.deviceIdentity` / `room` / `agentName` | `agent/token_server.py` constants | ❌ token server owns these |
+| `telemetry.otlpEndpoint` / `grafanaUrl` | `tools/telemetry/bridge.py` / env | ❌ device-side OTLP is future work |
+| `mode`, `audio.fullDuplex`, `audio.fixedBeam`, `audio.fixedBeamAzimuthDeg` | NVS → `config.zig::load()` | ✅ applied at boot |
+| `audio.probeAecOnBoot` / `probeDualChannelOnBoot` / `probeOutputGainOnBoot` | NVS → `config.zig::load()` | ✅ boot self-tests |
+| `audio.micChannel` | `config.zig` comptime → `xvf_pcm.zig` slot/shift | ❌ reflash only |
+| `session.silenceTimeoutMs` / `voiceLevel` | `config.zig` / `session_core.zig` | ❌ reflash only |
 
 ## Security
 
