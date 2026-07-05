@@ -1,56 +1,56 @@
 # Wake word "Sebastián"
 
-Artefactos y scripts del wake word. La integración en firmware está documentada
-en [`docs/WAKE_WORD.md`](../docs/WAKE_WORD.md).
+Wake word artifacts and scripts. Firmware integration is documented
+in [`docs/WAKE_WORD.md`](../docs/WAKE_WORD.md).
 
-## Contenido
+## Contents
 
-| Fichero | Qué es |
+| File | What it is |
 |---|---|
-| `sebastian.tflite` | Modelo final (62 KB, int8, streaming). Copia embebida en `firmware/main/`. |
-| `sebastian.json` | Metadata del modelo (cutoff 0.62, ventana 4, step 10 ms, arena). |
-| `download_es_voices.py` | Descarga las 9 voces Piper en español (AR/ES/MX) desde HuggingFace a `trainer/piper-sample-generator/voices/`. |
-| `split_wakeword.py` | Trocea una sesión de grabación (WAV largo con muchas repeticiones) en clips individuales 16 kHz mono para `personal_samples/`. |
-| `trainer/` | (gitignored, ~40 GB) Clon de microWakeWord-Trainer-AppleSilicon + datasets + venv. |
+| `sebastian.tflite` | Final model (62 KB, int8, streaming). Embedded copy in `firmware/main/`. |
+| `sebastian.json` | Model metadata (cutoff 0.62, window 4, step 10 ms, arena). |
+| `download_es_voices.py` | Downloads the 9 Spanish Piper voices (AR/ES/MX) from HuggingFace to `trainer/piper-sample-generator/voices/`. |
+| `split_wakeword.py` | Chops a recording session (long WAV with many repetitions) into individual 16 kHz mono clips for `personal_samples/`. |
+| `trainer/` | (gitignored, ~40 GB) Clone of microWakeWord-Trainer-AppleSilicon + datasets + venv. |
 
-## Cómo se entrenó (y cómo re-entrenar)
+## How it was trained (and how to retrain)
 
-Hardware: Apple Silicon (M4 Pro), TensorFlow con Metal/MPS. Duración total la
-primera vez: horas (domina la descarga/conversión de ~20 GB de datasets
-negativos; el entrenamiento en sí son ~30-45 min).
+Hardware: Apple Silicon (M4 Pro), TensorFlow with Metal/MPS. Total duration the
+first time: hours (dominated by the downloading/converting of ~20 GB of negative datasets;
+the training itself takes ~30-45 min).
 
 ```bash
-# 1. Clonar el trainer
+# 1. Clone the trainer
 git clone https://github.com/TaterTotterson/microWakeWord-Trainer-AppleSilicon trainer
-cd trainer && ./run.sh   # crea .venv e instala dependencias
+cd trainer && ./run.sh   # creates .venv and installs dependencies
 
-# 2. Voces españolas (el trainer solo trae inglés por CLI)
+# 2. Spanish voices (the trainer only brings English via CLI)
 python ../download_es_voices.py
 
-# 3. Grabaciones reales (opcional pero muy recomendable)
-#    Grabar una sesión por el propio XVF con agent/record.py y trocear:
+# 3. Real recordings (optional but highly recommended)
+#    Record a session through the XVF itself with agent/record.py and split it:
 uv run ../../agent/record.py /tmp/session.wav 120
 python ../split_wakeword.py /tmp/session.wav sebastian personal_samples/
 
-# 4. Entrenar (18100 = nº de muestras TTS; 100 = épocas)
+# 4. Train (18100 = num TTS samples; 100 = epochs)
 ./train_microwakeword_macos.sh "Sebastián" 18100 100 --language es
 # → trained_wake_words/sebastin.tflite
 ```
 
-Detalles no obvios del proceso que hicimos:
+Non-obvious details of the process we followed:
 
-- **`prepare_datasets.py` línea ~338**: bajamos los tars de AudioSet de
-  `range(10)` a `range(3)` (26 GB → 8 GB) sin pérdida apreciable de calidad.
-- Las grabaciones reales en `personal_samples/` las mezcla el trainer
-  automáticamente con las TTS.
+- **`prepare_datasets.py` line ~338**: we lowered the AudioSet tars from
+  `range(10)` to `range(3)` (26 GB → 8 GB) with no noticeable loss of quality.
+- The real recordings in `personal_samples/` are automatically mixed by the trainer
+  with the TTS ones.
 
-## Validación en host (sin flashear)
+## Host validation (without flashing)
 
-Pipeline idéntico al firmware (features pymicro + cuantización + stride 2 +
-media móvil de 4) contra un WAV cualquiera:
+Identical pipeline to the firmware (pymicro features + quantization + stride 2 +
+moving average of 4) against any WAV:
 
 ```python
-# cwd: wakeword/trainer — usa su .venv
+# cwd: wakeword/trainer — uses its .venv
 import numpy as np, tensorflow as tf, scipy.signal
 from pymicro_features import MicroFrontend
 from scipy.io import wavfile
@@ -83,13 +83,13 @@ ma = max(np.convolve(probs, np.ones(4)/4, 'valid'))
 print('DETECT' if ma > 0.62 else 'no', f'(moving avg {ma:.3f})')
 ```
 
-**Ojo**: `pymicro-features` devuelve las features ya divididas entre **25.6**
-(no 256). El firmware tiene que replicar exactamente eso — es el bug nº 3 de
+**Note**: `pymicro-features` returns the features already divided by **25.6**
+(not 256). The firmware has to replicate exactly that — this is bug #3 in
 `docs/WAKE_WORD.md`.
 
-## Métricas del modelo entrenado (2026-07-02)
+## Trained model metrics (2026-07-02)
 
-- Recall: **99.29 %** · Falsos positivos ambiente: **0.93/h**
-- Cutoff 0.62, ventana deslizante 4 (media móvil)
-- Positivos: 18 100 TTS (9 voces es_AR/es_ES/es_MX × 2 pronunciaciones) + 120 reales
-- Negativos: AudioSet (3 tars) + FMA small + WHAM noise
+- Recall: **99.29 %** · Environment false positives: **0.93/h**
+- Cutoff 0.62, sliding window 4 (moving average)
+- Positives: 18,100 TTS (9 es_AR/es_ES/es_MX voices × 2 pronunciations) + 120 real
+- Negatives: AudioSet (3 tars) + FMA small + WHAM noise

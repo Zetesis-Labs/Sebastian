@@ -11,10 +11,10 @@ const BASE = import.meta.env.BASE_URL;
 
 export default function App() {
   const [config, setConfig] = useState<DeviceConfig>(defaultConfig);
-  const [sendMsg, setSendMsg] = useState("Con la placa flasheada y conectada por USB, pulsa enviar y elige el puerto.");
+  const [sendMsg, setSendMsg] = useState("With the board flashed and connected via USB, click send and choose the port.");
   const [sendTone, setSendTone] = useState<Tone>("");
   const [sending, setSending] = useState(false);
-  const [sourceMsg, setSourceMsg] = useState("Comprobando firmware publicado…");
+  const [sourceMsg, setSourceMsg] = useState("Checking published firmware…");
   const [installReady, setInstallReady] = useState(false);
   const [log, setLog] = useState<string[]>([]);
 
@@ -45,10 +45,10 @@ export default function App() {
         const firstByte = new Uint8Array(await bin.arrayBuffer())[0];
         if (firstByte !== 0xe9) throw new Error("not-an-esp-image");
         setInstallReady(true);
-        setSourceMsg("Imagen de fábrica lista para flashear.");
+        setSourceMsg("Factory image ready to flash.");
       } catch {
         setInstallReady(false);
-        setSourceMsg("No hay imagen de firmware válida publicada. Provisiona una placa ya flasheada (paso 3) o usa un .bin externo (Avanzado).");
+        setSourceMsg("No valid firmware image published. Provision an already flashed board (step 3) or use an external .bin (Advanced).");
       }
     })();
   }, []);
@@ -81,25 +81,25 @@ export default function App() {
   async function copyJson() {
     await navigator.clipboard.writeText(serialize(config));
     setSendTone("ok");
-    setSendMsg("Config copiada al portapapeles.");
+    setSendMsg("Config copied to clipboard.");
   }
 
   async function send() {
     if (blocked) {
       setSendTone("warn");
-      setSendMsg("Corrige los campos marcados antes de enviar.");
+      setSendMsg("Correct the marked fields before sending.");
       return;
     }
     setSending(true);
     setSendTone("");
-    setSendMsg("Enviando y esperando respuesta de la placa…");
+    setSendMsg("Sending and waiting for board reply…");
     setLog([]);
     const result = await sendConfig(config, (line) => setLog((prev) => [...prev, line]));
     setSending(false);
     switch (result.status) {
       case "ok":
         setSendTone("ok");
-        setSendMsg("✓ Config aceptada. La placa se reinicia y se conecta.");
+        setSendMsg("✓ Config accepted. The board will restart and connect.");
         break;
       case "rejected":
         setSendTone("warn");
@@ -107,15 +107,15 @@ export default function App() {
         break;
       case "no-reply":
         setSendTone("warn");
-        setSendMsg("Enviada, pero la placa no respondió. ¿Ha terminado de arrancar? Reintenta.");
+        setSendMsg("Sent, but no reply from the board. Has it finished booting? Retry.");
         break;
       case "unsupported":
         setSendTone("warn");
-        setSendMsg("Este navegador no soporta Web Serial. Usa Chrome, Edge, Opera o Brave.");
+        setSendMsg("This browser does not support Web Serial. Use Chrome, Edge, Opera, or Brave.");
         break;
       case "cancelled":
         setSendTone("");
-        setSendMsg("Envío cancelado.");
+        setSendMsg("Send cancelled.");
         break;
       default:
         setSendTone("warn");
@@ -149,11 +149,11 @@ export default function App() {
           <div className="grid gap-5">
             <Eyebrow>ReSpeaker XVF3800 + XIAO ESP32-S3</Eyebrow>
             <h1 className="font-serif text-[clamp(34px,5vw,52px)] font-medium leading-[1.03] text-fg">
-              Instala Sebastian desde el navegador
+              Install Sebastian from your browser
             </h1>
             <p className="max-w-xl text-[17px] leading-relaxed text-fg-muted">
-              Conéctalo por USB en Chrome, Edge, Opera o Brave y sigue tres pasos. El binario
-              no lleva credenciales: la config se inyecta por Web&nbsp;Serial.
+              Connect via USB in Chrome, Edge, Opera, or Brave and follow three steps. The binary
+              does not contain credentials: the config is injected via Web&nbsp;Serial.
             </p>
             <div className="mt-1 grid justify-items-start gap-3">
               {/* @ts-expect-error web component */}
@@ -164,21 +164,21 @@ export default function App() {
                   className="inline-flex items-center gap-2.5 rounded-xl border border-brand/50 bg-gradient-to-br from-brand-deep via-brand-strong to-brand px-5 py-3 text-[15px] font-bold text-[#1c1204] shadow-[0_14px_34px_-12px_var(--color-brand)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-45"
                 >
                   <span className="grid size-6 place-items-center rounded-full bg-black/20 text-xs">1</span>
-                  Conectar e instalar
+                  Connect and install
                 </button>
                 <span slot="unsupported" className="text-sm font-semibold text-danger">
-                  Navegador sin Web Serial. Usa Chromium de escritorio.
+                  Browser without Web Serial. Use desktop Chromium.
                 </span>
                 <span slot="not-allowed" className="text-sm font-semibold text-danger">
-                  Web Serial exige HTTPS o localhost.
+                  Web Serial requires HTTPS or localhost.
                 </span>
                 {/* @ts-expect-error web component */}
               </esp-web-install-button>
               <p className={cx("text-sm", toneCls(installReady ? "" : "warn"))}>{sourceMsg}</p>
               <p className="text-sm text-fg-muted">
-                ¿La placa ya viene flasheada? Sáltate este paso y ve directo a{" "}
+                Is the board already flashed? Skip this step and go directly to{" "}
                 <a href="#enviar" className="font-semibold text-brand hover:underline">
-                  Enviar por serial
+                  Send via serial
                 </a>{" "}
                 (paso 3).
               </p>
@@ -192,11 +192,11 @@ export default function App() {
           <SectionTitle
             step={2}
             eyebrow="Provisioning"
-            title="Configura la unidad"
+            title="Configure the unit"
             hint={
               <>
-                Los campos con <span className="font-mono text-brand">NVS</span> son los que el
-                firmware aplica hoy.
+                The fields with <span className="font-mono text-brand">NVS</span> are the ones the
+                firmware applies today.
               </>
             }
           />
@@ -205,7 +205,7 @@ export default function App() {
           <details className="group mt-7 rounded-xl border border-line bg-black/20">
             <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-semibold text-fg-soft">
               <Chevron className="size-4 transition group-open:rotate-180" />
-              Ver el JSON que se enviará
+              View the JSON that will be sent
             </summary>
             <pre className="max-h-72 overflow-auto border-t border-line px-4 py-3 font-mono text-[12.5px] leading-relaxed text-[#f4c78f]">
               {serialize(config)}
@@ -218,8 +218,8 @@ export default function App() {
           <SectionTitle
             step={3}
             eyebrow="Provisioning"
-            title="Envía la config a la placa"
-            hint="No necesita flashear: habla con el firmware que ya corre."
+            title="Send the config to the board"
+            hint="No flashing required: it talks to the firmware already running."
           />
           <div className="mt-6 flex flex-wrap items-center gap-4">
             <Btn variant="primary" onClick={send} disabled={sending} className="px-5 py-3 text-[15px]">
@@ -228,7 +228,7 @@ export default function App() {
               ) : (
                 <Bolt className="size-4" />
               )}
-              Enviar por serial
+              Send via serial
             </Btn>
             <p className={cx("flex items-center gap-2 text-sm", toneCls(sendTone))}>
               {sendTone === "ok" && <Check className="size-4" />}
@@ -268,9 +268,9 @@ function JsonToolbar({
         </span>
       </a>
       <div className="ml-auto flex items-center gap-1.5 rounded-xl border border-line bg-white/[0.03] p-1">
-        <ToolbarBtn onClick={onImport} icon={<Upload className="size-4" />} label="Importar" />
-        <ToolbarBtn onClick={onDownload} icon={<Download className="size-4" />} label="Descargar" />
-        <ToolbarBtn onClick={onCopy} icon={<Copy className="size-4" />} label="Copiar" />
+        <ToolbarBtn onClick={onImport} icon={<Upload className="size-4" />} label="Import" />
+        <ToolbarBtn onClick={onDownload} icon={<Download className="size-4" />} label="Download" />
+        <ToolbarBtn onClick={onCopy} icon={<Copy className="size-4" />} label="Copy" />
       </div>
       <a
         href="https://github.com/Zetesis-Labs/Sebastian"
@@ -332,17 +332,17 @@ function Advanced({ installReady }: { installReady: boolean }) {
       <summary className="flex cursor-pointer list-none items-center gap-3 p-6">
         <Wifi className="size-5 text-brand" />
         <div>
-          <Eyebrow>Avanzado</Eyebrow>
-          <h2 className="font-serif text-xl text-fg">Fuente de firmware</h2>
+          <Eyebrow>Advanced</Eyebrow>
+          <h2 className="font-serif text-xl text-fg">Firmware source</h2>
         </div>
         <Chevron className="ml-auto size-5 text-fg-muted transition group-open:rotate-180" />
       </summary>
       <div className="border-t border-line px-6 pb-6 pt-5 text-sm text-fg-muted">
         <p>
-          Si no hay imagen publicada, pega la URL de un <code className="text-fg-soft">manifest.json</code> o
-          de un <code className="text-fg-soft">.bin</code> fusionado (offset 0) en la URL con
-          <code className="text-fg-soft"> ?manifest=</code> o <code className="text-fg-soft">?bin=</code>.
-          El binario factory lo construye la CI en <code className="text-fg-soft">docs/installer/firmware/</code>.
+          If there is no published image, paste the URL of a <code className="text-fg-soft">manifest.json</code>
+          or a <code className="text-fg-soft">.bin</code> merged (offset 0) in the URL with
+          <code className="text-fg-soft"> ?manifest=</code> or <code className="text-fg-soft">?bin=</code>.
+          The factory binary is built by CI in <code className="text-fg-soft">docs/installer/firmware/</code>.
         </p>
       </div>
     </details>
@@ -351,15 +351,15 @@ function Advanced({ installReady }: { installReady: boolean }) {
 
 function Notes() {
   const items = [
-    "El firmware es un factory image: WiFi y token-server viven en NVS, no en el binario. Se inyectan por Web Serial en el paso 3.",
-    "Al aceptar la config el firmware responde sebastian.config.ok y se reinicia solo para conectarse.",
-    "La imagen debe estar fusionada a offset 0 para ESP Web Tools.",
-    "Si falla la conexión serial, cierra cualquier monitor/bridge/esptool abierto y reintenta.",
+    "The firmware is a factory image: WiFi and token-server live in NVS, not in the binary. They are injected via Web Serial in step 3.",
+    "When accepting the config, the firmware responds sebastian.config.ok and restarts itself to connect.",
+    "The image must be merged at offset 0 for ESP Web Tools.",
+    "If the serial connection fails, close any open monitor/bridge/esptool and retry.",
   ];
   return (
     <Card className="p-7">
-      <Eyebrow>Cómo funciona</Eyebrow>
-      <h2 className="mt-1 font-serif text-2xl text-fg">El binario no lleva credenciales</h2>
+      <Eyebrow>How it works</Eyebrow>
+      <h2 className="mt-1 font-serif text-2xl text-fg">The binary carries no credentials</h2>
       <ul className="mt-4 grid gap-2.5">
         {items.map((t) => (
           <li key={t} className="flex gap-3 text-[15px] leading-relaxed text-fg-muted">

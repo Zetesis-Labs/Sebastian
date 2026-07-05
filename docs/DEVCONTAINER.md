@@ -1,10 +1,10 @@
-# Devcontainer — el entorno entero en un contenedor (menos el USB)
+# Devcontainer — the entire environment in a container (minus USB)
 
-Todo el entorno de desarrollo corre en el devcontainer: **build de firmware
-(ESP-IDF v5.4 + fork Zig-Xtensa), agente LiveKit, token server y el stack de
-observabilidad LGTM**. La única frontera física es el USB: **Docker en macOS no
-puede pasar dispositivos serie al contenedor**, así que flashear y el bridge de
-telemetría son los dos únicos comandos que se ejecutan en el host.
+The entire development environment runs in the devcontainer: **firmware build
+(ESP-IDF v5.4 + Zig-Xtensa fork), LiveKit agent, token server, and the LGTM
+observability stack**. The only physical boundary is the USB: **Docker on macOS
+cannot pass serial devices to the container**, so flashing and the telemetry
+bridge are the only two commands executed on the host.
 
 ```
 ┌─ devcontainer (dev) ─────────────────┐   ┌─ compose (lgtm) ──────────────┐
@@ -12,100 +12,100 @@ telemetría son los dos únicos comandos que se ejecutan en el host.
 │ make agent    (livekit-agents + HA)  │──▶│ :3000 Grafana  :4318 OTLP     │
 │ make token    (:8787 → LAN)          │   └───────▲───────────────────────┘
 └──────────────────┬───────────────────┘           │ OTLP
-                   │ artefactos en firmware/build/ │
+                   │ artifacts in firmware/build/  │
 ┌─ host macOS ─────▼───────────────────────────────┴───────────────────────┐
-│ make flash   (uvx esptool @flash_args — único que toca /dev/cu.usbmodem*)│
+│ make flash   (uvx esptool @flash_args — only touches /dev/cu.usbmodem*  )│
 │ make bridge  (serial → OTLP localhost:4318)                              │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
-## Arrancar
+## Startup
 
-1. VS Code / Cursor: "Reopen in Container" (o `devcontainer up`). El
-   `postCreate` sincroniza el venv del agente; el `postStart` provisiona el
-   dashboard de Grafana.
-2. Dentro del contenedor: `make fw-build`, `make token`, `make agent`.
-3. En el host: `make flash` (tras un build) y `make bridge`.
+1. VS Code / Cursor: "Reopen in Container" (or `devcontainer up`). The
+   `postCreate` synchronizes the agent's venv; `postStart` provisions the
+   Grafana dashboard.
+2. Inside the container: `make fw-build`, `make token`, `make agent`.
+3. On the host: `make flash` (after a build) and `make bridge`.
 
-El token server se publica en `0.0.0.0:8787` del Mac, así que el device lo
-alcanza en la IP LAN del Mac igual que antes (`secrets.zig` no cambia).
+The token server is published on `0.0.0.0:8787` on the Mac, so the device
+reaches it on the Mac's LAN IP just like before (`secrets.zig` doesn't change).
 
-## Migración desde el entorno host (una sola vez)
+## Migration from the host environment (one time only)
 
-- `docker rm -f sebastian-lgtm` — quita el LGTM viejo arrancado a mano con
-  `docker run`. Su nombre fijo bloqueaba al compose del devcontainer (conflicto
-  de nombre entre proyectos). El compose levanta el suyo, `<proyecto>-lgtm-1`.
-- `rm -rf firmware/build` — la caché de CMake del host (macOS) no vale en
-  Linux; el primer `make fw-build` del contenedor la regenera y descarga el
-  Zig `linux-musl` pineado en `cmake/zig.cmake` (ya multiplataforma).
-- **El venv del agente vive en un volumen nombrado** (`agent_venv`), no en el
-  mount: el `python` de un venv uv es un symlink a un intérprete local al
-  contenedor, así que un venv en el mount compartido cuelga en otro
-  contenedor/host y aparece incompleto (Pylance no resuelve `livekit`…). Al
-  crear/rebuildear el contenedor, `postCreate` (`uv sync`) lo puebla; el volumen
-  lo mantiene íntegro entre reinicios y aislado del venv del host.
-- Matar agente/token del host (`pkill -f agent.py; pkill -f token_server`) —
-  pasan a vivir en el contenedor. El bridge se queda en el host.
+- `docker rm -f sebastian-lgtm` — removes the old LGTM started manually with
+  `docker run`. Its fixed name blocked the devcontainer compose (name conflict
+  between projects). The compose brings up its own, `<project>-lgtm-1`.
+- `rm -rf firmware/build` — the host (macOS) CMake cache is not valid in
+  Linux; the first `make fw-build` in the container regenerates it and downloads
+  the pinned `linux-musl` Zig in `cmake/zig.cmake` (now cross-platform).
+- **The agent's venv lives in a named volume** (`agent_venv`), not in the
+  mount: a uv venv's `python` is a symlink to a local interpreter in the
+  container, so a venv in the shared mount points to another
+  container/host and appears incomplete (Pylance doesn't resolve `livekit`…).
+  Upon creating/rebuilding the container, `postCreate` (`uv sync`) populates it;
+  the volume keeps it intact between restarts and isolated from the host's venv.
+- Kill host agent/token (`pkill -f agent.py; pkill -f token_server`) —
+  they now live in the container. The bridge stays on the host.
 
-### MCP de Grafana tras la migración
+### Grafana MCP after migration
 
-El `container_name` fijo se quitó (chocaba entre proyectos). El contenedor de
-LGTM pasa a llamarse `sebastian_devcontainer-lgtm-1` (VS Code) o
-`devcontainer-lgtm-1` (compose manual). Dos formas de apuntar el MCP:
+The fixed `container_name` was removed (it collided between projects). The LGTM
+container is now named `sebastian_devcontainer-lgtm-1` (VS Code) or
+`devcontainer-lgtm-1` (manual compose). Two ways to point the MCP:
 
-- **Por red compartida**: `--network container:sebastian_devcontainer-lgtm-1`
-  y `GRAFANA_URL=http://localhost:3000` (como antes, nombre nuevo).
-- **Por la red del compose** (más estable): `--network sebastian_devcontainer_default`
-  y `GRAFANA_URL=http://lgtm:3000` (resuelve por nombre de servicio, inmune a
-  renombrados). Recomendado.
+- **Via shared network**: `--network container:sebastian_devcontainer-lgtm-1`
+  and `GRAFANA_URL=http://localhost:3000` (like before, new name).
+- **Via the compose network** (more stable): `--network sebastian_devcontainer_default`
+  and `GRAFANA_URL=http://lgtm:3000` (resolves by service name, immune to
+  renames). Recommended.
 
-## Por qué así
+## Why like this
 
-- **Firmware en contenedor**: `cmake/zig.cmake` ya pineaba hashes para
-  `aarch64/x86_64-linux-musl`, y la imagen `espressif/idf:release-v5.4` trae el
-  toolchain Xtensa completo. Ningún build vuelve a depender del Mac.
-- **Flasheo por `flash_args`**: los artefactos del build (rutas relativas) se
-  flashean desde el host con esptool a pelo (`uvx --from esptool esptool.py`),
-  sin instalar ESP-IDF en el Mac.
-- **`container_name: sebastian-lgtm`**: estable para que el bridge del host
-  (localhost:4318) y el MCP de Grafana no cambien.
-- El agente dentro del contenedor exporta OTel a `http://lgtm:4318`
-  (variable `OTEL_EXPORTER_OTLP_ENDPOINT` en el compose).
+- **Firmware in container**: `cmake/zig.cmake` already pinned hashes for
+  `aarch64/x86_64-linux-musl`, and the `espressif/idf:release-v5.4` image brings the
+  complete Xtensa toolchain. No build ever depends on the Mac again.
+- **Flashing via `flash_args`**: the build artifacts (relative paths) are
+  flashed from the host with raw esptool (`uvx --from esptool esptool.py`),
+  without installing ESP-IDF on the Mac.
+- **`container_name: sebastian-lgtm`**: stable so the host bridge
+  (localhost:4318) and the Grafana MCP do not change.
+- The agent inside the container exports OTel to `http://lgtm:4318`
+  (`OTEL_EXPORTER_OTLP_ENDPOINT` variable in the compose).
 
-## El USB en macOS: dos opciones
+## USB on macOS: two options
 
-`devices:` de compose solo funciona en hosts Linux (mapea nodos del kernel).
-En macOS, Docker corre en una VM Linux y `/dev/cu.usbmodem*` es un device de
-Darwin: no existe dentro de la VM, no hay nada que mapear. Las dos vías:
+`devices:` in compose only works on Linux hosts (it maps kernel nodes).
+On macOS, Docker runs in a Linux VM and `/dev/cu.usbmodem*` is a Darwin
+device: it doesn't exist inside the VM, there's nothing to map. The two ways:
 
-- **A (por defecto): flasheo nativo en el host.** `make flash` usa
-  `uvx esptool` contra `firmware/build/flash_args` (rutas relativas — los
-  artefactos del contenedor se flashean tal cual). `make bridge` en el host.
-- **B (todo dentro): serial compartido por TCP.** En el host,
-  `make serial-share` levanta `esp_rfc2217_server` (viene con esptool, con
-  líneas de reset incluidas). Dentro del contenedor:
-  `SEBASTIAN_HOST_IP=<ip-lan-del-mac> make fw-flash`, y el bridge con
-  `SEBASTIAN_SERIAL_URL=rfc2217://<ip>:4000 make bridge`. Ojo: usar la IP LAN
-  del Mac, no `host.docker.internal` (no ruta en este Docker). El servidor
-  RFC2217 admite UN cliente a la vez: parar el bridge para flashear, como en
-  el host.
+- **A (default): native flashing on the host.** `make flash` uses
+  `uvx esptool` against `firmware/build/flash_args` (relative paths — the
+  container artifacts are flashed as is). `make bridge` on the host.
+- **B (everything inside): serial shared via TCP.** On the host,
+  `make serial-share` starts `esp_rfc2217_server` (comes with esptool, with
+  reset lines included). Inside the container:
+  `SEBASTIAN_HOST_IP=<mac-lan-ip> make fw-flash`, and the bridge with
+  `SEBASTIAN_SERIAL_URL=rfc2217://<ip>:4000 make bridge`. Note: use the Mac's
+  LAN IP, not `host.docker.internal` (no route in this Docker). The RFC2217
+  server allows ONE client at a time: stop the bridge to flash, just like on
+  the host.
 
-## Portabilidad por plataforma
+## Platform portability
 
-| | Contenedor (build+agente+LGTM) | Serial (flash/bridge) |
+| | Container (build+agent+LGTM) | Serial (flash/bridge) |
 |---|---|---|
-| **macOS** | ✓ | Host (opción A) o RFC2217 (opción B) |
-| **Linux** | ✓ | **Directo al contenedor**: descomenta `devices:` en el compose y todo (flash incluido) corre dentro — el mejor caso |
-| **Windows** | ✓ (Docker Desktop + WSL2) | `usbipd-win attach --wsl` mete el USB en WSL2 (`/dev/ttyACM0`) → `devices:` como en Linux; o RFC2217 desde PowerShell |
+| **macOS** | ✓ | Host (option A) or RFC2217 (option B) |
+| **Linux** | ✓ | **Direct to container**: uncomment `devices:` in compose and everything (flash included) runs inside — the best case |
+| **Windows** | ✓ (Docker Desktop + WSL2) | `usbipd-win attach --wsl` puts the USB in WSL2 (`/dev/ttyACM0`) → `devices:` like in Linux; or RFC2217 from PowerShell |
 
-La autodetección de puerto (bridge y `flash.sh`) cubre `cu.usbmodem*` (macOS)
-y `ttyACM*`/`ttyUSB*` (Linux/WSL2). El único componente atado a una plataforma
-es el entrenamiento del wake word (MPS de Apple).
+Port autodetection (bridge and `flash.sh`) covers `cu.usbmodem*` (macOS)
+and `ttyACM*`/`ttyUSB*` (Linux/WSL2). The only platform-tied component
+is the wake word training (Apple MPS).
 
-## Qué NO va en el contenedor
+## What DOES NOT go in the container
 
-- **Entrenamiento del wake word** — fuera de alcance a propósito: el modelo
-  entrenado (`firmware/main/sebastian.tflite`) va commiteado en el repo y el
-  entorno funciona con él de serie. Quien quiera otra palabra se lo entrena
-  con los scripts de `wakeword/` (flujo de host con GPU/MPS; el trainer de
-  ~40GB está gitignored).
+- **Wake word training** — out of scope on purpose: the trained
+  model (`firmware/main/sebastian.tflite`) is committed in the repo and the
+  environment works with it out of the box. Whoever wants another word trains it
+  with the `wakeword/` scripts (host flow with GPU/MPS; the ~40GB trainer
+  is gitignored).

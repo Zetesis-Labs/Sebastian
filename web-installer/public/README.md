@@ -49,7 +49,7 @@ External firmware hosts need CORS headers that allow the Pages origin.
 
 `Failed to initialize` means the browser opened the serial port but esptool.js
 could not sync with the ESP32-S3 bootloader. Close any open serial dialog/monitor,
-then retry while holding BOOT when clicking "Conectar e instalar"; release BOOT
+then retry while holding BOOT when clicking "Connect and install"; release BOOT
 once initialization starts. If Chrome still owns the port after a failed attempt,
 close the install dialog or reload the page before trying again.
 
@@ -71,7 +71,7 @@ Export the current repo-local configuration and load it in the page:
 tools/export_current_config.py --out docs/installer/sebastian-config.local.json
 ```
 
-Then use the page's "Cargar JSON" control and select that generated file. The
+Then use the page's "Import" control and select that generated file. The
 `.local.json` file is ignored by git because it contains the real WiFi password.
 For hosted configs without secrets, the page also accepts:
 

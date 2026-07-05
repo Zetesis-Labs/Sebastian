@@ -1,261 +1,181 @@
 # TESTING — Sebastian
 
-Estrategia de test del altavoz Sebastian (ESP32-S3 + XVF3800, firmware Zig +
-agente Python). Documento honesto: **qué probamos hoy, qué queremos probar, y qué
-no se puede automatizar.**
+Testing strategy for the Sebastian speaker (ESP32-S3 + XVF3800, Zig firmware + Python agent). Honest document: **what we test today, what we want to test, and what cannot be automated.**
 
-## Tesis (léela antes que nada)
+## Thesis (read this first)
 
-Los tests que tenemos hoy son **host tests**: lógica pura compilada y ejecutada en
-la máquina de CI, sin hardware. Son buenos y necesarios, pero cubren **la capa
-donde casi no tuvimos bugs**. Casi todos los fallos reales del proyecto vivieron en
-hardware/integración/acústica — la capa que un host test **no toca**:
+The tests we have today are **host tests**: pure logic compiled and executed on the CI machine, without hardware. They are good and necessary, but they cover **the layer where we had almost no bugs**. Almost all real project failures lived in hardware/integration/acoustics — the layer a host test **does not touch**:
 
-| Bug real (histórico) | ¿Lo caza un host test? | Capa |
+| Real bug (historical) | Caught by host test? | Layer |
 |---|---|---|
-| Helicóptero/warble del I2S (drift de reloj) | ❌ | timing HW |
-| El AEC no convergía (beam adaptativo) | ❌ | físico/acústico |
-| `FAR_END_DSP_ENABLE` revierte en power-cycle → acople | ❌ | estado del XVF |
-| Tormenta SCTP tumbando la sesión | ❌ | transporte/red |
-| Corte de sesión (AEC cancela tan bien → micro "silencioso" → timeout) | ❌ | integración |
-| USB-serial-JTAG se cuelga | ❌ | hardware/USB |
-| `@min` estrecha el tipo → overflow | ✅ (lógica pura) | — |
+| I2S helicopter/warble (clock drift) | ❌ | HW timing |
+| AEC not converging (adaptive beam) | ❌ | physical/acoustic |
+| `FAR_END_DSP_ENABLE` reverts on power-cycle → feedback | ❌ | XVF state |
+| SCTP storm bringing down the session | ❌ | transport/network |
+| Session cut (AEC cancels so well → "silent" mic → timeout) | ❌ | integration |
+| USB-serial-JTAG hangs | ❌ | hardware/USB |
+| `@min` narrows the type → overflow | ✅ (pure logic) | — |
 
-**Conclusión honesta:** un CI verde da una falsa sensación de cobertura. Garantizar
-calidad exige subir por la pirámide hasta el hardware.
+**Honest conclusion:** a green CI gives a false sense of coverage. Guaranteeing quality requires climbing up the pyramid to the hardware.
 
-## La pirámide de test
+## The test pyramid
 
 ```
         ┌───────────────────────────────┐
-   4    │  Acústico / end-to-end        │  ← eco real, double-talk, wake far-field
-        │  (rig + humano, NO automatiz.)│     LO MÁS IMPORTANTE, lo menos cubierto
+   4    │  Acoustic / end-to-end        │  ← real echo, double-talk, far-field wake
+        │  (rig + human, NO automatiz.) │     MOST IMPORTANT, least covered
         ├───────────────────────────────┤
-   3    │  Hardware-in-the-loop (HIL)   │  ← placa en runner: flash → probe →
-        │  (probes + telemetría)        │     asertar telemetría. YA TENEMOS piezas
+   3    │  Hardware-in-the-loop (HIL)   │  ← board in runner: flash → probe →
+        │  (probes + telemetry)         │     assert telemetry. WE HAVE the pieces
         ├───────────────────────────────┤
-   2    │  On-target unit tests         │  ← corre en el S3 (aún no montado)
+   2    │  On-target unit tests         │  ← runs on S3 (not mounted yet)
         ├───────────────────────────────┤
-   1    │  Host tests (lógica pura)     │  ← LO QUE TENEMOS. CI verde ≠ funciona
+   1    │  Host tests (pure logic)      │  ← WHAT WE HAVE. green CI ≠ works
         └───────────────────────────────┘
 ```
 
-Regla: cada capa **necesaria pero no suficiente**. La 1 es barata y cubre poco
-riesgo; la 4 es cara y cubre el riesgo real.
+Rule: each layer is **necessary but not sufficient**. Layer 1 is cheap and covers little risk; layer 4 is expensive and covers the real risk.
 
-**Transversal — Gemelo digital / simulación**: se sitúa entre los niveles 2 y 3
-(realismo de target y de protocolo **sin placa**), pero con techo en la acústica.
-Ver la sección "Gemelo digital" más abajo.
+**Transversal — Digital twin / simulation**: sits between levels 2 and 3 (target and protocol realism **without board**), but capped at acoustics. See the "Digital twin" section below.
 
 ---
 
-## Lo que TENEMOS hoy
+## What we HAVE today
 
-### Nivel 1 — Host tests (`firmware/core_test.zig`)
+### Level 1 — Host tests (`firmware/core_test.zig`)
 
-**Cómo corren:**
-- **CI**: `.github/workflows/firmware-tests.yml` — descarga el fork Zig fijado
-  (kassane/zig-espressif-bootstrap `0.16.0-xtensa`, el mismo de
-  `firmware/cmake/zig.cmake`) y ejecuta `zig test core_test.zig` en el runner
-  `herschel-runners`. No usa ESP-IDF ni `idf.py`.
-- **Local**: `cd firmware && ../tools/zig.sh test core_test.zig` (usa el zig del
-  build en `firmware/build/zig-relsafe-*` o el del PATH).
+**How they run:**
+- **CI**: `.github/workflows/firmware-tests.yml` — downloads the pinned Zig fork (kassane/zig-espressif-bootstrap `0.16.0-xtensa`, the same one in `firmware/cmake/zig.cmake`) and runs `zig test core_test.zig` on the `herschel-runners` runner. Does not use ESP-IDF or `idf.py`.
+- **Local**: `cd firmware && ../tools/zig.sh test core_test.zig` (uses the zig from the build in `firmware/build/zig-relsafe-*` or the one in PATH).
 
-**El patrón**: la lógica testeable se **extrae a `firmware/main/core/`** (sin deps
-de ESP/`extern`) para poder compilarla en host. Módulos cubiertos: `aec_core`,
-`decimator`, `mic_gate`, `pre_roll_core`, `token_core`, `xvf_pcm`.
+**The pattern**: testable logic is **extracted to `firmware/main/core/`** (without ESP/`extern` deps) to be compiled on the host. Covered modules: `aec_core`, `decimator`, `mic_gate`, `pre_roll_core`, `token_core`, `xvf_pcm`.
 
-**Qué cubren bien** (39 tests, con técnicas serias — no son triviales):
-- **Decimador (DSP)**: vectores *golden* con salida exacta (respuesta al impulso,
-  warm-up del FIR con ganancia unidad), **tests diferenciales** (chunked == full
-  en particiones distintas + patrones generados), preservación de fase, saturación
-  acotada, "nunca escribe más allá del buffer del caller".
-- **Pre-roll (ring buffer)**: matriz de invariantes 6×6×5 + **modelo de referencia**
-  comparado paso a paso en sesiones scripteadas; wrap/anchor bien cazado.
-- **Mic gate (FSM)**: tabla de eventos + modelo de referencia sobre scripts
-  generados; hangover finito y su interacción con full-duplex/mute.
-- **Token parser**: rechaza bytes de control (`\x00 \t \x7f`), fuerza `ws/wss`, y
-  **no toca los buffers si falla** (sin copias parciales).
-- **PCM / AEC encoding**: shift+clip, softclip, little-endian, NaN/inf en la
-  telemetría escalada.
+**What they cover well** (39 tests, with serious techniques — they are not trivial):
+- **Decimator (DSP)**: *golden* vectors with exact output (impulse response, FIR warm-up with unity gain), **differential tests** (chunked == full in different partitions + generated patterns), phase preservation, bounded saturation, "never writes past the caller's buffer".
+- **Pre-roll (ring buffer)**: 6×6×5 invariant matrix + **reference model** compared step-by-step in scripted sessions; wrap/anchor well caught.
+- **Mic gate (FSM)**: event table + reference model on generated scripts; finite hangover and its interaction with full-duplex/mute.
+- **Token parser**: rejects control bytes (`\x00 \t \x7f`), enforces `ws/wss`, and **does not touch buffers on failure** (no partial copies).
+- **PCM / AEC encoding**: shift+clip, softclip, little-endian, NaN/inf in scaled telemetry.
 
-**Valoración honesta**: profundidad alta, pero solo sobre **la lógica fácil de
-desmontar**. Ver los agujeros abajo.
+**Honest assessment**: high depth, but only on **logic that is easy to dismantle**. See the holes below.
 
-### Nivel 3 (manual) — Probes de hardware + telemetría
+### Level 3 (manual) — Hardware probes + telemetry
 
-Esto es lo que **no se suele contar como testing, pero lo es**: los self-tests que
-el propio device ejecuta, leídos por la telemetría. Hoy son **manuales**.
+This is what is **not usually counted as testing, but it is**: the self-tests the device itself runs, read by telemetry. Today they are **manual**.
 
-- **Probes** (en `firmware/main/xvf_aec.zig`, flags en `config.zig`, todos `false`
-  en producción):
-  - `probeReference()` (`probe_aec_on_boot`) — reproduce ruido y reporta si el AEC
-    converge (`converged_at`, pico del filtro, `ref_gaps`).
-  - `probeDualChannel()` (`probe_dual_channel_on_boot`) — camino B: eco residual
-    comms vs ASR crudo, con beam fijo y adaptativo.
-  - `probeOutputGain()` (`probe_output_gain_on_boot`) — mide si un knob actúa como
-    volumen maestro.
-  - `logPpConfig()` — vuelca la config del post-procesador en cada boot.
-- **Telemetría** (`tools/telemetry/bridge.py`): serial → OTLP → stack LGTM
-  (Grafana/Loki/Prometheus/Tempo). Es la **salida aseverable**.
+- **Probes** (in `firmware/main/xvf_aec.zig`, flags in `config.zig`, all `false` in production):
+  - `probeReference()` (`probe_aec_on_boot`) — plays noise and reports if AEC converges (`converged_at`, filter peak, `ref_gaps`).
+  - `probeDualChannel()` (`probe_dual_channel_on_boot`) — path B: residual comms echo vs raw ASR, with fixed and adaptive beam.
+  - `probeOutputGain()` (`probe_output_gain_on_boot`) — measures if a knob acts as master volume.
+  - `logPpConfig()` — dumps the post-processor config on every boot.
+- **Telemetry** (`tools/telemetry/bridge.py`): serial → OTLP → LGTM stack (Grafana/Loki/Prometheus/Tempo). It is the **assertable output**.
 
-Cuando validamos "flash → `converged_at=1s`, filtro 0.025 → ✓", eso es un **test
-HIL ejecutado a mano**. Las piezas existen; falta el arnés que lo automatice.
+When we validate "flash → `converged_at=1s`, filter 0.025 → ✓", that is a **HIL test executed by hand**. The pieces exist; what's missing is the harness to automate it.
 
 ---
 
-## Lo que NO cubrimos (agujeros, por riesgo)
+## What we do NOT cover (holes, by risk)
 
-1. **🔴 La máquina de sesión (`app.zig SessionLoopState`)** — donde vivió el bug de
-   campo (el `silence_timeout` cortando a mitad de frase, el keepalive por
-   `render_peak`, el hangover del agente). No está en `core/`, así que **cero
-   tests**. Es lógica pura y timing-dependiente: extraíble a `core/session_core.zig`
-   y testeable con un reloj simulado.
-2. **🔴 El fail-closed del AEC (`applyConfig`)** — la decisión de seguridad ("si el
-   beam no se verifica por readback → cae a half-duplex → no abras el micro sobre
-   eco") no se testea; solo el *encoding*. Un `true` erróneo = turnos fantasma.
-   Testeable con un transporte I2C mock.
-3. **🟠 Integración / cableado** — todo son unit tests aislados. Nadie verifica que
-   `mic_src` llame al gate, que el decimador reciba el slot correcto, o que el
-   pre-roll se vacíe en el handoff. Un refactor que rompa las costuras pasa el CI.
-4. **🟠 La capa C** (`provisioning.c`, `token_http.c`) — el parser de
-   `sebastian.config.v1` (¡entrada externa por serie!), la NVS, el bring-up WiFi.
-   Sin red (el parser Zig `token_core` sí está cubierto, pero no el C de producción).
-5. **🟡 La decisión del wake word** — el decimador que lo alimenta está muy cubierto,
-   pero el umbral (`0.80`) / debounce, no.
-6. **🟡 Golden vectors = detectores de cambio, no de correctud** — codifican "lo que
-   hace hoy". Si los coeficientes FIR estuvieran mal, el golden fijaría el error.
+1. **🔴 The session machine (`app.zig SessionLoopState`)** — where the field bug lived (the `silence_timeout` cutting mid-sentence, the keepalive by `render_peak`, the agent hangover). It is not in `core/`, so **zero tests**. It is pure logic and timing-dependent: extractable to `core/session_core.zig` and testable with a simulated clock.
+2. **🔴 The AEC fail-closed (`applyConfig`)** — the safety decision ("if the beam is not verified by readback → drops to half-duplex → do not open the mic over echo") is not tested; only the *encoding*. An erroneous `true` = ghost turns. Testable with a mock I2C transport.
+3. **🟠 Integration / wiring** — everything is isolated unit tests. Nobody verifies that `mic_src` calls the gate, that the decimator receives the correct slot, or that the pre-roll empties on handoff. A refactor that breaks the seams passes CI.
+4. **🟠 The C layer** (`provisioning.c`, `token_http.c`) — the `sebastian.config.v1` parser (external input via serial!), the NVS, WiFi bring-up. Without network (the Zig `token_core` parser is covered, but not the production C).
+5. **🟡 The wake word decision** — the decimator that feeds it is heavily covered, but the threshold (`0.80`) / debounce is not.
+6. **🟡 Golden vectors = change detectors, not correctness** — they encode "what it does today". If the FIR coefficients were wrong, the golden would lock in the error.
 
 ---
 
-## Lo que QUEREMOS tener
+## What we WANT to have
 
-### Corto plazo — cerrar los agujeros de host test
-- Extraer `SessionLoopState` → `core/session_core.zig` y testear timeout/keepalive/
-  hangover con reloj simulado. **(Cubre el bug de campo.)**
-- Extraer la lógica fail-closed del AEC detrás de un transporte mock.
-- Portar el parser de provisioning a Zig (como `token_core`) para poder testearlo.
+### Short term — close the host test holes
+- Extract `SessionLoopState` → `core/session_core.zig` and test timeout/keepalive/hangover with simulated clock. **(Covers the field bug.)**
+- Extract the AEC fail-closed logic behind a mock transport.
+- Port the provisioning parser to Zig (like `token_core`) to be able to test it.
 
-### Medio plazo — Nivel 3: HIL smoke test (el mayor ROI)
-Una **placa dedicada** (ESP32-S3+XVF) pegada a un runner (`herschel`, o una Pi con
-el board). En cada build: **flash → arranca → corre `probe_aec_on_boot` → aserta
-sobre la telemetría**:
-- `converged == 1` y `converged_at` ≤ N s
-- pico del filtro AEC en rango esperado
-- `FAR_END_DSP_ENABLE == 1` (habría cazado la regresión del acople de esta sesión)
-- boot sano (sin reboot-loop, `BOOT OK`, IP asignada)
-- niveles de micro sanos (`pcm peak` en rango, no 0, no saturado)
+### Medium term — Level 3: HIL smoke test (highest ROI)
+A **dedicated board** (ESP32-S3+XVF) attached to a runner (`herschel`, or a Pi with the board). On every build: **flash → boot → run `probe_aec_on_boot` → assert on telemetry**:
+- `converged == 1` and `converged_at` ≤ N s
+- AEC filter peak in expected range
+- `FAR_END_DSP_ENABLE == 1` (would have caught the feedback regression of this session)
+- healthy boot (no reboot-loop, `BOOT OK`, IP assigned)
+- healthy mic levels (`pcm peak` in range, not 0, not saturated)
 
-Reutiliza **todo** lo que ya existe (probes + `bridge.py`). Es la diferencia entre
-"compila" y "el AEC de verdad converge en la placa".
+Reuses **everything** that already exists (probes + `bridge.py`). It is the difference between "it compiles" and "the AEC actually converges on the board".
 
-### Medio plazo — Nivel 2: on-target unit tests
-Compilar+correr un subconjunto de tests en el propio S3 (Zig test / Unity). Caza
-comportamiento específico del target que el host no reproduce.
+### Medium term — Level 2: on-target unit tests
+Compile+run a subset of tests on the S3 itself (Zig test / Unity). Catches specific target behavior that the host does not reproduce.
 
-### Largo plazo — Nivel 4: rig acústico
-Banco con altavoz + micro + el device en un espacio controlado, reproduciendo
-**audio golden etiquetado**, midiendo:
-- nivel de cancelación de eco (dB de supresión)
-- precisión del wake sobre grabaciones etiquetadas (recall / falsos positivos)
-- comportamiento de double-talk (¿el camino B se come tu voz?)
+### Long term — Level 4: acoustic rig
+Bench with speaker + mic + the device in a controlled space, playing **labeled golden audio**, measuring:
+- echo cancellation level (suppression dB)
+- wake accuracy on labeled recordings (recall / false positives)
+- double-talk behavior (does path B eat your voice?)
 
-Semi-automatizable: los estímulos y algunas métricas sí; el juicio final, no del todo.
+Semi-automatable: the stimuli and some metrics yes; the final judgment, not entirely.
 
 ---
 
-## Gemelo digital / simulación (transversal, sin placa)
+## Digital twin / simulation (transversal, without board)
 
-"Gemelo digital" **no es una cosa, es una pila** — la viabilidad y el valor cambian
-mucho por capa. Regla de oro: **un gemelo modela lo que tú programas; no descubre
-comportamiento físico emergente.** Por eso es excelente para **regresión** e inútil
-para **descubrimiento** de lo físico/analógico.
+"Digital twin" **is not one thing, it's a stack** — feasibility and value change a lot by layer. Golden rule: **a twin models what you program; it does not discover emergent physical behavior.** That is why it is excellent for **regression** and useless for **discovery** of the physical/analog.
 
-### Las capas
+### The layers
 
-1. **CPU + firmware — QEMU (alta viabilidad).** El fork de QEMU de Espressif arranca
-   apps ESP-IDF en un ESP32-S3 emulado (`idf.py qemu`) y corre el **binario real**:
-   boot, máquina de estados, lógica en contexto de target (cazaría cosas como el
-   overflow de `@min`, que se manifestó en target). Caveat: I2S/I2C/WiFi apenas se
-   emulan → hay que stubearlos.
-2. **XVF3800 — modelo software (media viabilidad, alto valor puntual).** No se emula
-   el DSP propietario, pero **sí su protocolo `device_control`**: un mock I2C que
-   devuelve registros (`AECCONVERGED`, config-drift…) y produce frames I2S. Hace
-   testeable la interacción firmware↔XVF: `applyConfig`, el **fail-closed** del AEC,
-   el DFU. Aquí el gemelo brilla.
-3. **Acústica — baja fidelidad justo donde importa.** Convolucionar TTS con una
-   respuesta de impulso de sala sirve para el pipeline de audio y el wake, pero el
-   **eco/AEC/double-talk** (no estacionario por el beam, no lineal por el THD del
-   altavoz) es lo que un modelo sencillo hace mal. Paradoja: si el modelo del eco
-   fuera bueno, no necesitarías el AEC real.
+1. **CPU + firmware — QEMU (high feasibility).** Espressif's QEMU fork boots ESP-IDF apps on an emulated ESP32-S3 (`idf.py qemu`) and runs the **real binary**: boot, state machine, logic in target context (would catch things like the `@min` overflow, which manifested on target). Caveat: I2S/I2C/WiFi are barely emulated → they must be stubbed.
+2. **XVF3800 — software model (medium feasibility, high punctual value).** The proprietary DSP is not emulated, but **its `device_control` protocol is**: an I2C mock that returns registers (`AECCONVERGED`, config-drift…) and produces I2S frames. Makes the firmware↔XVF interaction testable: `applyConfig`, the AEC **fail-closed**, DFU. This is where the twin shines.
+3. **Acoustics — low fidelity right where it matters.** Convolving TTS with a room impulse response works for the audio pipeline and wake, but **echo/AEC/double-talk** (non-stationary due to the beam, non-linear due to speaker THD) is what a simple model gets wrong. Paradox: if the echo model were good, you wouldn't need the real AEC.
 
-### La versión pragmática: gemelo por trazas (record-and-replay)
+### The pragmatic version: twin by traces (record-and-replay)
 
-En vez de simular XVF+acústica, **grabar una vez trazas reales** (la salida I2S del
-device durante una sesión: eco, voz, ruido) y **reproducirlas offline** en el
-pipeline en CI. Gemelo alimentado por realidad: barato, determinista, caza
-regresiones del pipeline (**wake, decimador, gate**) contra datos de hardware de
-verdad. **ROI alto, esfuerzo bajo** — por aquí empezar. Ya tenemos el `bridge.py`
-para capturar.
+Instead of simulating XVF+acoustics, **record real traces once** (the I2S output of the device during a session: echo, voice, noise) and **replay them offline** in the pipeline on CI. Twin fed by reality: cheap, deterministic, catches pipeline regressions (**wake, decimator, gate**) against real hardware data. **High ROI, low effort** — start here. We already have `bridge.py` to capture.
 
-### Qué SÍ y qué NO te da
+### What it DOES and DOES NOT give you
 
-| El gemelo SÍ te da | El gemelo NO te da |
+| The twin DOES give you | The twin DOES NOT give you |
 |---|---|
-| Regresiones de firmware/lógica en target (QEMU) | Si el AEC **de verdad** converge en tu sala |
-| Manejo correcto del protocolo del XVF (fail-closed, DFU, drift) | Calidad real de cancelación de eco |
-| Pipeline de audio sobre audio grabado/etiquetado (wake) | **Double-talk** (¿el camino B se come tu voz?) |
-| Determinismo, corre en cada commit, sin placa | ASR far-field real, la tormenta SCTP exacta |
+| Target firmware/logic regressions (QEMU) | If the AEC **really** converges in your room |
+| Correct handling of the XVF protocol (fail-closed, DFU, drift) | Real echo cancellation quality |
+| Audio pipeline on recorded/labeled audio (wake) | **Double-talk** (does path B eat your voice?) |
+| Determinism, runs on every commit, without board | Real far-field ASR, the exact SCTP storm |
 
-**No sustituye al HIL ni al rig acústico — los complementa**: el gemelo corre en
-cada commit y sube la cobertura de los niveles 1-3 hacia realismo sin placa; el
-nivel 4 (acústico) sigue necesitando realidad o un modelo de física que es en sí
-un proyecto de investigación.
+**Does not replace HIL or the acoustic rig — it complements them**: the twin runs on every commit and pushes the coverage of levels 1-3 towards realism without a board; level 4 (acoustic) still needs reality or a physics model that is itself a research project.
 
-### Orden recomendado (por ROI)
+### Recommended order (by ROI)
 
-1. **Record-and-replay** del pipeline de audio (barato, reusa el bridge de captura).
-2. **Mock del XVF** para testear el fail-closed del AEC y el DFU.
-3. **QEMU-S3** para el boot + máquina de estados en target.
+1. **Record-and-replay** of the audio pipeline (cheap, reuses the capture bridge).
+2. **XVF Mock** to test the AEC fail-closed and DFU.
+3. **QEMU-S3** for boot + target state machine.
 
 ---
 
-## Limitaciones honestas (lo que NO se podrá garantizar solo con tests)
+## Honest limitations (what CANNOT be guaranteed just with tests)
 
-- **Double-talk**: si el supresor no-lineal del camino B se come tu voz cuando
-  hablas por encima, solo se valida con voz real en la sala. Un rig ayuda, pero el
-  "suena natural" es subjetivo. → Siempre hará falta un humano de conejillo.
-- **Calidad de ASR far-field**: "¿te entiende bien a 4 m con ruido?" depende del
-  modelo remoto + acústica de la sala; no hay assert binario.
-- **Tormenta SCTP / caídas de transporte**: condiciones de red no deterministas;
-  reproducirlas en CI de forma fiable es muy difícil (el bug es upstream,
-  `esp-webrtc-solution#186`).
-- **Precisión del wake en el mundo real**: se aproxima con grabaciones etiquetadas,
-  pero la cola de falsos positivos aparece en uso real, no en el dataset.
-- **Coste del HIL**: exige una placa dedicada + un runner, y el USB nativo del S3 es
-  frágil (se cuelga, re-enumera) — el propio arnés necesitará reintentos y health-checks.
-- **Golden vectors**: cualquier re-tuning legítimo del FIR obliga a regenerarlos a
-  mano; son change-detectors, no pruebas de correctud.
+- **Double-talk**: if the non-linear suppressor on path B eats your voice when you talk over it, it is only validated with real voice in the room. A rig helps, but "sounds natural" is subjective. → A human guinea pig will always be needed.
+- **Far-field ASR quality**: "does it understand you well at 4 m with noise?" depends on the remote model + room acoustics; there is no binary assert.
+- **SCTP storm / transport drops**: non-deterministic network conditions; reproducing them reliably in CI is very hard (the bug is upstream, `esp-webrtc-solution#186`).
+- **Real-world wake accuracy**: approximated with labeled recordings, but the tail of false positives appears in real use, not in the dataset.
+- **HIL cost**: requires a dedicated board + a runner, and the native S3 USB is fragile (hangs, re-enumerates) — the harness itself will need retries and health-checks.
+- **Golden vectors**: any legitimate FIR re-tuning requires regenerating them by hand; they are change-detectors, not correctness proofs.
 
 ---
 
-## Cómo ejecutar (referencia rápida)
+## How to run (quick reference)
 
 ```bash
-# Host tests (local) — desde firmware/
+# Host tests (local) — from firmware/
 cd firmware && ../tools/zig.sh test core_test.zig
 
-# Host tests (CI): automático en push/PR que toque firmware/**
+# Host tests (CI): automatic on push/PR touching firmware/**
 #   .github/workflows/firmware-tests.yml
 
-# HIL manual (hoy): activar un probe y leer la telemetría
-#   1) poner config.probe_aec_on_boot = true (o el probe que toque)
-#   2) idf.py -p <puerto> flash
-#   3) leer el serial / Grafana:  converged_at, filtro, far_end_dsp
-#   4) volver el flag a false antes de commitear
+# Manual HIL (today): enable a probe and read the telemetry
+#   1) set config.probe_aec_on_boot = true (or the relevant probe)
+#   2) idf.py -p <port> flash
+#   3) read the serial / Grafana: converged_at, filter, far_end_dsp
+#   4) revert the flag to false before committing
 ```
 
 ---
 
-*Ver también: `ROADMAP.md` §7 (explotación del DSP del XVF, donde viven los probes)
-y §"DevEx / observabilidad" (el stack de telemetría que hace posible el HIL).*
+*See also: `ROADMAP.md` §7 (XVF DSP exploitation, where the probes live)
+and §"DevEx / observability" (the telemetry stack that makes HIL possible).*

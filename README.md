@@ -1,90 +1,89 @@
 # Sebastian
 
-Altavoz de voz **conversacional bidireccional** sobre **Seeed ReSpeaker XVF3800
-+ XIAO ESP32-S3**, conectado a **LiveKit Cloud**. El usuario habla, el
-dispositivo captura y limpia la voz por hardware (array de 4 micrófonos con
-beamforming + AEC + supresión de ruido en el XMOS XVF3800), la publica en una
-sala de LiveKit, y un **agente Python (OpenAI Realtime)** responde por el
-altavoz. Todo el bucle es voz-a-voz.
+**Bi-directional conversational** voice speaker over **Seeed ReSpeaker XVF3800
++ XIAO ESP32-S3**, connected to **LiveKit Cloud**. The user speaks, the
+device captures and cleans the voice via hardware (4-microphone array with
+beamforming + AEC + noise suppression in the XMOS XVF3800), publishes it in a
+LiveKit room, and a **Python agent (OpenAI Realtime)** responds through the
+speaker. The entire loop is voice-to-voice.
 
-- **Repositorio:** `github.com/Zetesis-Labs/Sebastian`
+- **Repository:** `github.com/Zetesis-Labs/Sebastian`
 
-## Estado: FUNCIONA
+## Status: IT WORKS
 
-La **conversación de voz bidireccional funciona y está validada en hardware**: el
-agente habla por el altavoz y oye al usuario de forma inteligible. El **anillo de
-LEDs apunta a quien habla** (dirección de llegada / DoA) y el **botón de mute**
-funciona (el anillo se apaga al silenciar). Detalle en
+The **bi-directional voice conversation works and is validated in hardware**: the
+agent speaks through the speaker and hears the user intelligibly. The **LED ring
+points to who is speaking** (direction of arrival / DoA) and the **mute button**
+works (the ring turns off when muted). Details in
 [docs/STATUS.md](docs/STATUS.md).
 
 ```
 ┌─────────────────────────┐         WebRTC          ┌──────────────────┐
-│ ESP32-S3 (firmware Zig)  │  ◄───────────────────►  │  LiveKit Cloud   │
-│ ReSpeaker XVF3800        │      sala / Opus        │      (sala)      │
+│ ESP32-S3 (Zig firmware)  │  ◄───────────────────►  │  LiveKit Cloud   │
+│ ReSpeaker XVF3800        │      room / Opus        │      (room)      │
 │  · 4 mics → XVF3800      │                         └────────┬─────────┘
-│  · altavoz ← AIC3104     │                                  │ dispatch
+│  · speaker ← AIC3104     │                                  │ dispatch
 └─────────────────────────┘                         ┌────────▼─────────┐
-                                                     │ Agente (Python)  │
+                                                     │ Agent (Python)   │
                                                      │ OpenAI Realtime  │
                                                      └──────────────────┘
 ```
 
-## Cómo encaja (resumen)
+## How it fits together (summary)
 
-- El **XVF3800 es el master del I2S** (genera el reloj a **48 kHz**, 32-bit,
-  estéreo) y el **ESP32-S3 es esclavo**, sobre **dos puertos I2S separados** (RX
-  micro / TX altavoz) para no corromper el DMA.
-- El firmware **DFU-flashea el XVF** a su firmware **"inthost" (I2S-master)** por
-  I2C **desde nuestro propio código Zig** (sin ESPHome ni herramientas externas)
-  y lo des-mutea en el arranque.
-- El micrófono usa el **beam RIGHT/ASR crudo del XVF** (sin NS on-chip) y la
-  **cancelación de ruido BVC del agente** hace la única pasada de supresión de
-  ruido — así se evita el artefacto "de lata" del doble NS.
-- El audio de micro se publica como **Opus a 48 kHz**; LiveKit reamostrea aguas
-  abajo.
+- The **XVF3800 is the I2S master** (generates the clock at **48 kHz**, 32-bit,
+  stereo) and the **ESP32-S3 is the slave**, over **two separate I2S ports** (RX
+  mic / TX speaker) to avoid corrupting the DMA.
+- The firmware **DFU-flashes the XVF** to its **"inthost" (I2S-master)** firmware via
+  I2C **from our own Zig code** (without ESPHome or external tools)
+  and un-mutes it on boot.
+- The microphone uses the **raw RIGHT/ASR beam of the XVF** (without on-chip NS) and the
+  **agent's BVC noise cancellation** does the only noise suppression pass
+  — this avoids the "tinny" artifact of double NS.
+- The mic audio is published as **Opus at 48 kHz**; LiveKit resamples downstream.
 
-Ver [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) para el detalle completo.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for full details.
 
-## Decisiones clave
+## Key decisions
 
-- **Firmware en Zig**: seguridad de memoria, `comptime`, C-interop nativo. El
-  núcleo WebRTC/red sigue en C (el SDK de LiveKit, no reescribible); Zig cubre la
-  capa de aplicación (bring-up de placa, fuente de micro, ruta de altavoz, DFU
-  del XVF, lógica de sala).
-- **Agente en Python**: es como se hacen los agentes de LiveKit (framework
-  `agents` con baterías: VAD, turn-detection, cancelación de ruido BVC).
-- **LiveKit Cloud + token de sandbox**: sin backend de tokens propio.
+- **Firmware in Zig**: memory safety, `comptime`, native C-interop. The
+  core WebRTC/network remains in C (the LiveKit SDK, not rewritable); Zig covers the
+  application layer (board bring-up, mic source, speaker path, XVF DFU,
+  room logic).
+- **Agent in Python**: this is how LiveKit agents are built (`agents` framework
+  with batteries included: VAD, turn-detection, BVC noise cancellation).
+- **LiveKit Cloud + sandbox token**: no custom token backend.
 
-> ⚠️ Es un proyecto **bleeding edge**: primer LiveKit-en-ESP32 en Zig (fork de
-> Espressif `0.16-xtensa`, backend LLVM Xtensa).
+> ⚠️ This is a **bleeding edge** project: first LiveKit-on-ESP32 in Zig (Espressif
+> `0.16-xtensa` fork, LLVM Xtensa backend).
 
-## Documentación
+## Documentation
 
-| Documento | Qué cubre |
+| Document | What it covers |
 |---|---|
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Arquitectura del sistema completa: flujo voz-a-voz, buses I2C/I2S, pipelines de micro y altavoz, decisión de canal, agente. |
-| [docs/HARDWARE.md](docs/HARDWARE.md) | Placa ReSpeaker XVF3800 + XIAO ESP32-S3: componentes, pinout, direcciones I2C, topología de audio. |
-| [docs/FIRMWARE.md](docs/FIRMWARE.md) | Firmware Zig sobre ESP-IDF v5.4: módulos, bindings `extern` a mano, sistema de build. |
-| [docs/XVF3800.md](docs/XVF3800.md) | El chip XVF3800: familias de firmware, DFU por I2C, protocolo, mute, los dos canales de salida. |
-| [docs/BUILD_AND_RUN.md](docs/BUILD_AND_RUN.md) | Guía de operador: compilar, flashear, ejecutar el agente, dispatch y verificación de audio. |
-| [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Playbook síntoma → causa raíz → solución de la sesión de bring-up. |
-| [docs/STATUS.md](docs/STATUS.md) | Estado actual del proyecto y puntos abiertos de calidad. |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Full system architecture: voice-to-voice flow, I2C/I2S buses, mic and speaker pipelines, channel decision, agent. |
+| [docs/HARDWARE.md](docs/HARDWARE.md) | ReSpeaker XVF3800 + XIAO ESP32-S3 board: components, pinout, I2C addresses, audio topology. |
+| [docs/FIRMWARE.md](docs/FIRMWARE.md) | Zig firmware on ESP-IDF v5.4: modules, manual `extern` bindings, build system. |
+| [docs/XVF3800.md](docs/XVF3800.md) | The XVF3800 chip: firmware families, DFU via I2C, protocol, mute, the two output channels. |
+| [docs/BUILD_AND_RUN.md](docs/BUILD_AND_RUN.md) | Operator guide: build, flash, run the agent, dispatch and audio verification. |
+| [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Playbook symptom → root cause → solution from the bring-up session. |
+| [docs/STATUS.md](docs/STATUS.md) | Current project status and open quality items. |
 
-## Estructura
+## Structure
 
-| Carpeta | Qué |
+| Folder | What |
 |---|---|
-| [`firmware/`](firmware/) | Firmware del ESP32-S3. App en **Zig** sobre ESP-IDF + LiveKit C SDK. |
-| [`agent/`](agent/) | Agente de voz en **Python** (`livekit-agents` + OpenAI Realtime). |
-| [`docs/`](docs/) | Documentación (ver tabla anterior). |
+| [`firmware/`](firmware/) | ESP32-S3 firmware. App in **Zig** on ESP-IDF + LiveKit C SDK. |
+| [`agent/`](agent/) | Voice agent in **Python** (`livekit-agents` + OpenAI Realtime). |
+| [`docs/`](docs/) | Documentation (see table above). |
 
-## Arranque rápido
+## Quick start
 
-Ver [docs/BUILD_AND_RUN.md](docs/BUILD_AND_RUN.md) para la guía completa. En corto:
+See [docs/BUILD_AND_RUN.md](docs/BUILD_AND_RUN.md) for the full guide. In short:
 
 1. **Firmware**: `source ~/esp/esp-idf/export.sh && cd firmware && idf.py build && idf.py -p /dev/cu.usbmodem101 flash monitor`
-2. **Agente** (exactamente uno): `cd agent && uv sync && uv run agent.py dev`
-3. **Dispatch** a sala fresca: `lk room delete sebastian` y resetear la placa.
+2. **Agent** (exactly one): `cd agent && uv sync && uv run agent.py dev`
+3. **Dispatch** to a fresh room: `lk room delete sebastian` and reset the board.
 
-Los secretos (WiFi, token de LiveKit, clave de OpenAI) van en ficheros
-gitignoreados; nunca se commitean.
+Secrets (WiFi, LiveKit token, OpenAI key) go in gitignored files;
+they are never committed.

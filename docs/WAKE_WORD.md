@@ -1,139 +1,139 @@
 # Wake word: "Sebastián"
 
-Detección de wake word **on-device** con [microWakeWord](https://github.com/kahrendt/microWakeWord)
-(streaming CNN sobre TFLite-Micro). El dispositivo escucha en local con un modelo
-de 62 KB y **solo abre la sesión LiveKit (y por tanto la sesión Realtime de pago)
-cuando oye su nombre**. En reposo el coste es cero.
+**On-device** wake word detection with [microWakeWord](https://github.com/kahrendt/microWakeWord)
+(streaming CNN over TFLite-Micro). The device listens locally with a
+62 KB model and **only opens the LiveKit session (and therefore the paid Realtime session)
+when it hears its name**. At rest the cost is zero.
 
-Responde a su nombre, **"Sebastián"** (es), entrenado en el modelo.
+Responds to its name, **"Sebastián"** (es), trained on the model.
 
-## Arquitectura
+## Architecture
 
 ```
-                    IDLE (siempre)                      ACTIVO (tras wake word)
+                    IDLE (always)                       ACTIVE (after wake word)
 ┌─────────────────────────────────────┐   ┌──────────────────────────────────────┐
 │ XVF3800 ──I2S 48k──▶ wakeword.zig   │   │ XVF3800 ──I2S 48k──▶ mic_src.zig     │
-│   decimación 3:1 → 16k mono         │   │   → esp_capture → Opus → LiveKit     │
+│   decimation 3:1 → 16k mono         │   │   → esp_capture → Opus → LiveKit     │
 │   → mww.cpp (frontend + CNN 62KB)   │   │ LiveKit ──▶ av_render → AIC3104      │
-│   → prob > 0.62 (media móvil de 4)  │   │ silencio → cerrar sesión → IDLE     │
+│   → prob > 0.62 (moving avg of 4)   │   │ silence → close session → IDLE       │
 └─────────────────────────────────────┘   └──────────────────────────────────────┘
 ```
 
-- **`firmware/components/mww/`** — componente ESP-IDF en C/C++:
-  - `mww.cpp` + `mww.h`: shim `extern "C"` sobre TFLite-Micro
-    (`MicroMutableOpResolver` con las 13 ops del modelo, `MicroResourceVariables`
-    para el estado streaming, arena de 48 KB en SRAM interna).
-  - `microfrontend/`: el audio-frontend C de TFLM (ventana 30 ms/paso 10 ms,
-    filterbank mel de 40 canales 125–7500 Hz, noise reduction, PCAN, log-scale).
-    Copiado de `esphome/esp-micro-speech-features` (mismo código que
-    `pymicro-features`, el que se usó en el entrenamiento).
-- **`firmware/main/wakeword.zig`** — task FreeRTOS de detección:
-  - Lee I2S RX directo (48 kHz estéreo 32-bit), toma el slot configurado en
-    `config.zig` (RIGHT/ASR por defecto), decima 3:1 → 16 kHz mono int16 con el
-    mismo `softClip` que `mic_src.zig`.
-  - Embebe el modelo con `@embedFile("sebastian.tflite")`.
-  - `detected` es un atomic que `app_main` sondea; `stop()` hace el hand-off
-    limpio del canal I2S (disable/enable) hacia `mic_src`.
-- **`firmware/main/app.zig`** — loop principal:
-  `esperar wake word → abrir sala LiveKit → silencio local (o desconexión) → cerrar → repetir`.
+- **`firmware/components/mww/`** — ESP-IDF component in C/C++:
+  - `mww.cpp` + `mww.h`: `extern "C"` shim over TFLite-Micro
+    (`MicroMutableOpResolver` with the 13 ops of the model, `MicroResourceVariables`
+    for streaming state, 48 KB arena in internal SRAM).
+  - `microfrontend/`: the C audio-frontend of TFLM (30 ms window/10 ms step,
+    40-channel mel filterbank 125–7500 Hz, noise reduction, PCAN, log-scale).
+    Copied from `esphome/esp-micro-speech-features` (same code as
+    `pymicro-features`, which was used in training).
+- **`firmware/main/wakeword.zig`** — detection FreeRTOS task:
+  - Reads direct I2S RX (48 kHz stereo 32-bit), takes the slot configured in
+    `config.zig` (RIGHT/ASR by default), decimates 3:1 → 16 kHz mono int16 with the
+    same `softClip` as `mic_src.zig`.
+  - Embeds the model with `@embedFile("sebastian.tflite")`.
+  - `detected` is an atomic that `app_main` polls; `stop()` does the clean hand-off
+    of the I2S channel (disable/enable) to `mic_src`.
+- **`firmware/main/app.zig`** — main loop:
+  `wait for wake word → open LiveKit room → local silence (or disconnection) → close → repeat`.
 
-## Modelo
+## Model
 
-| Propiedad | Valor |
+| Property | Value |
 |---|---|
-| Fichero | `wakeword/sebastian.tflite` (copiado a `firmware/main/` para embeber) |
-| Tamaño | 62 KB (int8) |
-| Input | `[1, 2, 40]` int8 — 2 frames de features de 10 ms por Invoke (stride 20 ms) |
-| Output | `[1, 1]` uint8 — probabilidad (escala 1/256) |
-| Cuantización input | scale 0.10196079, zero-point −128 |
-| Recall (validación) | 99.29 % |
-| Falsos positivos | 0.93/hora en ruido ambiente |
-| Umbral | media móvil de 4 probabilidades > 0.62 |
-| Arena TFLM | 48 KB SRAM interna (el JSON decía 30 KB pero las resource variables van aparte) |
+| File | `wakeword/sebastian.tflite` (copied to `firmware/main/` to embed) |
+| Size | 62 KB (int8) |
+| Input | `[1, 2, 40]` int8 — 2 10 ms features frames per Invoke (20 ms stride) |
+| Output | `[1, 1]` uint8 — probability (1/256 scale) |
+| Input quantization | scale 0.10196079, zero-point −128 |
+| Recall (validation) | 99.29 % |
+| False positives | 0.93/hour in ambient noise |
+| Threshold | moving average of 4 probabilities > 0.62 |
+| TFLM Arena | 48 KB internal SRAM (the JSON said 30 KB but resource variables are separate) |
 
-## Entrenamiento
+## Training
 
-Entrenado en el M4 Pro (MPS) con
+Trained on the M4 Pro (MPS) with
 [microWakeWord-Trainer-AppleSilicon](https://github.com/TaterTotterson/microWakeWord-Trainer-AppleSilicon).
-Ver `wakeword/README.md` para reproducirlo.
+See `wakeword/README.md` to reproduce it.
 
-**Datos positivos (18 220 muestras):**
-- 18 100 TTS "Sebastián" — 9 voces Piper en español
-  (acentos AR/ES/MX), generadas con piper-sample-generator.
-- 120 grabaciones reales vía el propio XVF3800 (78 "Sebastián"
-  del usuario + 42 de una segunda persona), troceadas con `wakeword/split_wakeword.py`.
+**Positive data (18,220 samples):**
+- 18,100 TTS "Sebastián" — 9 Piper voices in Spanish
+  (AR/ES/MX accents), generated with piper-sample-generator.
+- 120 real recordings via the XVF3800 itself (78 "Sebastián"
+  from the user + 42 from a second person), chopped with `wakeword/split_wakeword.py`.
 
-**Datos negativos:** AudioSet (3 tars), FMA small, WHAM noise — ~20 GB,
-descargados y convertidos a 16 kHz por el trainer.
+**Negative data:** AudioSet (3 tars), FMA small, WHAM noise — ~20 GB,
+downloaded and converted to 16 kHz by the trainer.
 
-## Los 5 bugs de integración (para no repetirlos)
+## The 5 integration bugs (so as not to repeat them)
 
-La validación host (Python, `pymicro-features` + el mismo `.tflite`) daba
-prob 0.996 en los 4 clips de prueba mientras el device daba 0 %. Causas, en
-orden de descubrimiento:
+Host validation (Python, `pymicro-features` + the same `.tflite`) gave
+a 0.996 prob in the 4 test clips while the device gave 0 %. Causes, in
+order of discovery:
 
-1. **Resource variables**: el modelo streaming usa ops `VAR_HANDLE`; el
-   `MicroInterpreter` necesita un `MicroResourceVariables::Create(...)` explícito
-   o falla en `AllocateTensors()`.
-2. **Contrato de stride**: input `[1,2,40]` = el modelo consume **2 frames
-   frescos por Invoke** (20 ms). Invocar con ventana deslizante solapada hace
-   avanzar el estado interno al doble de velocidad con datos duplicados y mata la
-   detección.
-3. **Escala de features ×10**: `pymicro-features` — lo que vio el
-   entrenamiento — expone el uint16 del microfrontend **dividido entre 25.6, no
-   entre 256**. Con ÷256 las features llegan ×10 más pequeñas (espectro plano) y
-   la probabilidad nunca sube. Verificado numéricamente compilando el frontend C
-   en el host y comparando frame a frame.
-4. **Estado del CNN sin resetear entre armados** (el peor de diagnosticar): las
-   resource variables del modelo streaming sobreviven a `FrontendReset()`. Sin
-   `MicroResourceVariables::ResetAll()` en `mww_reset()`, el contexto de la
-   última detección queda "caliente": al rearmar tras cerrar la sesión, el
-   modelo dispara a ~99 % sin que suene nada → bucle infinito
-   detección→sesión→cierre→re-detección. El síntoma para el usuario es "me
-   responde a cualquier palabra" (la sesión siempre está abierta) y, cuando el
-   estado queda saturado en la otra dirección, "no me detecta nunca". En el
-   host no se reproduce porque allí se llama a `reset_all_variables()` por clip.
+1. **Resource variables**: the streaming model uses `VAR_HANDLE` ops; the
+   `MicroInterpreter` needs an explicit `MicroResourceVariables::Create(...)`
+   or it fails in `AllocateTensors()`.
+2. **Stride contract**: `[1,2,40]` input = the model consumes **2 fresh
+   frames per Invoke** (20 ms). Invoking with an overlapping sliding window
+   advances the internal state at double the speed with duplicated data and kills
+   the detection.
+3. **Features scale ×10**: `pymicro-features` — what the training
+   saw — exposes the microfrontend's uint16 **divided by 25.6, not
+   by 256**. With ÷256 the features arrive ×10 smaller (flat spectrum) and
+   the probability never rises. Numerically verified by compiling the C frontend
+   on the host and comparing frame by frame.
+4. **CNN state not reset between armings** (the worst to diagnose): the
+   streaming model's resource variables survive `FrontendReset()`. Without
+   `MicroResourceVariables::ResetAll()` in `mww_reset()`, the context of the
+   last detection remains "hot": upon re-arming after closing the session, the
+   model shoots up to ~99 % without any sound → infinite loop of
+   detection→session→close→re-detection. The symptom for the user is "it
+   answers me to any word" (the session is always open) and, when the
+   state gets saturated in the other direction, "it never detects me". On the
+   host it is not reproduced because there `reset_all_variables()` is called per clip.
 
-5. **Aliasing en la decimación 48k→16k** (el más caro de encontrar): decimar
-   cogiendo 1 de cada 3 muestras sin filtro pliega la energía >8 kHz de la voz
-   real (sibilantes, ruido de sala) sobre el espectro útil → el modelo cae a
-   ~0 % con voz en vivo, mientras el **playback de grabaciones/TTS sigue
-   detectando al 97-99 %** (viene limitado a 8 kHz de origen: no hay nada que
-   aliasear). Ese patrón asimétrico despista hacia ganancias/niveles — todo el
-   audio de entrenamiento se remuestreó con filtro, el firmware no. El
-   discriminador que lo destapó: la misma voz en vivo por el camino de sesión
-   (resampler correcto de LiveKit) daba 1.00 en el modelo host. Fix: FIR
-   paso-bajo de 19 taps (6.8 kHz, Q15) antes de la decimación, con historia
-   entre chunks.
+5. **Aliasing in the 48k→16k decimation** (the most expensive to find): decimating
+   by taking 1 out of every 3 samples without a filter folds the >8 kHz energy of the real
+   voice (sibilants, room noise) over the useful spectrum → the model drops to
+   ~0 % with live voice, while the **playback of recordings/TTS continues
+   detecting at 97-99 %** (it comes limited to 8 kHz from the source: there is nothing to
+   alias). That asymmetric pattern misleads towards gains/levels — all the
+   training audio was resampled with a filter, the firmware was not. The
+   discriminator that uncovered it: the same live voice through the session path
+   (LiveKit's correct resampler) gave 1.00 on the host model. Fix: 19-tap low-pass
+   FIR (6.8 kHz, Q15) before decimation, with history
+   between chunks.
 
-Además: la detección es sobre la **media móvil** de la ventana de probabilidades
-(semántica microWakeWord/ESPHome), no "todas por encima del umbral".
+Furthermore: detection is based on the **moving average** of the probability window
+(microWakeWord/ESPHome semantics), not "all above the threshold".
 
-## Diagnóstico en runtime
+## Runtime diagnostics
 
-El task loguea cada 5 s pico de PCM y probabilidad máxima:
+The task logs the PCM peak and maximum probability every 5 s:
 
 ```
 wakeword: 5s window: pcm peak=32365 max prob=4%
 ```
 
-- `pcm peak` bajo (<3000) con voz cerca ⇒ problema de audio/canal I2S.
-- `pcm peak` alto y `max prob` 0 % con el wake word ⇒ problema de features/modelo.
-- Detección correcta ⇒ `WAKE WORD DETECTED` y transición de sesión.
+- Low `pcm peak` (<3000) with a nearby voice ⇒ audio/I2S channel problem.
+- High `pcm peak` and 0 % `max prob` with the wake word ⇒ features/model problem.
+- Correct detection ⇒ `WAKE WORD DETECTED` and session transition.
 
-## Validación host (sin flashear)
+## Host validation (without flashing)
 
-Reproduce el pipeline exacto del firmware en Python contra cualquier WAV:
-modelo + cuantización + stride de 2 frames + media móvil. Útil antes de tocar
-el device. El script está en la sección "Validación" de `wakeword/README.md`.
+Reproduce the exact firmware pipeline in Python against any WAV:
+model + quantization + 2 frame stride + moving average. Useful before touching
+the device. The script is in the "Validation" section of `wakeword/README.md`.
 
-## Limitaciones y siguientes pasos
+## Limitations and next steps
 
-- El cierre de sesión usa un VAD simple basado en `mic_src.level()`: mínimo de
-  20 s, cierre tras 12 s de silencio local y máximo de seguridad de 90 s.
-  LINGER/DDSD será la versión semántica posterior.
-- La decimación 48k→16k es 3:1 sin filtro anti-aliasing. Para wake word es
-  suficiente (la energía útil de la voz queda por debajo de 8 kHz); no reutilizar
-  para STT sin añadir filtro.
-- El XVF puede colgarse del bus I2C tras muchos reflasheos seguidos (probe
-  timeout en todo el bus) — se recupera con un power cycle físico del USB.
+- Session closing uses a simple VAD based on `mic_src.level()`: minimum of
+  20 s, close after 12 s of local silence and safety maximum of 90 s.
+  LINGER/DDSD will be the semantic version later.
+- The 48k→16k decimation is 3:1 without an anti-aliasing filter. For wake word it is
+  sufficient (the useful energy of the voice remains below 8 kHz); do not reuse
+  for STT without adding a filter.
+- The XVF can hang on the I2C bus after many consecutive reflashes (probe
+  timeout on the whole bus) — it recovers with a physical USB power cycle.

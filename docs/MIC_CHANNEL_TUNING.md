@@ -1,101 +1,78 @@
-# Ajuste del canal de micrófono (LEFT vs RIGHT) y nivel
+# Mic Channel Tuning (LEFT vs RIGHT) and Level
 
-Conclusiones de las pruebas A/B de los dos canales de salida del XVF3800, hechas
-grabando la voz publicada a LiveKit a 48 kHz y evaluándola por métricas + escucha.
+Conclusions from A/B testing the two output channels of the XVF3800, done by recording the voice published to LiveKit at 48 kHz and evaluating it by metrics + listening.
 
 ## TL;DR
 
-- **Canal por defecto: `RIGHT` (ASR).** Es la elección para STT.
-- **Ganancia por canal:** `SHIFT = 14` en RIGHT, `SHIFT = 15` en LEFT.
-- **Limitador suave (soft-clip)** en `mic_src.zig` para domar picos sin recorte duro.
-- El canal se elige en la instalación en `firmware/main/config.zig` (`mic_channel`).
+- **Default channel: `RIGHT` (ASR).** This is the choice for STT.
+- **Gain per channel:** `SHIFT = 14` on RIGHT, `SHIFT = 15` on LEFT.
+- **Soft-clip limiter** in `mic_src.zig` to tame peaks without hard clipping.
+- The channel is chosen at install time in `firmware/main/config.zig` (`mic_channel`).
 
-## Los dos canales del XVF3800
+## The two XVF3800 channels
 
 | | RIGHT (ASR) | LEFT (comms) |
 |---|---|---|
-| Origen | beam del beamformer, **salta el post-procesado** | salida **totalmente procesada** |
-| Procesado | post-AEC, **sin NS ni supresión de eco residual** | de-reverb + NS + supresión de eco residual + limitador |
-| Pensado para | motores de reconocimiento (ASR/STT) | oído humano (llamadas full-duplex) |
-| Limitador en el XVF | **no** | sí |
+| Origin | beam from the beamformer, **skips post-processing** | **fully processed** output |
+| Processing | post-AEC, **without NS or residual echo suppression** | de-reverb + NS + residual echo suppression + limiter |
+| Intended for | recognition engines (ASR/STT) | human ear (full-duplex calls) |
+| Limiter in XVF | **no** | yes |
 
-## Metodología
+## Methodology
 
-- Grabador puro `agent/record.py` (sin agente ni OpenAI → gratis): se une a la sala,
-  se suscribe al track del micro y lo vuelca a WAV 48 kHz mono.
-- Misma frase, mismo volumen/distancia en cada toma.
-- Análisis: RMS, pico, % clipping, SNR, suelo de ruido, % de muestras en la zona del
-  limitador. Escucha a ciegas con las tomas **normalizadas al mismo pico** (para juzgar
-  calidad sin sesgo de volumen).
+- Pure recorder `agent/record.py` (no agent nor OpenAI → free): joins the room, subscribes to the mic track and dumps it to a mono 48 kHz WAV.
+- Same phrase, same volume/distance in each take.
+- Analysis: RMS, peak, % clipping, SNR, noise floor, % of samples in the limiter zone. Blind listening with takes **normalized to the same peak** (to judge quality without volume bias).
 
-## Resultados medidos (tomas finales, con limitador)
+## Measured Results (final takes, with limiter)
 
-| Métrica | RIGHT @ SHIFT=14 | LEFT @ SHIFT=15 |
+| Metric | RIGHT @ SHIFT=14 | LEFT @ SHIFT=15 |
 |---|---|---|
-| voz (RMS p80) | 7534 | 8052 |
-| suelo de ruido (RMS p20) | ~250 | ~96 |
+| voice (RMS p80) | 7534 | 8052 |
+| noise floor (RMS p20) | ~250 | ~96 |
 | SNR | 30.7 dB | 38.5 dB |
-| limitador entrando (≥30k) | 0.17 % | 0.20 % |
-| clipping duro | ~0 (residuo = overshoot de Opus) | ~0 |
+| limiter engaging (≥30k) | 0.17 % | 0.20 % |
+| hard clipping | ~0 (residual = Opus overshoot) | ~0 |
 
-Escucha (juez final = el oído):
-- **RIGHT: más natural.** A distancia normal, limpio.
-- **LEFT: suena más "enlatado"/procesado** — es el carácter del NS/comms del XVF,
-  intrínseco al canal; no se quita bajando el nivel.
+Listening (final judge = the ear):
+- **RIGHT: more natural.** At normal distance, clean.
+- **LEFT: sounds more "tinny"/processed** — it's the character of the XVF's NS/comms, intrinsic to the channel; it doesn't go away by lowering the level.
 
-## Decisiones y por qué
+## Decisions and why
 
-### Canal para STT → RIGHT
+### Channel for STT → RIGHT
 
-1. Es el **canal de ASR por diseño** de XMOS: se saca antes del post-procesado porque
-   los motores de reconocimiento prefieren voz natural y mínimamente procesada.
-2. El procesado de LEFT (NS agresivo, AGC) **borra pistas espectrales** (formantes,
-   transiciones) que el STT usa → "más limpio para el oído" ≠ "mejor para el STT".
-3. Los STT modernos (Whisper, OpenAI Realtime) son robustos a ruido → el suelo algo
-   más alto de RIGHT no molesta.
-4. Evita **doble procesado** (NS del XVF encadenado con el del motor → sonaba a lata).
-5. Con **push-to-talk** (mic cerrado mientras habla el agente) no necesitamos la
-   supresión de eco de LEFT, que era su única ventaja real aquí.
+1. It is the **ASR channel by XMOS design**: it is tapped before post-processing because recognition engines prefer natural and minimally processed speech.
+2. LEFT's processing (aggressive NS, AGC) **erases spectral cues** (formants, transitions) that STT uses → "cleaner for the ear" ≠ "better for STT".
+3. Modern STTs (Whisper, OpenAI Realtime) are robust to noise → RIGHT's slightly higher floor is not annoying.
+4. Avoids **double processing** (XVF's NS chained with the engine's → sounded tinny).
+5. With **push-to-talk** (mic closed while agent speaks) we don't need LEFT's echo suppression, which was its only real advantage here.
 
-LEFT sería la elección si el destino fuese un **oído humano** (llamada), no una máquina
-que transcribe.
+LEFT would be the choice if the destination were a **human ear** (call), not a machine that transcribes.
 
-### Nivel (SHIFT) por canal
+### Level (SHIFT) per channel
 
-El rango dinámico de la voz según distancia es amplio y **no tenemos AGC propio**, así
-que el `SHIFT` fijo es un compromiso:
+The dynamic range of the voice depending on distance is wide and **we don't have our own AGC**, so the fixed `SHIFT` is a compromise:
 
-- **RIGHT = 14.** A 13 clippeaba (metálico); a 14 se sienta bien.
-- **LEFT = 15.** Es un canal más caliente (lleva AGC); a 14 machacaba el limitador
-  (1.18 % de muestras comprimidas → coloración) y quedaba a doble nivel que RIGHT. A 15
-  se iguala a RIGHT (~8000) y el limitador solo actúa de red de seguridad (0.20 %).
+- **RIGHT = 14.** At 13 it clipped (metallic); at 14 it sits well.
+- **LEFT = 15.** It's a hotter channel (has AGC); at 14 it crushed the limiter (1.18 % of compressed samples → coloration) and was twice the level of RIGHT. At 15 it matches RIGHT (~8000) and the limiter just acts as a safety net (0.20 %).
 
-### Limitador suave (`softClip` en `mic_src.zig`)
+### Soft Limiter (`softClip` in `mic_src.zig`)
 
-Por debajo de la rodilla (24000) la muestra pasa lineal; por encima, los picos se
-comprimen suavemente con `tanh` hacia (sin llegar a) fondo de escala, en vez de recortar
-en seco. El recorte duro es lo que suena metálico en las sílabas fuertes.
+Below the knee (24000) the sample passes linearly; above, peaks are softly compressed with `tanh` towards (without reaching) full scale, instead of hard clipping. Hard clipping is what sounds metallic on loud syllables.
 
-**Caveat de RIGHT:** a bocajarro sigue clippeando **dentro del XVF** (el beam ASR no
-tiene limitador de origen), y eso no se puede deshacer aguas abajo. A distancia normal de
-un altavoz de sala no ocurre. LEFT no tiene ese problema (limitador propio del XVF).
+**RIGHT Caveat:** at point-blank range it still clips **inside the XVF** (the ASR beam has no origin limiter), and that cannot be undone downstream. At normal distance from a room speaker this doesn't happen. LEFT doesn't have this problem (XVF's own limiter).
 
-## Configuración de instalación
+## Installation Configuration
 
 `firmware/main/config.zig`:
 
 ```zig
-pub const mic_channel: MicChannel = .right; // o .left
+pub const mic_channel: MicChannel = .right; // or .left
 ```
 
-Se resuelve en comptime (coste cero) y ajusta el slot I2S **y** el `SHIFT` por canal.
-Cambiar la línea y reflashear para instalar una unidad con el otro canal.
+It is resolved at comptime (zero cost) and sets the I2S slot **and** the `SHIFT` per channel. Change the line and reflash to install a unit with the other channel.
 
-## Nota aparte: LED central de mute
+## Side note: Center mute LED
 
-Investigado en esta sesión: el LED central **no es controlable desde el host**. En cada
-pulsación solo cambia `gpo1` (=mute/GPIO30); escribir GPIO30 mutea el mic pero no mueve
-el LED. El recurso `RESID_LED` (0x0C) no es un servicer funcional en el firmware
-`inthost 1.0.7` (devuelve status uniforme haciendo eco del comando). El LED lo maneja el
-firmware interno del XVF (handler del botón) o está latcheado en hardware. Para tocarlo
-haría falta recompilar el config del firmware del XVF.
+Investigated in this session: the center LED **is not controllable from the host**. On each press only `gpo1` changes (=mute/GPIO30); writing GPIO30 mutes the mic but does not move the LED. The `RESID_LED` (0x0C) resource is not a functional servicer in the `inthost 1.0.7` firmware (it returns uniform status echoing the command). The LED is handled by the XVF internal firmware (button handler) or is latched in hardware. Touching it would require recompiling the XVF firmware config.
