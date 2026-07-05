@@ -10,7 +10,7 @@ on:
     branches: [main]
     paths:
       - "firmware/**"
-      - "docs/installer/**"
+      - "web-installer/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -31,6 +31,27 @@ jobs:
     runs-on: herschel-runners
     steps:
       - uses: actions/checkout@v4
+
+      # Build the React installer in CI (no committed build output). It writes to
+      # ../docs/installer (vite outDir) and creates docs/installer/firmware/ via
+      # public/, so the firmware merge below has a place to drop the real .bin.
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: web-installer/pnpm-lock.yaml
+
+      - name: Build the web installer (React → docs/installer)
+        working-directory: web-installer
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
 
       - name: Build factory firmware + merge image
         uses: espressif/esp-idf-ci-action@v1
