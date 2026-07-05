@@ -88,6 +88,28 @@ bool sebastian_get_token_url(char *out, size_t out_size) {
     return nvs_read_str("token_url", out, out_size);
 }
 
+// ── Runtime config, provisioned (config.zig::load reads these at boot). Missing
+//    key → the supplied default, so an unprovisioned unit keeps config.zig's. ──
+bool sebastian_cfg_get_bool(const char *key, bool def) {
+    nvs_ensure_init(); // may run before net_connect; nvs_flash_init is idempotent
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READONLY, &h) != ESP_OK) return def;
+    uint8_t v;
+    esp_err_t err = nvs_get_u8(h, key, &v);
+    nvs_close(h);
+    return err == ESP_OK ? (v != 0) : def;
+}
+
+int32_t sebastian_cfg_get_i32(const char *key, int32_t def) {
+    nvs_ensure_init();
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READONLY, &h) != ESP_OK) return def;
+    int32_t v;
+    esp_err_t err = nvs_get_i32(h, key, &v);
+    nvs_close(h);
+    return err == ESP_OK ? v : def;
+}
+
 // ── Station bring-up (mirrors livekit_example_net.c, creds from load above) ──
 static void ip_event_handler(void *arg, esp_event_base_t base, int32_t id, void *data) {
     (void)arg; (void)base; (void)id;
@@ -158,6 +180,10 @@ bool sebastian_net_connect(void) {
 }
 
 // ── Provisioning receiver ────────────────────────────────────────────────────
+static void store_cfg_bool(nvs_handle_t h, const char *key, const cJSON *item) {
+    if (cJSON_IsBool(item)) nvs_set_u8(h, key, cJSON_IsTrue(item) ? 1 : 0);
+}
+
 static bool store_wifi(cJSON *root) {
     cJSON *wifi = cJSON_GetObjectItem(root, "wifi");
     cJSON *ssid = wifi ? cJSON_GetObjectItem(wifi, "ssid") : NULL;
@@ -176,6 +202,21 @@ static bool store_wifi(cJSON *root) {
     cJSON *lk = cJSON_GetObjectItem(root, "livekit");
     cJSON *url = lk ? cJSON_GetObjectItem(lk, "tokenServerUrl") : NULL;
     if (ok && cJSON_IsString(url)) nvs_set_str(h, "token_url", url->valuestring);
+    // Operating mode + audio behaviour (config.zig::load reads these at boot). All
+    // optional: absent keys keep config.zig's compiled defaults. mic_channel and
+    // session timing stay compile-time, so they are intentionally not stored here.
+    cJSON *mode = cJSON_GetObjectItem(root, "mode");
+    if (ok && cJSON_IsString(mode)) nvs_set_str(h, "mode", mode->valuestring);
+    cJSON *audio = cJSON_GetObjectItem(root, "audio");
+    if (ok && cJSON_IsObject(audio)) {
+        store_cfg_bool(h, "full_duplex", cJSON_GetObjectItem(audio, "fullDuplex"));
+        store_cfg_bool(h, "fixed_beam", cJSON_GetObjectItem(audio, "fixedBeam"));
+        cJSON *az = cJSON_GetObjectItem(audio, "fixedBeamAzimuthDeg");
+        if (cJSON_IsNumber(az)) {
+            double d = az->valuedouble;
+            nvs_set_i32(h, "beam_az", (int32_t)(d < 0 ? d - 0.5 : d + 0.5));
+        }
+    }
     esp_err_t ce = nvs_commit(h);
     if (ok) ok = ce == ESP_OK;
     nvs_close(h);

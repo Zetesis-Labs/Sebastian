@@ -1,7 +1,15 @@
 export const CONFIG_SCHEMA = "sebastian.config.v1";
 
+// Operating modes are the top-level, mutually-exclusive choice. Each mode locks
+// the interdependent audio settings (duplex + beam) so the operator can't pick a
+// combination that breaks echo cancellation; everything else stays tunable.
+export type OperatingMode = "full_duplex" | "half_duplex";
+
+export const OPERATING_MODES: OperatingMode[] = ["full_duplex", "half_duplex"];
+
 export interface DeviceConfig {
   schema: typeof CONFIG_SCHEMA;
+  mode: OperatingMode;
   wifi: { ssid: string; password: string; hidden: boolean };
   livekit: {
     tokenServerUrl: string;
@@ -15,13 +23,30 @@ export interface DeviceConfig {
     fixedBeam: boolean;
     fixedBeamAzimuthDeg: number;
     fullDuplex: boolean;
-    probeAecOnBoot: boolean;
   };
   session: { silenceTimeoutMs: number; voiceLevel: number };
 }
 
+// The audio settings each mode fixes. Selecting a mode merges these over the
+// current audio config; the mode's own form then only exposes what's left to tune.
+export const MODE_PRESETS: Record<OperatingMode, Partial<DeviceConfig["audio"]>> = {
+  // Full-duplex needs a fixed beam for the AEC to converge.
+  full_duplex: { fullDuplex: true, fixedBeam: true },
+  // Half-duplex gates the mic while the agent speaks; an adaptive beam tracks the talker.
+  half_duplex: { fullDuplex: false, fixedBeam: false },
+};
+
+const isMode = (v: unknown): v is OperatingMode =>
+  typeof v === "string" && (OPERATING_MODES as string[]).includes(v);
+
+// Switch modes: set the mode and merge its locked audio settings.
+export function applyMode(config: DeviceConfig, mode: OperatingMode): DeviceConfig {
+  return { ...config, mode, audio: { ...config.audio, ...MODE_PRESETS[mode] } };
+}
+
 export const defaultConfig = (): DeviceConfig => ({
   schema: CONFIG_SCHEMA,
+  mode: "full_duplex",
   wifi: { ssid: "", password: "", hidden: false },
   livekit: {
     tokenServerUrl: "",
@@ -35,14 +60,22 @@ export const defaultConfig = (): DeviceConfig => ({
     fixedBeam: true,
     fixedBeamAzimuthDeg: 0,
     fullDuplex: true,
-    probeAecOnBoot: false,
   },
   session: { silenceTimeoutMs: 12000, voiceLevel: 3000 },
 });
 
-// Fields the current firmware actually stores in NVS + applies. The rest are
-// carried in the contract for forward-compat but ignored on-device for now.
-export const APPLIED_FIELDS = ["wifi.ssid", "wifi.password", "livekit.tokenServerUrl"];
+// Fields the firmware stores in NVS + applies at boot. `mode` expands into
+// audio.fullDuplex/fixedBeam (applied), plus the beam azimuth. Still compile-time
+// (reflash), so NOT applied: audio.micChannel and session.* — see PROVISIONING.md.
+export const APPLIED_FIELDS = [
+  "mode",
+  "wifi.ssid",
+  "wifi.password",
+  "livekit.tokenServerUrl",
+  "audio.fullDuplex",
+  "audio.fixedBeam",
+  "audio.fixedBeamAzimuthDeg",
+];
 
 export const serialize = (config: DeviceConfig): string => JSON.stringify(config, null, 2);
 
@@ -58,6 +91,7 @@ export function mergeConfig(input: unknown): DeviceConfig {
   };
   return {
     schema: CONFIG_SCHEMA,
+    mode: isMode(src.mode) ? src.mode : base.mode,
     wifi: section("wifi", base.wifi),
     livekit: section("livekit", base.livekit),
     telemetry: section("telemetry", base.telemetry),

@@ -4,10 +4,13 @@
   "title": "Sebastian device provisioning config",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "wifi", "livekit", "telemetry", "audio", "session"],
+  "required": ["schema", "mode", "wifi", "livekit", "telemetry", "audio", "session"],
   "properties": {
     "schema": {
       "const": "sebastian.config.v1"
+    },
+    "mode": {
+      "enum": ["full_duplex", "half_duplex"]
     },
     "wifi": {
       "type": "object",
@@ -76,8 +79,7 @@
         "micChannel",
         "fixedBeam",
         "fixedBeamAzimuthDeg",
-        "fullDuplex",
-        "probeAecOnBoot"
+        "fullDuplex"
       ],
       "properties": {
         "micChannel": {
@@ -92,9 +94,6 @@
           "maximum": 180
         },
         "fullDuplex": {
-          "type": "boolean"
-        },
-        "probeAecOnBoot": {
           "type": "boolean"
         }
       }

@@ -1,7 +1,21 @@
-//! Install-time configuration for a Sebastian unit.
+//! Per-unit configuration for a Sebastian device.
 //!
-//! These are comptime constants: set them before flashing a unit and rebuild.
-//! The selection is resolved at compile time, so there is zero runtime cost.
+//! Two tiers:
+//!  - The `pub var` fields below are DEFAULTS that `load()` overrides at boot from
+//!    NVS (provisioned over serial by the web installer — see provisioning.c). This
+//!    is what the installer's "mode" selects: full/half-duplex, fixed beam +
+//!    azimuth, and the boot self-tests. Changing them is a re-provision, not a
+//!    reflash.
+//!  - The `pub const` fields (mic_channel) are resolved at COMPILE time — they feed
+//!    comptime slot/shift selection in xvf_pcm.zig, so they still need a reflash.
+//!
+//! `load()` must run before any of these are read (app_main calls it right after
+//! the provisioning receiver starts, before the XVF/AEC config is applied).
+
+// NVS-backed config getters, implemented in provisioning.c. Missing keys return
+// the supplied default, so an unprovisioned unit keeps the defaults below.
+extern fn sebastian_cfg_get_bool(key: [*:0]const u8, def: bool) bool;
+extern fn sebastian_cfg_get_i32(key: [*:0]const u8, def: i32) i32;
 
 /// Which XVF3800 output slot the mic capture consumes.
 ///
@@ -13,7 +27,8 @@
 ///   suppresses its own loudspeaker echo). Louder (AGC + limiter) → needs more shift.
 pub const MicChannel = enum { left, right };
 
-/// The channel this unit is installed with. Change per install and reflash.
+/// The channel this unit is installed with. COMPILE-TIME: xvf_pcm.zig derives the
+/// I2S slot + gain shift from it at comptime, so changing it needs a reflash.
 pub const mic_channel: MicChannel = .right;
 
 /// Freeze the XVF beamformer to a fixed direction so the AEC can converge.
@@ -23,20 +38,29 @@ pub const mic_channel: MicChannel = .right;
 /// (confirmed on hardware: adaptive → AECCONVERGED stays 0 forever, filter jitters
 /// at ~0.003; fixed → converges in ~1s, filter ~0.025 at a stable tap). A fixed
 /// beam trades talker tracking for a working AEC, the prerequisite for dropping
-/// half-duplex and running full-duplex. Point the azimuth at where the talker
-/// sits relative to the unit and reflash per install.
-pub const fixed_beam: bool = true;
+/// half-duplex and running full-duplex. Full-duplex mode provisions this true;
+/// half-duplex provisions it false (an adaptive beam that tracks the talker).
+pub var fixed_beam: bool = true;
 
 /// Fixed-beam azimuth in degrees. 0 = front (mic-array reference axis),
 /// positive = counter-clockwise. Only used when `fixed_beam` is true.
-pub const fixed_beam_azimuth_deg: f32 = 0.0;
+pub var fixed_beam_azimuth_deg: f32 = 0.0;
 
 /// Full-duplex: keep the mic live while the agent speaks instead of gating it to
 /// silence (half-duplex). Only safe once the AEC actually cancels the loudspeaker
 /// echo — otherwise the agent hears itself as phantom user turns. Pair with
 /// `fixed_beam = true` (the AEC only converges with a fixed beam). When false,
 /// the half-duplex gate + wake-word barge-in handle the echo.
-pub const full_duplex: bool = true;
+pub var full_duplex: bool = true;
+
+// The three boot self-tests stay COMPILE-TIME (`const`), NOT runtime `var`. As a
+// runtime var they defeat dead-code elimination, so xvf_aec's probe machinery —
+// including its ~15 KB of static tone/rx buffers (TONE_PAIRS, tone_buf,
+// probe_rx_buf) — is kept in internal RAM even in production. Those 15 KB starve
+// the TLS hardware-AES DMA allocation (`esp-aes: Failed to allocate memory`) and
+// LiveKit can't connect. Keeping them const lets the compiler elide the probes +
+// their buffers. Enabling a probe is therefore a reflash, not a re-provision —
+// which is fine: it's a bring-up/diagnostics-only mode.
 
 /// Run the AEC convergence self-test at boot (xvf_aec.probeReference): plays a
 /// session-level tone through the speaker and reports whether the AEC converges,
@@ -56,3 +80,12 @@ pub const probe_dual_channel_on_boot: bool = false;
 /// FAR_EXTGAIN is a usable master volume for echo-headroom auto-leveling.
 /// Diagnostic only; leave false in production (~7s of noise at boot).
 pub const probe_output_gain_on_boot: bool = false;
+
+/// Override the defaults above with the values provisioned into NVS. Call once at
+/// boot, before the config is read (XVF/AEC apply, boot self-tests). Each missing
+/// key keeps its default, so a factory/unprovisioned unit is unchanged.
+pub fn load() void {
+    fixed_beam = sebastian_cfg_get_bool("fixed_beam", fixed_beam);
+    fixed_beam_azimuth_deg = @floatFromInt(sebastian_cfg_get_i32("beam_az", @intFromFloat(fixed_beam_azimuth_deg)));
+    full_duplex = sebastian_cfg_get_bool("full_duplex", full_duplex);
+}
