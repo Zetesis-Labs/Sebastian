@@ -19,6 +19,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import time
 from pathlib import Path
 
 import aiohttp
@@ -55,6 +56,10 @@ m_jobs = telemetry.counter(
 )
 m_barge = telemetry.counter(
     "sebastian_agent_barge_ins_total", "Wake-word interrupts while speaking"
+)
+m_end = telemetry.counter(
+    "sebastian_agent_sessions_ended_total",
+    "Sessions ended by the user (end_session); 'short' label flags phantom candidates",
 )
 
 BARGE_TOPIC = "sebastian.barge_in"
@@ -95,6 +100,7 @@ def _ha_mcp_servers() -> list:
 
 
 GOODBYE_GRACE_S = 3.0
+PHANTOM_SESSION_S = 12.0  # a user-closed session shorter than this ≈ likely phantom wake
 
 
 async def _delete_room_after_goodbye(job_ctx: agents.JobContext) -> None:
@@ -112,12 +118,14 @@ async def _delete_room_after_goodbye(job_ctx: agents.JobContext) -> None:
 
 class Sebastian(Agent):
     def __init__(self) -> None:
+        self._started = time.monotonic()
         super().__init__(
             instructions=(
                 "Eres Sebastián, un asistente de voz que vive en un altavoz "
-                "ESP32-S3 con un array de 4 micrófonos. Hablas en español, de "
-                "forma natural y breve, como en una conversación. No uses "
-                "markdown ni listas: solo se te va a escuchar, no a leer. "
+                "ESP32-S3 con un array de 4 micrófonos. Responde en el mismo "
+                "idioma en que te hablen, de forma natural y breve, como en una "
+                "conversación. No uses markdown ni listas: solo se te va a "
+                "escuchar, no a leer. "
                 "Puedes controlar la casa (luces, enchufes, sensores…) con las "
                 "herramientas de Home Assistant: cuando te pidan encender o apagar "
                 "algo, úsalas de verdad y confirma en una frase corta lo que hiciste. "
@@ -127,14 +135,17 @@ class Sebastian(Agent):
                 "persianas, sensores, temperatura…) consulta primero GetLiveContext "
                 "y responde solo con esos datos. No puedes ver: nunca describas el "
                 "aspecto físico de la casa ni inventes lo que no te dé una herramienta. "
-                "Si te interrumpen mientras hablas o te piden parar ('para', "
-                "'cállate', 'espera', 'ya vale'), deja de hablar INMEDIATAMENTE y "
-                "no digas absolutamente nada: ni 'vale', ni 'adiós'. Te quedas "
-                "escuchando en silencio; la conversación sigue abierta. "
-                "Solo cuando el usuario se despida explícitamente ('adiós', 'hasta "
-                "luego', 'nada más, gracias') llama a end_session y despídete con "
-                "una sola palabra. Parar no es despedirse: ante la duda, calla y "
-                "espera. "
+                "Cuando el usuario te ordene parar o callar, o dé la conversación "
+                "por terminada o se despida —en el idioma que sea, y entendiendo la "
+                "intención, no palabras sueltas: 'para', 'cállate', 'ya vale', "
+                "'stop', 'déjalo', 'adiós', 'gracias, nada más'…— llama a "
+                "end_session. Distingue: si es una orden de PARAR/CALLAR, ciérrala "
+                "SIN decir nada (ni 'vale' ni 'adiós'); si es una DESPEDIDA, "
+                "despídete con una sola palabra y ciérrala. En ambos casos la "
+                "sesión termina y el usuario tendrá que volver a activarte. Ojo con "
+                "la ambigüedad: 'enciende la luz para el salón' NO es una orden de "
+                "parar; solo cierra cuando la intención real sea detenerte o "
+                "terminar. "
                 "Nunca pronuncies tu propio nombre, Sebastián: el altavoz lo "
                 "interpreta como una orden de interrupción y te cortaría a ti mismo."
             )
@@ -142,15 +153,23 @@ class Sebastian(Agent):
 
     @function_tool
     async def end_session(self, context: RunContext) -> str:
-        """Termina la sesión de voz por completo. Llámala SOLO cuando el usuario
-        se despida explícitamente ('adiós', 'hasta luego', 'nada más') o dé la
-        conversación por terminada. NO la llames cuando pida parar o callar
-        ('para', 'cállate'): eso solo interrumpe el habla, la sesión sigue.
-        Para volver a hablar tras cerrarla hará falta la palabra de activación."""
+        """Cierra la sesión de voz por completo. Llámala cuando el usuario te
+        pida parar/callar, dé la conversación por terminada o se despida (en
+        cualquier idioma, por intención). Para volver a hablar tras cerrarla hará
+        falta la palabra de activación."""
         _ = context
+        dur = time.monotonic() - self._started
+        short = dur < PHANTOM_SESSION_S
+        m_end.add(1, {"short": str(short)})
+        # Session-level phantom signal (language-agnostic, §7): a real
+        # interaction lasts more than a few seconds. A very short session the
+        # user had to shut down is a strong false-positive-wake candidate.
+        log.info(
+            "end_session after %.1fs%s — closing room",
+            dur, "  [likely-phantom]" if short else "",
+        )
         _spawn(_delete_room_after_goodbye(get_job_context()))
-        log.info("end_session tool called — closing room in %.1fs", GOODBYE_GRACE_S)
-        return "Sesión terminándose. Despídete con una sola palabra."
+        return "Sesión terminándose."
 
 
 def _build_gemini_realtime_model() -> google.realtime.RealtimeModel:
