@@ -92,25 +92,31 @@ Actionable, deduplicated. Deep multi-session efforts link to their design sectio
    `max_duration`); SCTP storm dies with clean closures
    (`sebastian_sctp_init_total`); phantom turns ≈ 0 with half-duplex. Just
    requires using the device and watching the dashboard.
-2. **Wake word reliability / anti-phantom** — the full plan is §7. First step:
+2. **Self-host LiveKit on Cortes** — *elevated to #2 (2026-07-08): it is the
+   critical path, not an economics option.* Every conclusion of the platform
+   direction assumes always-connected server-side participants — the §6 feature
+   menu (music publisher, recorder), the §7 two-stage verify (spurious connects
+   per board trigger), §8 multi-room (N units 24/7), and the endpoint/conference/
+   control-plane modes — and on LiveKit Cloud every one of those bills
+   participant-minutes continuously. Design and the fiddly parts in §2.
+3. **Wake word reliability / anti-phantom** — the full plan is §7. First step:
    let the board threshold go loose and add server-side re-verify; measure false
    positives with the "session without user turn" proxy to build a phantom
    dataset.
-3. **Determinism harness** — host Zig tests for pure logic (decimator, softClip,
+4. **Determinism harness** — host Zig tests for pure logic (decimator, softClip,
    pre-roll window, barge chopping — the class of bug that crashed 5× in one day,
    catchable in seconds without hardware); a Python device simulator (fake
    participant: pre-roll + audio + asserts on transcriptions/states); `make check`
    pre-flashing.
-4. **Firmware telemetry batch** — *partial:* internal/DMA free-heap logging landed
+5. **Firmware telemetry batch** — *partial:* internal/DMA free-heap logging landed
    (`logHeap()` at boot + around connect, §6). Still pending: in-session audio
    levels, free heap trend, RSSI, temperature + Grafana alerts (reboot, SCTP,
    deaf channel, mute serial).
-5. **AEC project → full-duplex with tracking** — the big audio win; design + state
+6. **AEC project → full-duplex with tracking** — the big audio win; design + state
    in §5. Path B is validated; what remains is integration + double-talk tuning.
-6. **Volume by voice** (agent→device RPC; the data pipeline exists both ways) +
+7. **Volume by voice** (agent→device RPC; the data pipeline exists both ways) +
    LED by agent state (already received). Prerequisite for the `calibrate_audio`
    tool (§5).
-7. **Self-host LiveKit on Cortes** — the foundation for §6/§7/§8; see §2.
 8. **On-device timers via RPC** — they ring even if the internet drops.
 9. **Agent AGC** — re-framer to 10 ms before the APM, if recovered.
 10. **Pre-roll PSRAM silently degrades** — reflect it in boot health.
@@ -309,6 +315,17 @@ on-device wake word + one WebRTC session) with **all brains server-side**. "Add 
 feature" = server code at **zero firmware/RAM cost** — cheap and safe (no touching
 the fragile stack).
 
+**What the freeze does and doesn't mean (clarified 2026-07-08).** The pivot bans
+*features* in firmware, not everything: (a) **reliability hygiene** is allowed and
+encouraged (the +20 KB RAM reclaim below is exactly that — it bought headroom for
+the fragile TLS path, not feature capacity); (b) **small one-time enablers of the
+server model** are allowed (e.g. a server-owned "endpoint mode" where the session
+is opened and held by the server instead of gated by the wake word — the enabler
+for conference-mic / music / recording modes). The test for any firmware change:
+*does it add a capability the server could host instead?* → server-side. *Does it
+make the endpoint thinner, safer, or more controllable by the server?* → firmware
+is fine.
+
 ### The RAM edge (why the pivot exists) — and the +20 KB reclaim
 
 - **The memory-bug lesson (var/DCE).** Making the three `probe_*_on_boot` flags
@@ -435,7 +452,7 @@ what follows is **server code, zero firmware/RAM cost**.
   attack it with #5 (gate during playback / wake on the AEC'd channel), not the
   server re-verify.
 - All of this needs a **false-positive dataset** — the "session without a user
-  turn" proxy (backlog §3.2) measures it before re-training.
+  turn" proxy (backlog §3.3) measures it before re-training.
 
 ### Suggested order
 
