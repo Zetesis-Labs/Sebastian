@@ -1,10 +1,16 @@
 """Token server for the Sebastian device.
 
 Mints a short-lived LiveKit access token on demand so the firmware doesn't carry
-a static JWT that expires (720h → reflash). The token also embeds an explicit
-agent dispatch (RoomConfiguration.agents), so when the device joins the room the
-named agent ("sebastian") is dispatched to it automatically — no more "delete the
-room + reset the board" dance that plain auto-dispatch required.
+a static JWT that expires (720h → reflash), and dispatches the named agent
+("sebastian") into the room **explicitly via the server API** before returning.
+
+Explicit-only dispatch (the design LiveKit's docs recommend): create_dispatch
+works whether or not the room exists (it creates it if missing), so the whole
+"token RoomConfiguration only applies at room creation → silently ignored on a
+re-wake into a live room" failure class is gone. The token itself is a plain
+join token. The one thing the docs don't say: create_dispatch is NOT idempotent
+— dispatching into a room that already has the agent adds a SECOND agent and
+they talk over each other — hence the AGENT-participant guard below.
 
 The device does a plain HTTP GET at each session open and gets back two lines:
 
@@ -50,33 +56,26 @@ API_SECRET = os.environ["LIVEKIT_API_SECRET"]
 
 def _mint() -> str:
     grant = api.VideoGrants(room_join=True, room=ROOM)
-    dispatch = api.RoomAgentDispatch(agent_name=AGENT_NAME)
-    room_config = api.RoomConfiguration(agents=[dispatch])
     jwt: str = (
         api.AccessToken(API_KEY, API_SECRET)
         .with_identity(IDENTITY)
         .with_name(IDENTITY)
         .with_grants(grant)
-        .with_room_config(room_config)
         .with_ttl(TOKEN_TTL)
         .to_jwt()
     )
     return jwt
 
 
-async def _dispatch_agent(lk: api.LiveKitAPI) -> None:
-    # RoomConfiguration in the token only applies when the room is CREATED.
-    # Joining a still-alive empty room (re-wake within the ~5min empty timeout)
-    # silently skips the agent dispatch — the "says nothing after a quick
-    # re-wake" bug. Dispatching explicitly here covers both cases; awaiting it
-    # BEFORE returning the token means the device can never join first and
-    # trigger a duplicate via the token's own dispatch.
+async def _ensure_agent_dispatch(lk: api.LiveKitAPI) -> None:
+    # Explicit dispatch is now the ONLY mechanism, so it must complete before
+    # the token is returned. create_dispatch creates the room if it doesn't
+    # exist, so fresh wakes and re-wakes into a live room are the same path.
     #
-    # But there must be EXACTLY ONE agent in the room. If an agent is already
-    # present (a prior fetch this session, or a reconnect re-fetch), a second
-    # create_dispatch adds a second agent that talks over the first ("habla
-    # solo"). So dispatch only when the room currently has no agent participant;
-    # if the room doesn't exist yet (fresh wake) the lookup fails and we fall
+    # There must be EXACTLY ONE agent in the room: create_dispatch is not
+    # idempotent, and a second dispatch adds a second agent that talks over the
+    # first ("habla solo"). So dispatch only when the room has no AGENT
+    # participant; if the room doesn't exist yet the lookup fails and we fall
     # through to dispatch, which is exactly what we want.
     try:
         parts = await lk.room.list_participants(
@@ -93,12 +92,15 @@ async def _dispatch_agent(lk: api.LiveKitAPI) -> None:
 
 
 async def handle_token(request: web.Request) -> web.Response:
+    # No dispatch → no token. Without the token-embedded fallback, handing out
+    # a token when dispatch failed would send the device into an agentless room
+    # to die by silence timeout; a 503 makes the firmware fail fast instead.
     try:
-        await _dispatch_agent(request.app["lk"])
-    except Exception as e:  # fresh rooms still dispatch via the token config
-        print(f"[token-server] explicit dispatch failed: {e!r}", flush=True)
-    else:
-        print("[token-server] token + dispatch issued", flush=True)
+        await _ensure_agent_dispatch(request.app["lk"])
+    except Exception as e:
+        print(f"[token-server] dispatch failed — refusing token: {e!r}", flush=True)
+        return web.Response(status=503, text="agent dispatch failed")
+    print("[token-server] token + dispatch issued", flush=True)
     body = f"{LIVEKIT_URL}\n{_mint()}"
     return web.Response(text=body, content_type="text/plain")
 
