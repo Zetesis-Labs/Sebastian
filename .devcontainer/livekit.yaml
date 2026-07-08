@@ -1,0 +1,24 @@
+# LiveKit server (dev, self-hosted local) — see docker-compose.yml `livekit`.
+#
+# Diseño para "SFU en Docker en el Mac, device ESP32 en la LAN":
+#   - UDP de UN SOLO puerto (rtc.udp_port, "UDP mux") en vez del rango
+#     50000-60000 por defecto: un rango no es mapeable razonablemente a través
+#     de Docker-for-Mac/OrbStack; un puerto único sí (-p 7882:7882/udp).
+#   - La IP anunciada en los candidatos ICE NO puede ser la del contenedor
+#     (inalcanzable desde la LAN): se fuerza con `--node-ip` en el command del
+#     compose (variable LIVEKIT_NODE_IP en .devcontainer/.env = IP LAN del Mac).
+#   - Las claves API van por entorno (LIVEKIT_KEYS en el compose, secreto en
+#     .devcontainer/.env, NO commiteado) — misma higiene que el resto del repo.
+#
+# Señalización: ws://<mac>:7880 (sin TLS en LAN — de paso mide la pregunta
+# abierta del ROADMAP §6: si saltarse el handshake WSS alivia el margen esp-aes).
+
+port: 7880
+
+rtc:
+  tcp_port: 7881
+  udp_port: 7882
+  use_external_ip: false
+
+logging:
+  level: info

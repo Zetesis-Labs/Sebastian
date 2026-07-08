@@ -22,6 +22,25 @@ services:
     depends_on:
       - lgtm
 
+  livekit:
+    # SFU local (self-host de desarrollo, ROADMAP §2/§6): el device, el agente y
+    # el token server dejan de depender de LiveKit Cloud. Config y racional del
+    # UDP-mux/node-ip en livekit.yaml. Requiere .devcontainer/.env con:
+    #   LIVEKIT_NODE_IP=<IP LAN del Mac>   (cambia al cambiar de red/sitio)
+    #   LIVEKIT_API_SECRET=<32+ chars>     (openssl rand -hex 32; NO commitear)
+    # El token server/agente usan LIVEKIT_URL=ws://$LIVEKIT_NODE_IP:7880 con
+    # key "devkey" y ese mismo secreto (agent/.env).
+    image: livekit/livekit-server:latest
+    command: --config /etc/livekit.yaml --node-ip ${LIVEKIT_NODE_IP:?define LIVEKIT_NODE_IP en .devcontainer/.env (IP LAN del Mac)}
+    environment:
+      LIVEKIT_KEYS: "devkey: ${LIVEKIT_API_SECRET:?define LIVEKIT_API_SECRET en .devcontainer/.env}"
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+    ports:
+      - "7880:7880" # señalización ws + HTTP API
+      - "7881:7881" # RTC fallback TCP
+      - "7882:7882/udp" # RTC media — UDP mux de un solo puerto (ver livekit.yaml)
+
   lgtm:
     image: grafana/otel-lgtm:latest
     # Sin container_name fijo: bajo orquestación de devcontainer, un nombre fijo

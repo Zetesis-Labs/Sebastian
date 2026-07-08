@@ -99,6 +99,20 @@ Actionable, deduplicated. Deep multi-session efforts link to their design sectio
    per board trigger), §8 multi-room (N units 24/7), and the endpoint/conference/
    control-plane modes — and on LiveKit Cloud every one of those bills
    participant-minutes continuously. Design and the fiddly parts in §2.
+   - [x] **Local dev edition SHIPPED + E2E-validated (2026-07-08):** SFU in the
+     devcontainer compose (`livekit` service + `livekit.yaml`), signaling
+     `ws://<mac>:7880`, media via **single-port UDP mux 7882** (the trick that
+     makes WebRTC mappable through Docker/OrbStack — same trick to reuse on
+     Talos), `--node-ip` = the Mac's LAN IP, keys in `.devcontainer/.env`
+     (gitignored). Token server + agent repointed via `agent/.env` (cloud creds
+     kept commented as fallback). **Device needed zero changes** (serverUrl
+     comes from the token response, as designed). Full wake→talk→response loop
+     validated on hardware. **The firmware accepts `ws://` (no TLS)** — first
+     measured handshake heap: pre-connect 48.9 KB int / 41.4 KB DMA free,
+     post-connect 41.0 / 33.5 KB (connect cost ≈ 7.8 KB, largest block steady
+     at 31.7 KB) — comfortable margin; the §6 wss-starvation scenario has ~26 KB
+     more headroom than the old failure point under ws://. Remaining: the Cortes
+     GitOps deploy (Helm/ArgoCD/Infisical + the same UDP/node-ip plumbing).
 3. **Wake word reliability / anti-phantom** — the full plan is §7. First step:
    let the board threshold go loose and add server-side re-verify; measure false
    positives with the "session without user turn" proxy to build a phantom
