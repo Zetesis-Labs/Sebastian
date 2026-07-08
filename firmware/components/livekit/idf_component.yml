@@ -18,9 +18,12 @@ files:
 issues: https://github.com/livekit/client-sdk-esp32/issues/
 license: Apache-2.0
 repository: git://github.com/livekit/client-sdk-esp32.git
-repository_info:
-  commit_sha: 3f82f6cf35ac98812e24804fc18312f8c026400d
-  path: ./components/livekit
+# repository_info (commit_sha + path) is registry-publish metadata from the
+# upstream component. It is NOT needed for a vendored override_path copy, and its
+# `path: ./components/livekit` resolves (relative to this manifest) to a directory
+# that does not exist — a clean idf-component-manager run rejects it at cmake
+# config ("path field does not point to a directory"), which is what broke the
+# esp-idf-build CI job. Upstream commit is recorded in firmware/main/idf_component.yml.
 tags:
 - Agents
 - RPC
