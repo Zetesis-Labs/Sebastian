@@ -4,10 +4,10 @@
 > from working bidirectional voice to an Echo/Gemini-for-Home-class agent, built
 > on what already exists in the repo.
 >
-> *Refactored 2026-07-08 from a 10-section chronological accretion. Old section
-> numbers changed: the "thin endpoint" pivot (was §8) is now §6, "anti-phantom"
-> (§9) is §7, "multi-room" (§10) is §8. Commit messages referencing old numbers
-> point to the same content by title.*
+> *Refactored 2026-07-08 from a 10-section chronological accretion (thin-endpoint
+> pivot §8→§6, anti-phantom §9→§7, multi-room §10→§8), then extended: §9 is the
+> control-plane + device-control MCP execution layer, §10 is Risks. Commit
+> messages referencing old numbers point to the same content by title.*
 
 **Thesis:** far-field audio (XVF3800) and transport (LiveKit/WebRTC) are already
 well resolved. The work is (1) an **invocation model** — *shipped*, (2) a
@@ -23,10 +23,15 @@ brains**. Self-hosted LiveKit is the shared foundation under both.
 
 - **Voice loop**: bidirectional voice-to-voice; LED DoA; mute button.
 - **Invocation**: on-device microWakeWord "Sebastián" gating a per-session
-  LiveKit room; event-driven 12 s pre-roll in PSRAM; token server + explicit
-  dispatch.
+  LiveKit room; event-driven 12 s pre-roll in PSRAM; token server mints a
+  **unique room per session** (`sebastian-<hex>`) with **explicit-only dispatch**
+  (the LiveKit-recommended design — deleted the room-reuse guard/self-heal that
+  a shared room needed; two same-named dispatches into one room = two agents both
+  answering, so unique rooms make it structurally impossible).
 - **Conversation**: barge-in ("Sebastián" cuts the agent off); LINGER follow-up;
-  `end_session` by voice; half-duplex gate while the agent speaks.
+  a **stop/farewell ends the session** (re-wake required) — model-driven (any
+  language), a kill switch + phantom signal (§7); half-duplex gate while the
+  agent speaks.
 - **Audio/AEC**: AEC reference closed and converged; **path B SHIPPED
   (2026-07-08)**: full-duplex **with talker tracking** in production — session
   audio from the comms channel (on-chip residual echo suppression + NS +
@@ -85,6 +90,34 @@ range** + the **announced node IP** (hostNetwork or a UDP LoadBalancer on Talos)
 handshake that once starved esp-aes, but media DTLS still uses AES, so relief is
 not guaranteed.
 
+### What self-hosting the OSS server unlocks (2026-07-08)
+
+Running the Go `livekit-server` (not Cloud) is not only cheaper — it hands us
+server-side capabilities Cloud gated or billed, three of which close problems we
+hit in the field:
+
+- **Egress → free per-session audio recording, server-side, zero device cost.**
+  Records each room's audio to our storage. This is the **audio forensics** the
+  pre-deploy checklist (§6) wants: replay a failure moment and *hear* whether it
+  was the user, residual echo, or noise — the exact ambiguity that cost hours on
+  2026-07-08.
+- **Webhooks + SFU stats → server-side observability that survives production.**
+  The server emits room/participant/track lifecycle events + transport stats
+  (packet loss, jitter, RTT, DTLS timeouts — the SCTP storm was diagnosed from
+  these). Runs server-side, no USB — it partly covers the "device is blind once
+  it leaves the bench" gap (§6 pre-deploy), for the transport layer at least.
+- **Ingest (RTMP/WHIP) → push external audio into the device's room** — the
+  plumbing for the music publisher and announcements (§6, §9).
+- **Unlimited server-side participants at zero per-minute** → makes the whole §9
+  control-plane platform economically real (agent + music publisher + recorder +
+  classifiers, ×N rooms).
+- **Full room/server API** (move participants, server-initiated dispatch, per-room
+  config) — the building blocks of the control plane (§9).
+
+Caveats: Egress/Ingest are **separate services to deploy** (a container each);
+the SFU sees only the transport layer, not firmware internals (heap/mic levels
+still need their own wireless path, §6 pre-deploy); uptime couples to the homelab.
+
 ---
 
 ## 3. Live backlog (prioritized)
@@ -131,18 +164,24 @@ Actionable, deduplicated. Deep multi-session efforts link to their design sectio
    deaf channel, mute serial).
 6. **AEC project → full-duplex with tracking** — *core SHIPPED 2026-07-08 (§5:
    path B integrated, live-validated end to end).* Remaining: `PP_DTSENSITIVE`
-   double-talk fine-tuning if field use shows near-end speech loss, comms AGC
-   if levels prove hot, and the `calibrate_audio` voice tool (§5, needs the
-   volume actuator, item #7).
-7. **Volume by voice** (agent→device RPC; the data pipeline exists both ways) +
+   double-talk fine-tuning — full-duplex **self-interrupts** on the realtime
+   model (transcribed residual/user audio mid-speech, §5 field finding); until
+   tuned, **half_duplex is the daily-driver mode**. Then comms AGC if levels
+   prove hot, and the `calibrate_audio` voice tool (§5, needs the volume
+   actuator, item #8).
+7. **Control-plane `announce(text)` slice** (§9) — MCP + HTTP, zero firmware:
+   the vertical slice that proves the control-plane platform across all three
+   front-ends (voice, web, Grafana). First real step of the §6/§9 platform once
+   self-host lands.
+8. **Volume by voice** (agent→device RPC; the data pipeline exists both ways) +
    LED by agent state (already received). Prerequisite for the `calibrate_audio`
    tool (§5).
-8. **On-device timers via RPC** — they ring even if the internet drops.
-9. **Agent AGC** — re-framer to 10 ms before the APM, if recovered.
-10. **Pre-roll PSRAM silently degrades** — reflect it in boot health.
-11. **Document invocation states in `config.zig`** — to the detail level of the
+9. **On-device timers via RPC** — they ring even if the internet drops.
+10. **Agent AGC** — re-framer to 10 ms before the APM, if recovered.
+11. **Pre-roll PSRAM silently degrades** — reflect it in boot health.
+12. **Document invocation states in `config.zig`** — to the detail level of the
     LEFT/RIGHT channel decision (the last open audit finding).
-12. ~~**NS replacement for self-host**~~ — *RESOLVED 2026-07-08 by the path-B
+13. ~~**NS replacement for self-host**~~ — *RESOLVED 2026-07-08 by the path-B
     integration (#6): the comms channel carries the XVF's own NS + de-reverb
     on-chip; transcription validated clean without BVC.*
 
@@ -206,7 +245,7 @@ IDLE ──activity──► ARMED ──wake──► ATTENDING ──turn─�
   2026 alternatives to measure by real $/min with `SessionUsageUpdatedEvent`:
   `gpt-realtime-2` (~$0.18–0.46/min), `gpt-realtime-mini`, Gemini native audio
   (~10× cheaper, Proactive Audio), Nova 2 Sonic (~$0.015/min, Spanish).
-- **Tools via MCP** — HA *shipped*; device timers/alarms via RPC (backlog §3.8);
+- **Tools via MCP** — HA *shipped*; device timers/alarms via RPC (backlog §3.9);
   Zetesis search (mcp-typesense) as documentary memory (→ §6 feature menu).
 - **Memory per person** keyed by speaker ID (mem0/Zep or Payload+Typesense) —
   pending, pairs with signal #7.
@@ -302,6 +341,23 @@ The mechanism is proven — no longer a research risk.
 **Still open (fine-tuning):** double-talk knob `PP_DTSENSITIVE` if the
 suppressor eats near-end speech in practice (first field tests: user speech got
 through, transcribed clean mid-playback); comms AGC only if levels prove hot.
+
+**Field finding (2026-07-08) — full-duplex self-interrupts, and it is NOT
+acoustic.** Extended use surfaced "it won't finish a sentence": the agent starts
+speaking and stops after a word or two. Confirmed from logs: **0 wake barge-ins**
+(the wake word is not false-firing) — the interruptions are **transcribed user
+turns arriving mid-speech**. With the mic always live (full-duplex), *any* audio
+the STT transcribes during the agent's turn — genuine user speech, or residual
+the AEC removed from the *audible* signal but not fully from the *transcribable*
+one — trips the realtime model's turn detection → it stops. So "no audible
+coupling" (verified) and "self-interrupts" are both true at once. Two levers:
+(a) `PP_DTSENSITIVE` to cut the transcribable residual harder; (b) the realtime
+model's own interruption sensitivity (it interrupts on any transcript, with no
+min-duration/word gate exposed under `turn_detection="realtime_llm"`).
+**Half-duplex sidesteps it entirely** (mic gated during speech → cannot
+self-interrupt; intentional barge-in still works via the wake word) — the robust
+fallback until the double-talk round is tuned. Full-duplex-on-self-host is
+therefore *validated but not yet daily-driver-solid*.
 
 **⚠️ The only real gate: double-talk.** The probe measured **echo** (agent
 speaking, user quiet), **not double-talk** (both at once) — the Achilles heel of
@@ -479,6 +535,35 @@ needed** — pure extension of the voice pipeline, highest value-per-effort.
   suppressor + NS replace both of BVC's roles, self-hosted full-duplex works
   with talker tracking.
 
+### Pre-deploy observability checklist (2026-07-08)
+
+The current setup is a **bench** setup: everything on the Mac, device tethered by
+USB. The plan "deploy in the living room in a few weeks, mark failure moments,
+analyze later" needs these before it actually works — because the weird
+per-session failures live in **device-side** signals that don't reach production
+as-is. What's logged today: agent side (OTLP → Loki: per-turn transcripts, model
+latency/tokens, tool calls, phantom flags, `sessions_ended{short=}`) survives
+production; **device side** (heap, mic levels, echo, wake probs, SCTP, AEC state)
+goes out the **serial port → `bridge.py` → OTLP**, which needs a USB-tethered
+host — so in the living room it is **lost**. Gaps to close:
+
+- [ ] **Wireless device telemetry** (the big one; backlog §3.5, Pending #4): push
+      firmware vitals over the LiveKit data channel or a small UDP/MQTT path to
+      Grafana, so heap/mic/echo/SCTP reach production without USB. The SFU
+      webhooks/stats (§2) cover the *transport* layer for free but not firmware
+      internals.
+- [ ] **LGTM on Cortes, 24/7**, retention in weeks (today it's the devcontainer's
+      default-retention image on the Mac — a Tuesday failure is gone by Thursday).
+- [ ] **"Mark this moment"** — a button gesture or voice command that drops a
+      correlated marker into the logs, so "analyze later" is a jump-to-marker, not
+      timestamp archaeology from memory.
+- [ ] **Correlation ID** (the session/room) logged on *both* device and agent so
+      they can be joined — today they're aligned by wall clock only because both
+      run on one machine.
+- [ ] **Audio forensics** — Egress (§2) records each session; replay the failure
+      moment to hear whether it was the user, residual echo, or noise (the exact
+      ambiguity that cost hours on 2026-07-08).
+
 ---
 
 ## 7. Deep dive: anti-phantom wake word
@@ -521,6 +606,24 @@ what follows is **server code, zero firmware/RAM cost**.
   server re-verify.
 - All of this needs a **false-positive dataset** — the "session without a user
   turn" proxy (backlog §3.3) measures it before re-training.
+
+### Stop-order as kill switch + phantom signal (2026-07-08)
+
+A stop/farewell now **ends the session** (re-wake with "Sebastián" required),
+not just pauses it — decided in the field. Two payoffs: (1) a **reliable kill
+switch** for a phantom that started babbling — say "para" and it closes; (2) a
+**phantom signal in the logs** — a phantom shows up as a very short session the
+user shut down. Two design corrections learned here:
+- **Model-driven, not a keyword list.** A hardcoded stop-word list (`para`,
+  `cállate`…) breaks on Spanish **polysemy** ("enciende la luz *para* el salón")
+  and on **multilingual** (the agent auto-detects language). The LLM understands
+  intent in any language — let it call `end_session`. Deterministic keyword
+  matching was tried and reverted.
+- **Phantom detection lives at the session level, language-agnostic:**
+  `end_session` logs the duration and tags `[likely-phantom]` under
+  ~12 s (`sebastian_agent_sessions_ended_total{short=…}`) — no keyword, no
+  language dependency. This is the same signal §8 arbitration and the §3.3 proxy
+  feed on. Reliability backstops: wake-word barge-in + hardware mute.
 
 ### Suggested order
 
@@ -580,7 +683,82 @@ testing in adjacent rooms; multi-unit multiplies the §6 privacy caveat.
 
 ---
 
-## 9. Risks & honest caveats
+## 9. Control plane + device-control MCP (execution layer of §6)
+
+The keystone that turns "a pile of server-side features" into one coherent,
+voice-drivable system. **The unifying idea: the device is a LiveKit room; every
+feature is a server-side participant in it.** Play music / notifications / TTS →
+something *publishes* audio into the room. Voice notes / transcription / sound
+events → something *consumes* the mic track that's already published. You don't
+build N integrations; you build **one control plane** and each feature is a
+producer or a consumer on the same room.
+
+### The shape — one control plane, three front-ends
+
+```
+  voice → agent → MCP ─┐
+  web UI ────────────►├─► CONTROL PLANE (mode state machine) ─► LiveKit room ─► device
+  Grafana/HA → HTTP ──┘        (publishers / recorders / classifiers)
+```
+
+A control plane that owns the device's **mode state** and exposes two faces of
+the same logic:
+- an **MCP server** → the agent uses it as tools ("Sebastián, pon música" → tool
+  `play_music`), exactly as it already uses the Home Assistant MCP;
+- an **HTTP/web API** → the web UI, Grafana and HA drive it directly.
+
+Both faces call the **same state service** — the MCP tools and the web endpoints
+must not duplicate logic. Single source of truth for "what mode is the device in".
+Precise note: LiveKit (the SFU) does not call MCP — the **agent** (the
+livekit-agents worker) is the MCP client.
+
+Vertical slice that proves the whole thing: build the control plane with **one
+mode first — `announce(text)`** — exposed as MCP *and* HTTP. That exercises all
+three front-ends (voice, web, Grafana webhook) with **zero firmware**. Every
+later mode (`record_note`, `play_music`, `set_mode`, conference) is additive on
+the same skeleton.
+
+### The three real design decisions
+
+1. **Output arbitration (one speaker).** Modes are partly mutually exclusive: you
+   can't play music AND have the assistant talk without **ducking/mixing**. The
+   SFU can mix, but the control plane decides — Grafana alert → duck music →
+   announce → restore. That ducking is a real control-plane responsibility, not
+   free.
+2. **The agent is both a client and a managed resource.** It calls the control
+   plane (via MCP) *and* the control plane manages its room presence (in
+   conference/music mode you may not want it answering). Resolve by separating
+   *the LLM brain* (MCP client) from *the worker's room membership* (managed
+   resource); conflate them and you get an ugly circularity.
+3. **Mode has a physical indicator.** The device already has the RPC/data channel
+   for LED + agent state — the control plane drives the ring to reflect the mode
+   (recording = red, music, listening). Reuses existing plumbing; the mode stops
+   being invisible.
+
+### Where it lives, and the conference/endpoint mode
+
+Fits the **ZetesisPortal** MCP ecosystem (mcp-typesense, agent-runtime, Payload
+already there) — the device-control MCP is one more server in that monorepo. It
+also subsumes **"use it as a remote mic/speaker"** (conference, baby-monitor,
+remote-listen): a browser joining the room via LiveKit Meet already *is* remote
+mic access; what's missing is a firmware **"endpoint mode"** where the server
+opens and holds the session instead of the wake-word gating it (the §6
+freeze-exception enabler), plus a token minted without the agent dispatch.
+
+### Order
+
+1. **Self-host LiveKit** (§2) + the token server already does explicit dispatch.
+2. **`announce(text)` slice** (MCP + HTTP) — proves the model, zero firmware.
+3. **`record_note`** (consume the mic → store → Zetesis transcription).
+4. **Endpoint mode + music publisher** (firmware mode + Ingest/publisher).
+5. **The web UI** ties the modes together.
+
+**Privacy is day-one, not a later patch:** always-on mic → server needs an
+explicit listen-mode/mute model, gated (only after wake, or an explicit mode).
+
+---
+
+## 10. Risks & honest caveats
 
 - **microWakeWord + WebRTC without public precedent** — was validated with the P0
   spike before the rest. WakeNet (ESP-SR) is not a Plan B: its self-serve pipeline
