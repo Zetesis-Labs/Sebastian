@@ -45,6 +45,11 @@ agent:
 token:
 	cd agent && uv run token_server.py
 
+# Control plane (§9): announce(text) + future modes. Bind to the Mac LAN IP so
+# Grafana/HA on the network can reach it (same reason as the token server).
+control:
+	cd agent && SEBASTIAN_CONTROL_HOST=$${SEBASTIAN_CONTROL_HOST:-127.0.0.1} uv run control_plane.py
+
 provision:
 	tools/telemetry/provision.sh
 

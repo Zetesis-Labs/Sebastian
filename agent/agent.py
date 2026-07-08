@@ -17,6 +17,7 @@ Set SEBASTIAN_RECORD=1 to dump the incoming mic track to /tmp for debugging.
 
 import asyncio
 import contextlib
+import json
 import logging
 import os
 import time
@@ -61,8 +62,12 @@ m_end = telemetry.counter(
     "sebastian_agent_sessions_ended_total",
     "Sessions ended by the user (end_session); 'short' label flags phantom candidates",
 )
+m_announce = telemetry.counter(
+    "sebastian_agent_announcements_total", "Server-pushed announcements spoken"
+)
 
 BARGE_TOPIC = "sebastian.barge_in"
+ANNOUNCE_TOPIC = "sebastian.announce"
 DEVICE_IDENTITY = os.getenv("SEBASTIAN_DEVICE_IDENTITY", "esp32-respeaker")
 MODEL_PROVIDER = os.getenv("SEBASTIAN_MODEL_PROVIDER", "gemini").strip().lower()
 GEMINI_MODEL = os.getenv(
@@ -214,6 +219,10 @@ def _build_session() -> AgentSession:
     realtime = _build_realtime_model()
     return AgentSession(
         llm=realtime,
+        # TTS is used only by session.say() for announcements (control_plane.py):
+        # a cold realtime session returns empty generations for out-of-band
+        # replies, so announces speak via deterministic TTS instead.
+        tts=openai.TTS(),
         turn_handling=TurnHandlingOptions(turn_detection="realtime_llm"),
         mcp_servers=_ha_mcp_servers(),
         # Default 3.0s exists for the framework's SOFTWARE AEC to warm up; our
@@ -222,6 +231,63 @@ def _build_session() -> AgentSession:
         # for the first 3s of every reply ("cutting it off takes forever").
         aec_warmup_duration=0.0,
     )
+
+
+ANNOUNCE_WAIT_S = 60.0  # max courtesy wait for the session to go idle
+
+
+async def _speak_when_idle(session: AgentSession, text: str) -> None:
+    """Courtesy announce delivery (§4 'proactivity with courtesy').
+
+    An announcement must not be DROPPED, but firing generate_reply() while a
+    generation is in flight is the known orphaned-reply collision (5s timeout,
+    nothing spoken). And SUSTAINED idle, not instant: an announce fired the
+    moment a session opens races the user's opening command and Gemini garbles
+    both (field: "Anuncio en curso."). Require ~3s of continuous idle."""
+    deadline = asyncio.get_event_loop().time() + ANNOUNCE_WAIT_S
+    idle_since: float | None = None
+    while asyncio.get_event_loop().time() < deadline:
+        state = getattr(session, "agent_state", None)
+        speech = getattr(session, "current_speech", None)
+        now = asyncio.get_event_loop().time()
+        if speech is None and state in (None, "listening"):
+            if idle_since is None:
+                idle_since = now
+            if now - idle_since >= 3.0:
+                m_announce.add(1)
+                log.info("announce → speaking (TTS): %r", text)
+                # say(TTS), NOT generate_reply: after 4 field cases, every
+                # announce routed through Gemini was a lottery (empty/garbled
+                # generations: 0.007s, "Anuncio en curso.", "Let me check");
+                # the only announces ever heard went through TTS. Deterministic
+                # verbatim delivery is what an announcement wants anyway.
+                session.say(text)
+                return
+        else:
+            idle_since = None
+        await asyncio.sleep(0.25)
+    log.warning("announce DROPPED: session busy for %.0fs: %r", ANNOUNCE_WAIT_S, text)
+
+
+def _setup_announce(ctx: agents.JobContext, session: AgentSession) -> None:
+    """Per-session announce wiring: an announce pushed on the data channel is
+    spoken once the session goes idle. Delivers ONLY while the device is in an
+    active conversation; proactive delivery to an idle device needs endpoint mode
+    (ROADMAP §9) — control_plane.py returns 409 when the device is idle."""
+
+    @ctx.room.on("data_received")
+    def _on_data(packet: rtc.DataPacket) -> None:
+        if packet.topic != ANNOUNCE_TOPIC:
+            return
+        try:
+            text = json.loads(bytes(packet.data).decode())["text"].strip()
+        except Exception as e:
+            log.warning("announce: bad payload: %r", e)
+            return
+        if not text:
+            return
+        log.info("announce queued (waiting for idle): %r", text)
+        _spawn(_speak_when_idle(session, text))
 
 
 def _setup_barge_in(ctx: agents.JobContext, session: AgentSession) -> None:
@@ -247,6 +313,7 @@ async def entrypoint(ctx: agents.JobContext) -> None:
     session = _build_session()
     instrument_session(session)
     _setup_barge_in(ctx, session)
+    _setup_announce(ctx, session)
     session.input.audio = mic_input
     await session.start(
         room=ctx.room,
