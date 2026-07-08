@@ -102,6 +102,13 @@ def instrument_session(session: AgentSession) -> None:
         role = getattr(ev.item, "role", None)
         if role is None:  # AgentHandoff and other non-message items
             return
+        if str(role) == "assistant" and getattr(ev.item, "interrupted", False):
+            # Barge-in: the model already went quiet, but the device's render
+            # FIFO still holds seconds of the aborted reply (audio outruns
+            # realtime). Tell the firmware to flush it or the speaker keeps
+            # narrating ("no para").
+            _publish_state("interrupted")
+            log.info("assistant interrupted — device render flush requested")
         text = (getattr(ev.item, "text_content", None) or "").strip()
         if text:
             phantom.check(str(role), text)

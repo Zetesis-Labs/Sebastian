@@ -127,9 +127,14 @@ class Sebastian(Agent):
                 "persianas, sensores, temperatura…) consulta primero GetLiveContext "
                 "y responde solo con esos datos. No puedes ver: nunca describas el "
                 "aspecto físico de la casa ni inventes lo que no te dé una herramienta. "
-                "Si el usuario pide que te calles, que pares, dice que ya está o se "
-                "despide ('cállate', 'para', 'ya vale', 'adiós', 'gracias, nada más'), "
-                "llama a end_session y despídete con una sola palabra. "
+                "Si te interrumpen mientras hablas o te piden parar ('para', "
+                "'cállate', 'espera', 'ya vale'), deja de hablar INMEDIATAMENTE y "
+                "no digas absolutamente nada: ni 'vale', ni 'adiós'. Te quedas "
+                "escuchando en silencio; la conversación sigue abierta. "
+                "Solo cuando el usuario se despida explícitamente ('adiós', 'hasta "
+                "luego', 'nada más, gracias') llama a end_session y despídete con "
+                "una sola palabra. Parar no es despedirse: ante la duda, calla y "
+                "espera. "
                 "Nunca pronuncies tu propio nombre, Sebastián: el altavoz lo "
                 "interpreta como una orden de interrupción y te cortaría a ti mismo."
             )
@@ -137,9 +142,11 @@ class Sebastian(Agent):
 
     @function_tool
     async def end_session(self, context: RunContext) -> str:
-        """Termina la sesión de voz por completo. Llámala cuando el usuario pida
-        que te calles o que pares, dé la conversación por terminada o se despida.
-        Para volver a hablar tendrá que decir la palabra de activación."""
+        """Termina la sesión de voz por completo. Llámala SOLO cuando el usuario
+        se despida explícitamente ('adiós', 'hasta luego', 'nada más') o dé la
+        conversación por terminada. NO la llames cuando pida parar o callar
+        ('para', 'cállate'): eso solo interrumpe el habla, la sesión sigue.
+        Para volver a hablar tras cerrarla hará falta la palabra de activación."""
         _ = context
         _spawn(_delete_room_after_goodbye(get_job_context()))
         log.info("end_session tool called — closing room in %.1fs", GOODBYE_GRACE_S)
@@ -190,6 +197,11 @@ def _build_session() -> AgentSession:
         llm=realtime,
         turn_handling=TurnHandlingOptions(turn_detection="realtime_llm"),
         mcp_servers=_ha_mcp_servers(),
+        # Default 3.0s exists for the framework's SOFTWARE AEC to warm up; our
+        # echo path is hardware (XVF AEC + comms-channel residual suppressor,
+        # always on), so those 3s only delay barge-in: interruptions were dead
+        # for the first 3s of every reply ("cutting it off takes forever").
+        aec_warmup_duration=0.0,
     )
 
 
