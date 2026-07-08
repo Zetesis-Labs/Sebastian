@@ -63,8 +63,12 @@ pub var detected = std.atomic.Value(bool).init(false);
 var ww_running = std.atomic.Value(bool).init(false);
 var ww_exited = std.atomic.Value(bool).init(true);
 
-// Buffers — only touched by the detection task (no concurrent access).
-var i2s_buf: [PAIRS_48K * 2]i32 = undefined; // interleaved L/R 32-bit
+// Buffers — only touched by the detection task and bargeFeed, which are
+// time-multiplexed (detection runs while idle; bargeFeed while a session gates
+// the mic), never concurrently. i2s_buf lives in PSRAM (allocated once in
+// init()): i2s_channel_read memcpy's into it from the internal DMA descriptors,
+// so it need not be internal RAM — freeing its ~3.8KB back to the DMA heap.
+var i2s_buf: []i32 = &.{}; // interleaved L/R 32-bit, PSRAM-backed
 var pcm_buf: [SAMPLES_16K]i16 = undefined;
 var decim = decimator.Decimator{};
 
@@ -72,6 +76,14 @@ var decim = decimator.Decimator{};
 
 /// Load the model into the tensor arena. Call once at boot.
 pub fn init() bool {
+    if (i2s_buf.len == 0) {
+        const n = PAIRS_48K * 2;
+        const p = c.heap_caps_malloc(n * @sizeOf(i32), c.MALLOC_CAP_SPIRAM | c.MALLOC_CAP_8BIT) orelse {
+            log.err("wakeword: failed to allocate {d}B i2s_buf in PSRAM", .{n * @sizeOf(i32)});
+            return false;
+        };
+        i2s_buf = @as([*]i32, @ptrCast(@alignCast(p)))[0..n];
+    }
     return mww_init(MODEL.ptr, MODEL.len, PROBABILITY_CUTOFF, SLIDING_WINDOW);
 }
 
@@ -134,7 +146,7 @@ fn readChunk48k() ?usize {
     var bytes_read: usize = 0;
     const ret = c.i2s_channel_read(
         board.i2sRx(),
-        &i2s_buf,
+        i2s_buf.ptr,
         PAIRS_48K * STEREO_BYTES,
         &bytes_read,
         200,

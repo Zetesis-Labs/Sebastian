@@ -461,14 +461,24 @@ device** — cheap and, crucially, safe (no touching the fragile stack).
       dropped from the installer. **Rule for the whole codebase: never turn a
       config `const` into a runtime `var` if it gates a code path with large static
       buffers — `var` keeps them all.**
-- [x] **Internal-RAM measured + wake-word arena right-sized (2026-07-08).** Added
-      `logHeap()` (free/largest block for `MALLOC_CAP_INTERNAL` and `…|DMA`) at boot
-      and around `room_connect`, plus a `arena_used_bytes()` log in `mww_init`. The
-      arena was a round 48 KB but the model truly needs **36 268 B** — trimmed to
-      **40 KB** (13 % margin), returning **8 KB** to internal RAM. Measured at boot:
-      internal free **57.5 → 65.6 KB**, DMA free **50.1 → 58.1 KB**. The margin is no
-      longer a guess. (Largest contiguous block held at ~31.7 KB — bounded by a fixed
-      allocation above the arena, a separate fragmentation matter.)
+- [x] **Internal-RAM measured + reclaimed: +20 KB (2026-07-08).** Added `logHeap()`
+      (free/largest block for `MALLOC_CAP_INTERNAL` and `…|DMA`) at boot and around
+      `room_connect`, plus an `arena_used_bytes()` log in `mww_init`. Two reclaims,
+      each hardware-validated:
+      1. **Wake-word arena right-sized 48→40 KB (+8 KB).** The 48 KB was a round
+         safety number; the model truly needs **36 268 B**. 40 KB keeps a 13 % margin.
+      2. **Audio scratch buffers → PSRAM (+12 KB).** `mic_src.read_buf` (8 KB) and
+         `wakeword.i2s_buf` (3.8 KB) were static internal arrays; `i2s_channel_read`
+         memcpy's into them from the internal DMA descriptors, so they need not be
+         internal RAM. Moved to PSRAM (allocated once at init). **No hot-path cost:**
+         wake-word `feed_max`/`gap_max` unchanged (~2-3 ms / ~10 ms), detection healthy.
+      Net at boot: internal free **57.5 → 77.8 KB**, DMA free **50.1 → 70.3 KB** —
+      the pool that starved the TLS handshake. The margin is no longer a guess.
+      (Largest contiguous block held at ~31.7 KB — bounded by a fixed allocation above
+      the freed regions, a separate fragmentation matter; individual TLS/AES DMA
+      allocations are smaller than that, so more total DMA-free headroom still helps.)
+      Remaining levers (WiFi static buffers ~24 KB, IRAM opt ~15-20 KB) trade against
+      the §6 #7 network-reliability axis — **not worth it**; this is the sensible floor.
 
 ### Foundation: self-host LiveKit on Cortes
 

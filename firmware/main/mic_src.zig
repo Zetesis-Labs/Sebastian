@@ -94,7 +94,12 @@ pub fn takeBargeRequest() bool {
 fn gatedByAgent() bool {
     return gate.gatedByAgent();
 }
-var read_buf: [MAX_SAMPLES * 2]i32 = undefined; // interleaved L/R 32-bit
+// Interleaved L/R 32-bit I2S scratch. Lives in PSRAM (allocated once in
+// create()): i2s_channel_read copies from the internal DMA descriptors into
+// this buffer via CPU memcpy, so it need not be internal/DMA-capable, and
+// moving its 8KB out of internal SRAM widens the DMA-heap margin at the TLS
+// handshake. Empty slice until create() allocates it.
+var read_buf: []i32 = &.{};
 var resynced = std.atomic.Value(bool).init(false);
 
 fn frameSampleCount(frame: *const c.esp_capture_stream_frame_t) ?usize {
@@ -154,7 +159,7 @@ fn start(_: *c.esp_capture_audio_src_iface_t) callconv(.c) c_int {
 fn readI2s(samples: usize) ?usize {
     var bytes_read: usize = 0;
     const bytes_to_read = samples * BYTES_PER_STEREO_I2S_SAMPLE;
-    if (c.i2s_channel_read(board.i2sRx(), &read_buf, bytes_to_read, &bytes_read, 200) != c.ESP_OK) {
+    if (c.i2s_channel_read(board.i2sRx(), read_buf.ptr, bytes_to_read, &bytes_read, 200) != c.ESP_OK) {
         return null;
     }
     return bytes_read / BYTES_PER_STEREO_I2S_SAMPLE;
@@ -342,6 +347,14 @@ fn close(_: *c.esp_capture_audio_src_iface_t) callconv(.c) c_int {
 
 /// Build the mic source. record_handle is unused (we read i2s_rx directly).
 pub fn create(_: c.esp_codec_dev_handle_t) ?*c.esp_capture_audio_src_if_t {
+    if (read_buf.len == 0) {
+        const n = MAX_SAMPLES * 2;
+        const p = c.heap_caps_malloc(n * @sizeOf(i32), c.MALLOC_CAP_SPIRAM | c.MALLOC_CAP_8BIT) orelse {
+            log.err("mic_src: failed to allocate {d}B read_buf in PSRAM", .{n * @sizeOf(i32)});
+            return null;
+        };
+        read_buf = @as([*]i32, @ptrCast(@alignCast(p)))[0..n];
+    }
     instance = .{
         .base = .{
             .open = open,
