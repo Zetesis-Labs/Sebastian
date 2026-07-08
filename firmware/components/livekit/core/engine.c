@@ -96,7 +96,14 @@ typedef struct {
 typedef struct {
     bool is_subscriber_primary;
     livekit_pb_sid_t local_participant_sid;
-    livekit_pb_sid_t sub_audio_track_sid;
+    // Full SIDs, NOT livekit_pb_sid_t (char[16]): real track SIDs run 17+ chars
+    // ("TR_AM3qHxsHQzC7JX"), so a [16] buffer truncates them and the equality
+    // check below never matches its own stored value — every participant update
+    // then looks like an unpublish and the renderer flaps/reset-loops on the SAME
+    // track, chopping all audio. 40 holds any LiveKit SID with room to spare.
+    char sub_audio_track_sid[40];
+    char sub_audio_participant_sid[40]; // owner of sub_audio_track_sid — lets us detect its unpublish and rebind
+    bool sub_audio_stream_added;        // a stream is live on the renderer — reset it before adding the next track's
 } session_state_t;
 
 typedef struct {
@@ -153,23 +160,47 @@ static inline void convert_dec_aud_info(esp_peer_audio_stream_info_t *info, av_r
     dec_info->bits_per_sample = 16;
 }
 
-static engine_err_t subscribe_tracks(engine_t *eng, livekit_pb_track_info_t *tracks, int count)
+static engine_err_t subscribe_tracks(engine_t *eng, const char *participant_sid,
+                                     livekit_pb_track_info_t *tracks, int count)
 {
     if (tracks == NULL || count <= 0) {
         return ENGINE_ERR_INVALID_ARG;
     }
+    // Already bound to an audio track? Upstream stopped here forever ("subscribe
+    // to the first audio track"). That is correct only for a room that lives
+    // exactly one conversation. In endpoint mode (persistent transport) the agent
+    // publishes a FRESH track per attention window — it closes its AgentSession at
+    // idle and opens a new one on the next wake — so a permanently-latched sid
+    // leaves the speaker subscribed to a dead track and mute after the first turn.
+    // Rebind when our track is gone; only the participant that owns it can say so.
     if (eng->session.sub_audio_track_sid[0] != '\0') {
-        return ENGINE_ERR_MAX_SUB;
+        bool is_owner = participant_sid != NULL &&
+            strcmp(participant_sid, eng->session.sub_audio_participant_sid) == 0;
+        if (!is_owner) {
+            return ENGINE_ERR_MAX_SUB; // another participant — keep our track
+        }
+        for (int i = 0; i < count; i++) {
+            if (tracks[i].type == LIVEKIT_PB_TRACK_TYPE_AUDIO &&
+                strcmp(tracks[i].sid, eng->session.sub_audio_track_sid) == 0) {
+                return ENGINE_ERR_MAX_SUB; // still published — nothing to do
+            }
+        }
+        ESP_LOGI(TAG, "Subscribed audio track %s unpublished — rebinding to agent's next track",
+            eng->session.sub_audio_track_sid);
+        eng->session.sub_audio_track_sid[0] = '\0';
+        eng->session.sub_audio_participant_sid[0] = '\0';
     }
     for (int i = 0; i < count; i++) {
         livekit_pb_track_info_t *track = &tracks[i];
         if (track->type != LIVEKIT_PB_TRACK_TYPE_AUDIO) {
             continue;
         }
-        // For now, subscribe to the first audio track.
+        // Subscribe to the first audio track of this participant.
         ESP_LOGI(TAG, "Subscribing to audio track: sid=%s", track->sid);
         signal_send_update_subscription(eng->signal_handle, track->sid, true);
         strlcpy(eng->session.sub_audio_track_sid, track->sid, sizeof(eng->session.sub_audio_track_sid));
+        strlcpy(eng->session.sub_audio_participant_sid, participant_sid ? participant_sid : "",
+            sizeof(eng->session.sub_audio_participant_sid));
         break;
     }
     return ENGINE_ERR_NONE;
@@ -184,10 +215,18 @@ static void on_peer_sub_audio_info(esp_peer_audio_stream_info_t* info, void *ctx
     ESP_LOGD(TAG, "Audio render info: codec=%d, sample_rate=%" PRIu32 ", channels=%" PRIu8,
         render_info.codec, render_info.sample_rate, render_info.channel);
 
+    // A renderer that already has a stream (endpoint mode: the agent's previous
+    // track ended and this is its replacement) must be reset before a new stream
+    // is added — av_render only accepts add_audio_stream on a fresh/reset render,
+    // so without this the second conversation's audio is silently dropped.
+    if (eng->session.sub_audio_stream_added) {
+        av_render_reset(eng->renderer_handle);
+    }
     if (av_render_add_audio_stream(eng->renderer_handle, &render_info) != ESP_MEDIA_ERR_OK) {
         ESP_LOGE(TAG, "Failed to add audio stream to renderer");
         return;
     }
+    eng->session.sub_audio_stream_added = true;
 }
 
 static void on_peer_sub_audio_frame(esp_peer_audio_frame_t* frame, void *ctx)
@@ -700,6 +739,7 @@ static bool handle_join(engine_t *eng, const livekit_pb_join_response_t *join)
     for (pb_size_t i = 0; i < join->other_participants_count; i++) {
         engine_err_t ret = subscribe_tracks(
             eng,
+            join->other_participants[i].sid,
             join->other_participants[i].tracks,
             join->other_participants[i].tracks_count
         );
@@ -740,7 +780,7 @@ static void handle_participant_update(engine_t *eng, const livekit_pb_participan
         if (is_local) {
             found_local = true;
         } else {
-            subscribe_tracks(eng, participant->tracks, participant->tracks_count);
+            subscribe_tracks(eng, participant->sid, participant->tracks, participant->tracks_count);
         }
         if (eng->options.on_participant_info) {
             eng->options.on_participant_info(participant, is_local, eng->options.ctx);
