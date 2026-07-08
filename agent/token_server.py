@@ -4,13 +4,18 @@ Mints a short-lived LiveKit access token on demand so the firmware doesn't carry
 a static JWT that expires (720h → reflash), and dispatches the named agent
 ("sebastian") into the room **explicitly via the server API** before returning.
 
-Explicit-only dispatch (the design LiveKit's docs recommend): create_dispatch
-works whether or not the room exists (it creates it if missing), so the whole
-"token RoomConfiguration only applies at room creation → silently ignored on a
-re-wake into a live room" failure class is gone. The token itself is a plain
-join token. The one thing the docs don't say: create_dispatch is NOT idempotent
-— dispatching into a room that already has the agent adds a SECOND agent and
-they talk over each other — hence the AGENT-participant guard below.
+Design (both per LiveKit's dispatch docs + forum guidance, 2026-07-08):
+- **Explicit-only dispatch**: create_dispatch creates the room if missing, so
+  the "token RoomConfiguration only applies at room creation" gotcha can't
+  exist. Dispatch failure → 503 (a token into an agentless room would just die
+  by silence timeout).
+- **A UNIQUE room per session** (`sebastian-<hex>`): room reuse was the root of
+  a whole failure family — stale agent sessions ignoring a re-wake's pre-roll
+  (the zombie loop), duplicate dispatch races (two instances of the same named
+  agent both answering the user with overlapping audio), and the participant
+  guard + zombie-room self-heal we wrote to contain them. Fresh room = no shared
+  state = all of that logic deleted. Orphaned rooms (token fetched, device never
+  joined) close themselves on the empty-room timeout.
 
 The device does a plain HTTP GET at each session open and gets back two lines:
 
@@ -31,6 +36,7 @@ agent). Serve it on the LAN the device is on; point the firmware at it via
 """
 
 import os
+import secrets
 from datetime import timedelta
 from typing import AsyncIterator
 
@@ -40,7 +46,7 @@ from livekit import api
 
 load_dotenv()
 
-ROOM = "sebastian"
+ROOM_PREFIX = "sebastian"
 IDENTITY = "esp32-respeaker"
 AGENT_NAME = "sebastian"
 TOKEN_TTL = timedelta(hours=1)  # refetched per session, so short is fine
@@ -54,8 +60,14 @@ API_KEY = os.environ["LIVEKIT_API_KEY"]
 API_SECRET = os.environ["LIVEKIT_API_SECRET"]
 
 
-def _mint() -> str:
-    grant = api.VideoGrants(room_join=True, room=ROOM)
+def _session_room() -> str:
+    # Unique room per session: fresh state every wake, so no stale agent can
+    # ever collide with a new session and duplicate dispatch is impossible.
+    return f"{ROOM_PREFIX}-{secrets.token_hex(4)}"
+
+
+def _mint(room: str) -> str:
+    grant = api.VideoGrants(room_join=True, room=room)
     jwt: str = (
         api.AccessToken(API_KEY, API_SECRET)
         .with_identity(IDENTITY)
@@ -67,55 +79,21 @@ def _mint() -> str:
     return jwt
 
 
-async def _ensure_agent_dispatch(lk: api.LiveKitAPI) -> None:
-    # Explicit dispatch is now the ONLY mechanism, so it must complete before
-    # the token is returned. create_dispatch creates the room if it doesn't
-    # exist, so fresh wakes and re-wakes into a live room are the same path.
-    #
-    # There must be EXACTLY ONE agent in the room: create_dispatch is not
-    # idempotent, and a second dispatch adds a second agent that talks over the
-    # first ("habla solo"). So dispatch only when the room has no AGENT
-    # participant; if the room doesn't exist yet the lookup fails and we fall
-    # through to dispatch, which is exactly what we want.
-    try:
-        parts = await lk.room.list_participants(
-            api.ListParticipantsRequest(room=ROOM)
-        )
-        has_agent = any(
-            p.kind == api.ParticipantInfo.Kind.AGENT for p in parts.participants
-        )
-        has_device = any(p.identity == IDENTITY for p in parts.participants)
-        if has_agent and has_device:
-            # Live session re-fetch: exactly one agent already serving the
-            # device — dispatching another would talk over it.
-            print("[token-server] agent already in room — skipping dispatch", flush=True)
-            return
-        if has_agent and not has_device:
-            # Zombie signature (field bug 2026-07-08): the device left (silence
-            # timeout) but a quick re-wake found the old room still alive with
-            # the previous agent session in it — which ignores the new wake's
-            # pre-roll ("late stream ignored") and never answers. Self-heal:
-            # kill the stale room, fall through to a fresh dispatch.
-            print("[token-server] stale agent-only room — deleting + redispatching", flush=True)
-            await lk.room.delete_room(api.DeleteRoomRequest(room=ROOM))
-    except Exception as e:  # room not created yet → dispatch below
-        print(f"[token-server] no room yet ({e!r}) — dispatching", flush=True)
-    await lk.agent_dispatch.create_dispatch(
-        api.CreateAgentDispatchRequest(agent_name=AGENT_NAME, room=ROOM)
-    )
-
-
 async def handle_token(request: web.Request) -> web.Response:
-    # No dispatch → no token. Without the token-embedded fallback, handing out
-    # a token when dispatch failed would send the device into an agentless room
-    # to die by silence timeout; a 503 makes the firmware fail fast instead.
+    # No dispatch → no token: a token into an agentless room would just die by
+    # silence timeout; a 503 makes the firmware fail fast instead. Dispatch is
+    # awaited BEFORE returning so the agent is on its way when the device joins
+    # (create_dispatch creates the room).
+    room = _session_room()
     try:
-        await _ensure_agent_dispatch(request.app["lk"])
+        await request.app["lk"].agent_dispatch.create_dispatch(
+            api.CreateAgentDispatchRequest(agent_name=AGENT_NAME, room=room)
+        )
     except Exception as e:
         print(f"[token-server] dispatch failed — refusing token: {e!r}", flush=True)
         return web.Response(status=503, text="agent dispatch failed")
-    print("[token-server] token + dispatch issued", flush=True)
-    body = f"{LIVEKIT_URL}\n{_mint()}"
+    print(f"[token-server] token + dispatch issued room={room}", flush=True)
+    body = f"{LIVEKIT_URL}\n{_mint(room)}"
     return web.Response(text=body, content_type="text/plain")
 
 
@@ -134,7 +112,7 @@ def main() -> None:
     app.cleanup_ctx.append(_lk_client)
     app.add_routes([web.get("/token", handle_token), web.get("/health", handle_health)])
     print(
-        f"[token-server] {LIVEKIT_URL} room={ROOM} agent={AGENT_NAME} on {HOST}:{PORT}",
+        f"[token-server] {LIVEKIT_URL} rooms={ROOM_PREFIX}-* agent={AGENT_NAME} on {HOST}:{PORT}",
         flush=True,
     )
     web.run_app(app, host=HOST, port=PORT)
