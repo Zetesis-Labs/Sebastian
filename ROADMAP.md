@@ -169,10 +169,22 @@ Actionable, deduplicated. Deep multi-session efforts link to their design sectio
    tuned, **half_duplex is the daily-driver mode**. Then comms AGC if levels
    prove hot, and the `calibrate_audio` voice tool (§5, needs the volume
    actuator, item #8).
-7. **Control-plane `announce(text)` slice** (§9) — MCP + HTTP, zero firmware:
-   the vertical slice that proves the control-plane platform across all three
-   front-ends (voice, web, Grafana). First real step of the §6/§9 platform once
-   self-host lands.
+7. **Control-plane `announce(text)` slice** (§9) — *HTTP face SHIPPED +
+   ear-validated (2026-07-08):* `agent/control_plane.py` (`make control`, :8790)
+   → finds the device's active room → data on `sebastian.announce` → agent
+   speaks it. Zero firmware. Two field lessons baked in: (a) data packets are
+   NOT queued for future participants — the control plane requires device AND
+   agent present before sending; (b) **courtesy = sustained idle**: an announce
+   fired the instant a session opens races the user's opening command (Gemini
+   garbled both → "Anuncio en curso."), and one fired mid-generation is the
+   orphaned-generate_reply collision — so the agent queues it and speaks only
+   after ~3 s of continuous idle (validated live: queued mid-story, waited 18 s,
+   spoke in the pause). Remaining: the MCP face, more modes (`record_note`,
+   `play_media`, `set_mode`), and proactive announce to an *idle* device — which
+   is exactly the always-connected enabler (§9). Also shipped alongside:
+   **per-session mic recordings** (`agent/recordings/<ts>_<room>.wav`, on by
+   default, `SEBASTIAN_RECORD=0` disables) — the local Egress for
+   forensics/dataset.
 8. **Volume by voice** (agent→device RPC; the data pipeline exists both ways) +
    LED by agent state (already received). Prerequisite for the `calibrate_audio`
    tool (§5).
@@ -747,11 +759,21 @@ freeze-exception enabler), plus a token minted without the agent dispatch.
 
 ### Order
 
-1. **Self-host LiveKit** (§2) + the token server already does explicit dispatch.
-2. **`announce(text)` slice** (MCP + HTTP) — proves the model, zero firmware.
-3. **`record_note`** (consume the mic → store → Zetesis transcription).
-4. **Endpoint mode + music publisher** (firmware mode + Ingest/publisher).
-5. **The web UI** ties the modes together.
+1. **Self-host LiveKit** (§2) + the token server already does explicit dispatch. ✓
+2. **`announce(text)` slice** — HTTP face SHIPPED + validated (backlog #7); MCP
+   face pending.
+3. **Always-connected / endpoint mode** — the enabler for *proactive* announce
+   (today a 409 when the device is idle), music, conference. **Design decision
+   discovered while scoping (2026-07-08):** if the device never disconnects, the
+   agent's realtime-LLM session would sit open 24/7 (idle provider cost +
+   provider session timeouts) — so the firmware change comes with an agent-side
+   **lazy LLM session lifecycle** (stay in the room always; open the
+   Gemini/OpenAI session on wake signal, close it after the conversation). Plan
+   both together; RAM/SCTP-soak validate the persistent WebRTC session with the
+   heap telemetry.
+4. **`record_note`** (consume the mic → store → Zetesis transcription).
+5. **Music publisher** (Ingest / publisher participant).
+6. **The web UI** ties the modes together.
 
 **Privacy is day-one, not a later patch:** always-on mic → server needs an
 explicit listen-mode/mute model, gated (only after wake, or an explicit mode).

@@ -17,8 +17,10 @@ Set SEBASTIAN_RECORD=1 to dump the incoming mic track to /tmp for debugging.
 
 import asyncio
 import contextlib
+import json
 import logging
 import os
+import time
 from pathlib import Path
 
 import aiohttp
@@ -39,7 +41,7 @@ from livekit.plugins import google, openai
 from openai.types.beta.realtime.session import TurnDetection
 
 import telemetry
-from audio_input import SebastianAudioInput, setup_recorder, RECORD
+from audio_input import SebastianAudioInput, setup_recorder, setup_output_recorder, RECORD
 from instrumentation import instrument_session
 from tasks import spawn as _spawn
 from typing import Any
@@ -56,8 +58,17 @@ m_jobs = telemetry.counter(
 m_barge = telemetry.counter(
     "sebastian_agent_barge_ins_total", "Wake-word interrupts while speaking"
 )
+m_end = telemetry.counter(
+    "sebastian_agent_sessions_ended_total",
+    "Sessions ended by the user (end_session); 'short' label flags phantom candidates",
+)
+
+m_announce = telemetry.counter(
+    "sebastian_agent_announcements_total", "Server-pushed announcements spoken"
+)
 
 BARGE_TOPIC = "sebastian.barge_in"
+ANNOUNCE_TOPIC = "sebastian.announce"
 DEVICE_IDENTITY = os.getenv("SEBASTIAN_DEVICE_IDENTITY", "esp32-respeaker")
 MODEL_PROVIDER = os.getenv("SEBASTIAN_MODEL_PROVIDER", "gemini").strip().lower()
 GEMINI_MODEL = os.getenv(
@@ -95,6 +106,7 @@ def _ha_mcp_servers() -> list:
 
 
 GOODBYE_GRACE_S = 3.0
+PHANTOM_SESSION_S = 12.0  # a user-closed session shorter than this ≈ likely phantom wake
 
 
 async def _delete_room_after_goodbye(job_ctx: agents.JobContext) -> None:
@@ -112,12 +124,14 @@ async def _delete_room_after_goodbye(job_ctx: agents.JobContext) -> None:
 
 class Sebastian(Agent):
     def __init__(self) -> None:
+        self._started = time.monotonic()
         super().__init__(
             instructions=(
                 "Eres Sebastián, un asistente de voz que vive en un altavoz "
-                "ESP32-S3 con un array de 4 micrófonos. Hablas en español, de "
-                "forma natural y breve, como en una conversación. No uses "
-                "markdown ni listas: solo se te va a escuchar, no a leer. "
+                "ESP32-S3 con un array de 4 micrófonos. Responde en el mismo "
+                "idioma en que te hablen, de forma natural y breve, como en una "
+                "conversación. No uses markdown ni listas: solo se te va a "
+                "escuchar, no a leer. "
                 "Puedes controlar la casa (luces, enchufes, sensores…) con las "
                 "herramientas de Home Assistant: cuando te pidan encender o apagar "
                 "algo, úsalas de verdad y confirma en una frase corta lo que hiciste. "
@@ -127,14 +141,17 @@ class Sebastian(Agent):
                 "persianas, sensores, temperatura…) consulta primero GetLiveContext "
                 "y responde solo con esos datos. No puedes ver: nunca describas el "
                 "aspecto físico de la casa ni inventes lo que no te dé una herramienta. "
-                "Si te interrumpen mientras hablas o te piden parar ('para', "
-                "'cállate', 'espera', 'ya vale'), deja de hablar INMEDIATAMENTE y "
-                "no digas absolutamente nada: ni 'vale', ni 'adiós'. Te quedas "
-                "escuchando en silencio; la conversación sigue abierta. "
-                "Solo cuando el usuario se despida explícitamente ('adiós', 'hasta "
-                "luego', 'nada más, gracias') llama a end_session y despídete con "
-                "una sola palabra. Parar no es despedirse: ante la duda, calla y "
-                "espera. "
+                "Cuando el usuario te ordene parar o callar, o dé la conversación "
+                "por terminada o se despida —en el idioma que sea, y entendiendo la "
+                "intención, no palabras sueltas: 'para', 'cállate', 'ya vale', "
+                "'stop', 'déjalo', 'adiós', 'gracias, nada más'…— llama a "
+                "end_session. Distingue: si es una orden de PARAR/CALLAR, ciérrala "
+                "SIN decir nada (ni 'vale' ni 'adiós'); si es una DESPEDIDA, "
+                "despídete con una sola palabra y ciérrala. En ambos casos la "
+                "sesión termina y el usuario tendrá que volver a activarte. Ojo con "
+                "la ambigüedad: 'enciende la luz para el salón' NO es una orden de "
+                "parar; solo cierra cuando la intención real sea detenerte o "
+                "terminar. "
                 "Nunca pronuncies tu propio nombre, Sebastián: el altavoz lo "
                 "interpreta como una orden de interrupción y te cortaría a ti mismo."
             )
@@ -142,15 +159,23 @@ class Sebastian(Agent):
 
     @function_tool
     async def end_session(self, context: RunContext) -> str:
-        """Termina la sesión de voz por completo. Llámala SOLO cuando el usuario
-        se despida explícitamente ('adiós', 'hasta luego', 'nada más') o dé la
-        conversación por terminada. NO la llames cuando pida parar o callar
-        ('para', 'cállate'): eso solo interrumpe el habla, la sesión sigue.
-        Para volver a hablar tras cerrarla hará falta la palabra de activación."""
+        """Cierra la sesión de voz por completo. Llámala cuando el usuario te
+        pida parar/callar, dé la conversación por terminada o se despida (en
+        cualquier idioma, por intención). Para volver a hablar tras cerrarla hará
+        falta la palabra de activación."""
         _ = context
+        dur = time.monotonic() - self._started
+        short = dur < PHANTOM_SESSION_S
+        m_end.add(1, {"short": str(short)})
+        # Session-level phantom signal (language-agnostic, §7): a real
+        # interaction lasts more than a few seconds. A very short session the
+        # user had to shut down is a strong false-positive-wake candidate.
+        log.info(
+            "end_session after %.1fs%s — closing room",
+            dur, "  [likely-phantom]" if short else "",
+        )
         _spawn(_delete_room_after_goodbye(get_job_context()))
-        log.info("end_session tool called — closing room in %.1fs", GOODBYE_GRACE_S)
-        return "Sesión terminándose. Despídete con una sola palabra."
+        return "Sesión terminándose."
 
 
 def _build_gemini_realtime_model() -> google.realtime.RealtimeModel:
@@ -218,6 +243,67 @@ def _setup_barge_in(ctx: agents.JobContext, session: AgentSession) -> None:
             log.warning("barge-in interrupt failed: %r", e)
 
 
+ANNOUNCE_WAIT_S = 60.0  # max courtesy wait for the session to go idle
+
+
+def _setup_announce(ctx: agents.JobContext, session: AgentSession) -> None:
+    """Control-plane announce (§9): the control plane sends text on
+    ANNOUNCE_TOPIC; the agent speaks it. The first server→device push mode.
+
+    Courtesy delivery (§4 'proactivity with courtesy'): an announcement must not
+    be DROPPED, but firing generate_reply() while a generation is in flight is
+    the known orphaned-reply collision (5s timeout, nothing spoken — exactly how
+    the first field test failed, mid-story). So: wait until the session is
+    demonstrably idle, then speak."""
+
+    async def _speak_when_idle(text: str) -> None:
+        # SUSTAINED idle, not instant: with per-session rooms, "device present"
+        # happens right after a wake — i.e. exactly while the user is giving
+        # their opening command. An announce fired at that instant races the
+        # user's turn and Gemini garbles both (field: it said "Anuncio en
+        # curso." instead of the announcement). Require ~3s of continuous
+        # idle so the conversation has actually settled.
+        deadline = asyncio.get_event_loop().time() + ANNOUNCE_WAIT_S
+        idle_since: float | None = None
+        while asyncio.get_event_loop().time() < deadline:
+            state = getattr(session, "agent_state", None)
+            speech = getattr(session, "current_speech", None)
+            now = asyncio.get_event_loop().time()
+            if speech is None and state in (None, "listening"):
+                if idle_since is None:
+                    idle_since = now
+                if now - idle_since >= 3.0:
+                    m_announce.add(1)
+                    log.info("announce → speaking: %r", text)
+                    # generate_reply (not say): the realtime model has no
+                    # separate TTS; a natural delivery reads better than verbatim.
+                    session.generate_reply(
+                        instructions=f"Anuncia esto al usuario, de forma natural y "
+                        f"breve, sin añadir preguntas ni ofrecer ayuda: {text}"
+                    )
+                    return
+            else:
+                idle_since = None
+            await asyncio.sleep(0.25)
+        log.warning("announce DROPPED: session busy for %.0fs: %r", ANNOUNCE_WAIT_S, text)
+
+    @ctx.room.on("data_received")
+    def _on_data(packet: rtc.DataPacket) -> None:
+        if packet.topic != ANNOUNCE_TOPIC:
+            return
+        try:
+            text = json.loads(bytes(packet.data).decode())["text"].strip()
+        except Exception as e:
+            log.warning("announce: bad payload: %r", e)
+            return
+        if not text:
+            return
+        log.info("announce queued (waiting for idle): %r", text)
+        _spawn(_speak_when_idle(text))
+
+
+
+
 async def entrypoint(ctx: agents.JobContext) -> None:
     m_jobs.add(1)
     log.info("job accepted room=%s", ctx.job.room.name)
@@ -228,12 +314,19 @@ async def entrypoint(ctx: agents.JobContext) -> None:
     session = _build_session()
     instrument_session(session)
     _setup_barge_in(ctx, session)
+    _setup_announce(ctx, session)
     session.input.audio = mic_input
     await session.start(
         room=ctx.room,
         agent=Sebastian(),
         room_options=RoomOptions(audio_input=False),
     )
+    if RECORD:
+        # Both directions on tape: the mic recorder (setup_recorder) only hears
+        # the device; this tee captures what Sebastian says.
+        out_tee = setup_output_recorder(session, ctx.room.name)
+        if out_tee is not None:
+            ctx.add_shutdown_callback(out_tee.aclose)
     await ctx.connect()
     await ctx.wait_for_participant(identity=DEVICE_IDENTITY)
     with contextlib.suppress(asyncio.TimeoutError):

@@ -3,6 +3,7 @@ import contextlib
 import logging
 import os
 import wave
+from datetime import datetime
 
 from livekit import agents, rtc
 from livekit.plugins import noise_cancellation
@@ -32,14 +33,20 @@ def _bvc_if_available():
         return None
     return noise_cancellation.BVC()
 
-REC_PATH = "/tmp/sebastian_rx.wav"
 PREROLL_PATH = "/tmp/sebastian_preroll.wav"
 PREROLL_TOPIC = "sebastian.preroll"
 DEVICE_IDENTITY = os.getenv("SEBASTIAN_DEVICE_IDENTITY", "esp32-respeaker")
 LIVE_SAMPLE_RATE = 24000
 LIVE_FRAME_MS = 50
 PREROLL_WAIT_TIMEOUT = 6.0
-RECORD = os.getenv("SEBASTIAN_RECORD") == "1"
+# Per-session mic recording — the local "Egress" for forensics + a dataset
+# (failure replay, wake-word hard-negatives, double-talk ground truth; ROADMAP
+# §2/§6). One timestamped WAV per session, named with the room for correlation
+# with the agent/SFU logs. On by default when a dir is set; SEBASTIAN_RECORD=0
+# disables. Full room-composite Egress (both directions → storage) is the
+# Cortes-time version. Privacy: local only, gate before any remote deployment.
+RECORD_DIR = os.getenv("SEBASTIAN_RECORD_DIR", "recordings")
+RECORD = os.getenv("SEBASTIAN_RECORD", "1") != "0"
 GATE_SILENCE_PEAK = 100
 
 def _frame_peak(frame: rtc.AudioFrame) -> int:
@@ -79,7 +86,74 @@ def setup_recorder(ctx: agents.JobContext) -> None:
     @ctx.room.on("track_subscribed")
     def _on_track(track: rtc.Track, publication: rtc.TrackPublication, participant: rtc.RemoteParticipant) -> None:
         if track.kind == rtc.TrackKind.KIND_AUDIO and "esp32" in participant.identity:
-            _spawn(_record_track(track, REC_PATH))
+            os.makedirs(RECORD_DIR, exist_ok=True)
+            stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            path = os.path.join(RECORD_DIR, f"{stamp}_{ctx.room.name}_mic.wav")
+            _spawn(_record_track(track, path))
+
+
+class RecordingAudioOutput(agents.io.AudioOutput):
+    """Tee on the agent's OUTGOING audio: what Sebastian says, to a WAV.
+
+    The mic recorder above only captures the device→agent direction; without
+    this, recordings have no Sebastian voice in them. Installed by wrapping
+    session.output.audio after session.start (next_in_chain forwards frames and
+    playback events untouched)."""
+
+    def __init__(self, next_out: agents.io.AudioOutput, path: str) -> None:
+        super().__init__(
+            label="RecordingTee",
+            capabilities=agents.io.AudioOutputCapabilities(pause=next_out.can_pause),
+            next_in_chain=next_out,
+            sample_rate=None,
+        )
+        self._path = path
+        self._wav: wave.Wave_write | None = None
+
+    async def capture_frame(self, frame: rtc.AudioFrame) -> None:
+        await super().capture_frame(frame)
+        if self._wav is None:
+            self._wav = wave.open(self._path, "wb")
+            self._wav.setnchannels(frame.num_channels)
+            self._wav.setsampwidth(2)
+            self._wav.setframerate(frame.sample_rate)
+            log.info("[recorder] writing agent audio to %s", self._path)
+        self._wav.writeframes(bytes(frame.data))
+        assert self._next_in_chain is not None
+        await self._next_in_chain.capture_frame(frame)
+
+    def flush(self) -> None:
+        super().flush()
+        if self._wav is not None:
+            # keep the file valid after every segment; reopen-append isn't
+            # needed — wave rewrites the header on close only, so flush the fd
+            with contextlib.suppress(Exception):
+                self._wav._file.flush()  # type: ignore[attr-defined]
+        assert self._next_in_chain is not None
+        self._next_in_chain.flush()
+
+    def clear_buffer(self) -> None:
+        assert self._next_in_chain is not None
+        self._next_in_chain.clear_buffer()
+
+    async def aclose(self) -> None:
+        if self._wav is not None:
+            with contextlib.suppress(Exception):
+                self._wav.close()
+            self._wav = None
+
+
+def setup_output_recorder(session: agents.AgentSession, room_name: str) -> RecordingAudioOutput | None:
+    """Wrap the session's audio output with the WAV tee. Call after session.start."""
+    cur = session.output.audio
+    if cur is None:
+        log.warning("[recorder] no audio output to record")
+        return None
+    os.makedirs(RECORD_DIR, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    tee = RecordingAudioOutput(cur, os.path.join(RECORD_DIR, f"{stamp}_{room_name}_agent.wav"))
+    session.output.audio = tee
+    return tee
 
 
 class SebastianAudioInput(agents.io.AudioInput):
