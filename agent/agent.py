@@ -39,7 +39,7 @@ from livekit.plugins import google, openai
 from openai.types.beta.realtime.session import TurnDetection
 
 import telemetry
-from audio_input import SebastianAudioInput, setup_recorder, RECORD
+from audio_input import SebastianAudioInput, setup_recorder, setup_output_recorder, RECORD
 from instrumentation import instrument_session
 from tasks import spawn as _spawn
 from typing import Any
@@ -234,6 +234,12 @@ async def entrypoint(ctx: agents.JobContext) -> None:
         agent=Sebastian(),
         room_options=RoomOptions(audio_input=False),
     )
+    if RECORD:
+        # Tee the agent's OUTGOING audio to a WAV too — the mic recorder only
+        # captures device→agent, so without this the recording has no Sebastian.
+        out_tee = setup_output_recorder(session, ctx.room.name)
+        if out_tee is not None:
+            ctx.add_shutdown_callback(out_tee.aclose)
     await ctx.connect()
     await ctx.wait_for_participant(identity=DEVICE_IDENTITY)
     with contextlib.suppress(asyncio.TimeoutError):
