@@ -223,6 +223,9 @@ model segment. The Python agent deploys as a Deployment on Cortes.
 4. [ ] **Firmware telemetry batch** (the missing half of "god-tier telemetry":
        the agent side + heartbeat are already there): audio levels IN session, free heap,
        RSSI, temperature + Grafana alerts (reboot, SCTP, deaf channel, mute serial).
+       *Partial (2026-07-08): internal/DMA free-heap logging landed (`logHeap()` at
+       boot + around connect, §8). Still pending: session audio levels, RSSI, temp,
+       and wiring these into Grafana alerts.*
 5. [ ] **AEC Project** — PLANNED (2026-07-03, multi-agent exploration):
        phased plan in `docs/implementation/10-aec-fullduplex-plan.md`.
        Key finding: the `FAR_EXTGAIN` "fix" was likely a placebo (the scale
@@ -457,9 +460,15 @@ device** — cheap and, crucially, safe (no touching the fragile stack).
       the 15 KB, verified: `tone_buf` gone from the `.map`), diagnostics mode
       dropped from the installer. **Rule for the whole codebase: never turn a
       config `const` into a runtime `var` if it gates a code path with large static
-      buffers — `var` keeps them all.** The device runs with a thin internal-RAM
-      margin at the TLS handshake (exact KB unmeasured — no runtime heap log yet;
-      the 15 KB was the fail↔connect swing).
+      buffers — `var` keeps them all.**
+- [x] **Internal-RAM measured + wake-word arena right-sized (2026-07-08).** Added
+      `logHeap()` (free/largest block for `MALLOC_CAP_INTERNAL` and `…|DMA`) at boot
+      and around `room_connect`, plus a `arena_used_bytes()` log in `mww_init`. The
+      arena was a round 48 KB but the model truly needs **36 268 B** — trimmed to
+      **40 KB** (13 % margin), returning **8 KB** to internal RAM. Measured at boot:
+      internal free **57.5 → 65.6 KB**, DMA free **50.1 → 58.1 KB**. The margin is no
+      longer a guess. (Largest contiguous block held at ~31.7 KB — bounded by a fixed
+      allocation above the arena, a separate fragmentation matter.)
 
 ### Foundation: self-host LiveKit on Cortes
 

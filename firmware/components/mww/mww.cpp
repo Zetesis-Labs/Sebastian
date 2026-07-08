@@ -18,6 +18,8 @@
 #include <cmath>
 #include <cstring>
 
+#include "esp_log.h"
+
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
 #include "tensorflow/lite/micro/micro_resource_variable.h"
@@ -41,8 +43,12 @@ static constexpr int   kInZp     = -128;
 static constexpr float kOutScale = 0.00390625f;
 
 // Tensor arena in internal SRAM. The model JSON says 30000, but resource
-// variables (streaming state) also live here — 34KB fell 1324 bytes short.
-static constexpr size_t kArenaBytes = 48 * 1024;
+// variables (streaming state) also live here. Measured at runtime via
+// arena_used_bytes(): the model truly needs 36268 bytes. 40KB keeps a ~4.7KB
+// (13%) margin while returning 8KB of internal RAM vs the old round 48KB.
+// AllocateTensors() failure halts the device, so do not trim below the margin
+// without re-measuring (the "used=… of …" boot log reports the live figure).
+static constexpr size_t kArenaBytes = 40 * 1024;
 
 // ── Static state ─────────────────────────────────────────────────────────────
 
@@ -132,6 +138,13 @@ bool mww_init(const uint8_t *model_data, size_t /*model_len*/,
     resource_vars = variables;
 
     if (interpreter->AllocateTensors() != kTfLiteOk) return false;
+
+    // Measure actual arena occupancy so kArenaBytes can be right-sized: the
+    // 48KB is a round safety number (see kArenaBytes note); this reports what
+    // the model + streaming resource variables truly need.
+    ESP_LOGI("mww", "tensor arena: used=%u of %u bytes (slack=%d)",
+             (unsigned)interpreter->arena_used_bytes(), (unsigned)kArenaBytes,
+             (int)kArenaBytes - (int)interpreter->arena_used_bytes());
 
     TfLiteTensor *in = interpreter->input(0);
     if (in->dims->size != 3 ||

@@ -323,7 +323,9 @@ fn openSession(audio: AudioPipeline, conn: token.Connection) AppError!void {
         _ = c.livekit_room_destroy(room);
         room = null;
     }
+    logHeap("pre-connect");
     try requireLiveKitOk(c.livekit_room_connect(room, conn.server_url, conn.token), error.RoomConnectFailed);
+    logHeap("post-connect");
     log.info("session open", .{});
 }
 
@@ -333,6 +335,21 @@ fn closeSession() void {
     _ = c.livekit_room_destroy(room);
     room = null;
     log.info("session closed", .{});
+}
+
+// Free internal-RAM telemetry. The scarce pool is internal DMA-capable RAM: the
+// TLS hardware-AES DMA and the WebRTC/WiFi stacks all draw from it, and it is
+// what starved during the WSS handshake (the 15KB-probe-buffer regression). Log
+// it at boot and around room_connect so the real headroom is a measured number,
+// not a guess. See ROADMAP Pending #4.
+fn logHeap(label: []const u8) void {
+    const int_free = c.heap_caps_get_free_size(c.MALLOC_CAP_INTERNAL);
+    const int_big = c.heap_caps_get_largest_free_block(c.MALLOC_CAP_INTERNAL);
+    const dma_free = c.heap_caps_get_free_size(c.MALLOC_CAP_INTERNAL | c.MALLOC_CAP_DMA);
+    const dma_big = c.heap_caps_get_largest_free_block(c.MALLOC_CAP_INTERNAL | c.MALLOC_CAP_DMA);
+    log.info("heap[{s}] internal free={d} largest={d} | dma free={d} largest={d}", .{
+        label, int_free, int_big, dma_free, dma_big,
+    });
 }
 
 // ── Session watchdog ──────────────────────────────────────────────────────────
@@ -626,6 +643,7 @@ export fn app_main() callconv(.c) void {
             health.xvf, health.codecs, health.audio, health.ww,
         });
     }
+    logHeap("boot");
 
     // Watchdog on core 1, above the main loop's priority: it must run even if
     // the main task wedges inside a blocking LiveKit call.

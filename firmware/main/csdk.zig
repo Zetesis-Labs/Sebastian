@@ -320,9 +320,13 @@ pub const LIVEKIT_PARTICIPANT_KIND_AGENT: c_int = 4;
 pub const LIVEKIT_PARTICIPANT_STATE_ACTIVE: c_int = 2;
 
 // --- heap capabilities -------------------------------------------------------
+pub const MALLOC_CAP_DMA: u32 = 1 << 3;
 pub const MALLOC_CAP_8BIT: u32 = 1 << 2;
 pub const MALLOC_CAP_SPIRAM: u32 = 1 << 10;
+pub const MALLOC_CAP_INTERNAL: u32 = 1 << 11;
 pub extern fn heap_caps_malloc(size: usize, caps: u32) ?*anyopaque;
+pub extern fn heap_caps_get_free_size(caps: u32) usize;
+pub extern fn heap_caps_get_largest_free_block(caps: u32) usize;
 
 // --- WiFi (example_utils) + SNTP ---------------------------------------------
 pub extern fn lk_example_network_connect() bool;
