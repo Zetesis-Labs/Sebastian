@@ -169,10 +169,22 @@ Actionable, deduplicated. Deep multi-session efforts link to their design sectio
    tuned, **half_duplex is the daily-driver mode**. Then comms AGC if levels
    prove hot, and the `calibrate_audio` voice tool (§5, needs the volume
    actuator, item #8).
-7. **Control-plane `announce(text)` slice** (§9) — MCP + HTTP, zero firmware:
-   the vertical slice that proves the control-plane platform across all three
-   front-ends (voice, web, Grafana). First real step of the §6/§9 platform once
-   self-host lands.
+7. **Control-plane `announce(text)` slice** (§9) — *HTTP face SHIPPED +
+   ear-validated (2026-07-08):* `agent/control_plane.py` (`make control`, :8790)
+   → finds the device's active room → data on `sebastian.announce` → agent
+   speaks it. Zero firmware. Two field lessons baked in: (a) data packets are
+   NOT queued for future participants — the control plane requires device AND
+   agent present before sending; (b) **courtesy = sustained idle**: an announce
+   fired the instant a session opens races the user's opening command (Gemini
+   garbled both → "Anuncio en curso."), and one fired mid-generation is the
+   orphaned-generate_reply collision — so the agent queues it and speaks only
+   after ~3 s of continuous idle (validated live: queued mid-story, waited 18 s,
+   spoke in the pause). Remaining: the MCP face, more modes (`record_note`,
+   `play_media`, `set_mode`), and proactive announce to an *idle* device — which
+   is exactly the always-connected enabler (§9). Also shipped alongside:
+   **per-session mic recordings** (`agent/recordings/<ts>_<room>.wav`, on by
+   default, `SEBASTIAN_RECORD=0` disables) — the local Egress for
+   forensics/dataset.
 8. **Volume by voice** (agent→device RPC; the data pipeline exists both ways) +
    LED by agent state (already received). Prerequisite for the `calibrate_audio`
    tool (§5).
@@ -747,11 +759,41 @@ freeze-exception enabler), plus a token minted without the agent dispatch.
 
 ### Order
 
-1. **Self-host LiveKit** (§2) + the token server already does explicit dispatch.
-2. **`announce(text)` slice** (MCP + HTTP) — proves the model, zero firmware.
-3. **`record_note`** (consume the mic → store → Zetesis transcription).
-4. **Endpoint mode + music publisher** (firmware mode + Ingest/publisher).
-5. **The web UI** ties the modes together.
+1. **Self-host LiveKit** (§2) + the token server already does explicit dispatch. ✓
+2. **`announce(text)` slice** — HTTP face SHIPPED + validated (backlog #7); MCP
+   face pending.
+3. **Always-connected / endpoint mode — SHIPPED v1, ear-validated (2026-07-08).**
+   Firmware: `alwaysConnected` provisioned mode — connects at boot, mic gated at
+   idle (readFrame's pre-handoff silence path, indefinitely), wake = open the
+   gate (green ring instantly, no connect phase), `sebastian.session` wake/sleep
+   signals, transport kept across conversations, reconnect on room death + a
+   15 s idle health check (CONNECTED + agent present). Agent
+   (`SEBASTIAN_ENDPOINT=1`): stays in the room, **lazy LLM lifecycle** — session
+   opens on the wake signal, closes on sleep; idle announces run a brief
+   TTS-only session. **Proactive announce to a sleeping device works** (heard:
+   "puedo avisarte sin que me despiertes", via curl, device untouched).
+   **Field-earned caveats / follow-ups:**
+   - **Announces speak via TTS (`session.say`), never the realtime model**: a
+     cold Gemini Live session returns empty/garbled first generations (~6 cases
+     measured: 0.007s/0-token replies, "Anuncio en curso.", "Let me check") —
+     TTS is deterministic and verbatim.
+   - **Cold-start toll on the first turn of every conversation** (lazy = fresh
+     Gemini per wake; first generation often empty → the nudge or the user's
+     repeat unblocks at ~6-12 s). TODO: shorten the endpoint nudge (~2.5 s),
+     and/or a keep-warm window (hold the LLM session ~2 min after each
+     conversation), and/or test OpenAI Realtime for cold-start behavior.
+   - **The client SDK lies about room state** after a server-side room delete
+     (stuck CONNECTED/RECONNECTING forever — #186 family): state-based health
+     checks are insufficient. TODO #1: **app-level liveness ping/pong** over the
+     data channel (device pings at idle; endpoint agent pongs; no pong 30 s →
+     recycle).
+   - **XVF state survives esp_restart**: a wedged audio path (mute speaker) only
+     clears on POWER-CYCLE — serial resets are not enough; also make the mute
+     state visible in telemetry/agent logs (half an hour was lost to a silent
+     speaker).
+4. **`record_note`** (consume the mic → store → Zetesis transcription).
+5. **Music publisher** (Ingest / publisher participant).
+6. **The web UI** ties the modes together.
 
 **Privacy is day-one, not a later patch:** always-on mic → server needs an
 explicit listen-mode/mute model, gated (only after wake, or an explicit mode).
