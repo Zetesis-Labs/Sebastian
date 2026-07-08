@@ -583,3 +583,69 @@ what follows is **server code, zero firmware/RAM cost**.
    phantom dataset.
 3. **Retrain** (#2) on that dataset; add **DoA fusion** (#4) as a cheap gate.
 4. **Speaker-ID** (#3) if TV/guests turn out to be the dominant source.
+
+## 10. Multi-unit / multi-room — N distributed devices (2026-07-08)
+
+Makes actionable the P2 item "Multi-device with DoA/score arbitration" and the
+"multi-room/intercom" row of the §8 feature menu. Question that triggered it:
+*"could we have several microphones in a mesh network instead of just one?"*
+
+### The shape: N identical thin endpoints, zero mesh
+
+The §8 thin-endpoint pivot is exactly what makes this scale. Each unit is an
+independent WebRTC client joining LiveKit; LiveKit rooms natively take N
+publishers. **Adding a microphone = flashing another unit and pointing it at the
+same token server — zero firmware changes.** All coordination lives server-side,
+where the agent already sees every stream.
+
+**Explicitly rejected: ESP-WIFI-MESH / ESP-NOW between units** (one unit as
+gateway relaying audio for the others):
+
+- The S3 is at its internal-RAM edge (§8 memory lesson); a mesh stack + Opus
+  aggregation on a gateway unit is the opposite of the thin-endpoint rule.
+- Conversational audio needs sustained bandwidth and low jitter; every mesh hop
+  adds both latency and loss on a device that already handles erratic networks
+  poorly (SCTP storm, §6 #7).
+- It solves nothing: in a home with Wi-Fi coverage every unit reaches the AP
+  directly. If coverage is the real problem, fix it at the **network layer**
+  (mesh APs/routers) — transparent to the firmware.
+
+### The one genuinely new piece: wake-word arbitration
+
+If two units hear "Sebastián" at once, someone must pick the responder — what
+Amazon calls ESP (Echo Spatial Perception):
+
+1. Each unit reports a wake event with a **score** (wake-word confidence +
+   beam energy/SNR; the XVF already exposes DoA and level, §2 signal #6).
+2. The server collects events in a **~200 ms window**, picks the winner, the
+   rest stand down silently (same silent-abort mechanism as the §9 two-stage
+   verify — the arbitration score and the phantom-verify score are the same
+   pipeline).
+3. 100% server-side — zero firmware/RAM cost, consistent with §8.
+
+### Room topology (decide when building)
+
+- **Room per unit/zone** — isolation, per-room media, simplest arbitration
+  (only same-room units compete via the audible-range window).
+- **Shared room** — intercom and follow-me conversation across rooms for free,
+  but arbitration must handle units that *don't* hear each other.
+- Likely hybrid: room per zone + agent-orchestrated bridging for intercom /
+  announcements (the §8 publisher already covers the announce path).
+
+### Prerequisites and order
+
+1. **Self-hosted LiveKit on Cortes** (§8 foundation) — N always-connected units
+   on LiveKit Cloud multiply participant-minutes; on LAN they cost zero.
+2. **§9 two-stage verify shipped first** — arbitration piggybacks on the same
+   server-side wake-event pipeline; building them together avoids two parallel
+   mechanisms.
+3. **Second hardware unit** — arbitration is untestable with one device.
+
+### Honest caveats
+
+- **Hardware cost is the real scaling limit** (~ReSpeaker + XIAO per room), not
+  software.
+- Arbitration tuning (window size, score weighting) needs real two-unit testing
+  in adjacent rooms — expect an iteration loop, not a one-shot.
+- Multi-unit multiplies the §8 privacy caveat: more always-on mics streaming
+  after wake; the gated-mic model must hold on every unit.
