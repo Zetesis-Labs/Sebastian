@@ -69,6 +69,12 @@ m_announce = telemetry.counter(
 
 BARGE_TOPIC = "sebastian.barge_in"
 ANNOUNCE_TOPIC = "sebastian.announce"
+SESSION_TOPIC = "sebastian.session"  # endpoint mode: device signals wake/sleep
+# Endpoint mode (ROADMAP §9): the device holds ONE persistent transport session;
+# the agent stays in the room 24/7 but keeps the LLM session CLOSED at idle
+# (zero provider cost, no provider session timeouts) and opens it lazily on the
+# device's wake signal — or briefly, to deliver a proactive announce.
+ENDPOINT_MODE = os.getenv("SEBASTIAN_ENDPOINT", "0") == "1"
 DEVICE_IDENTITY = os.getenv("SEBASTIAN_DEVICE_IDENTITY", "esp32-respeaker")
 MODEL_PROVIDER = os.getenv("SEBASTIAN_MODEL_PROVIDER", "gemini").strip().lower()
 GEMINI_MODEL = os.getenv(
@@ -220,6 +226,12 @@ def _build_session() -> AgentSession:
     realtime = _build_realtime_model()
     return AgentSession(
         llm=realtime,
+        # TTS exists ONLY for session.say() (deterministic announcements): a
+        # cold Gemini Live session returns empty generations for out-of-band
+        # replies (measured: duration 0.007s, no audio — both instructions and
+        # synthetic-user-turn variants), so proactive announces to an idle
+        # device speak via plain TTS instead of the realtime model.
+        tts=openai.TTS(),
         turn_handling=TurnHandlingOptions(turn_detection="realtime_llm"),
         mcp_servers=_ha_mcp_servers(),
         # Default 3.0s exists for the framework's SOFTWARE AEC to warm up; our
@@ -246,46 +258,49 @@ def _setup_barge_in(ctx: agents.JobContext, session: AgentSession) -> None:
 ANNOUNCE_WAIT_S = 60.0  # max courtesy wait for the session to go idle
 
 
+def _announce_prompt(text: str) -> str:
+    return (
+        "Anuncia esto al usuario, de forma natural y breve, sin añadir "
+        f"preguntas ni ofrecer ayuda: {text}"
+    )
+
+
+async def _speak_when_idle(session: AgentSession, text: str) -> None:
+    """Courtesy announce delivery (§4 'proactivity with courtesy').
+
+    An announcement must not be DROPPED, but firing generate_reply() while a
+    generation is in flight is the known orphaned-reply collision (5s timeout,
+    nothing spoken). And SUSTAINED idle, not instant: an announce fired the
+    moment a session opens races the user's opening command and Gemini garbles
+    both (field: "Anuncio en curso."). Require ~3s of continuous idle."""
+    deadline = asyncio.get_event_loop().time() + ANNOUNCE_WAIT_S
+    idle_since: float | None = None
+    while asyncio.get_event_loop().time() < deadline:
+        state = getattr(session, "agent_state", None)
+        speech = getattr(session, "current_speech", None)
+        now = asyncio.get_event_loop().time()
+        if speech is None and state in (None, "listening"):
+            if idle_since is None:
+                idle_since = now
+            if now - idle_since >= 3.0:
+                m_announce.add(1)
+                log.info("announce → speaking (TTS): %r", text)
+                # say(TTS), NOT generate_reply: after 4 field cases, every
+                # announce routed through Gemini was a lottery (empty/garbled
+                # generations: 0.007s, "Anuncio en curso.", "Let me check");
+                # the only announces ever heard went through TTS. Deterministic
+                # verbatim delivery is what an announcement wants anyway.
+                session.say(text)
+                return
+        else:
+            idle_since = None
+        await asyncio.sleep(0.25)
+    log.warning("announce DROPPED: session busy for %.0fs: %r", ANNOUNCE_WAIT_S, text)
+
+
 def _setup_announce(ctx: agents.JobContext, session: AgentSession) -> None:
-    """Control-plane announce (§9): the control plane sends text on
-    ANNOUNCE_TOPIC; the agent speaks it. The first server→device push mode.
-
-    Courtesy delivery (§4 'proactivity with courtesy'): an announcement must not
-    be DROPPED, but firing generate_reply() while a generation is in flight is
-    the known orphaned-reply collision (5s timeout, nothing spoken — exactly how
-    the first field test failed, mid-story). So: wait until the session is
-    demonstrably idle, then speak."""
-
-    async def _speak_when_idle(text: str) -> None:
-        # SUSTAINED idle, not instant: with per-session rooms, "device present"
-        # happens right after a wake — i.e. exactly while the user is giving
-        # their opening command. An announce fired at that instant races the
-        # user's turn and Gemini garbles both (field: it said "Anuncio en
-        # curso." instead of the announcement). Require ~3s of continuous
-        # idle so the conversation has actually settled.
-        deadline = asyncio.get_event_loop().time() + ANNOUNCE_WAIT_S
-        idle_since: float | None = None
-        while asyncio.get_event_loop().time() < deadline:
-            state = getattr(session, "agent_state", None)
-            speech = getattr(session, "current_speech", None)
-            now = asyncio.get_event_loop().time()
-            if speech is None and state in (None, "listening"):
-                if idle_since is None:
-                    idle_since = now
-                if now - idle_since >= 3.0:
-                    m_announce.add(1)
-                    log.info("announce → speaking: %r", text)
-                    # generate_reply (not say): the realtime model has no
-                    # separate TTS; a natural delivery reads better than verbatim.
-                    session.generate_reply(
-                        instructions=f"Anuncia esto al usuario, de forma natural y "
-                        f"breve, sin añadir preguntas ni ofrecer ayuda: {text}"
-                    )
-                    return
-            else:
-                idle_since = None
-            await asyncio.sleep(0.25)
-        log.warning("announce DROPPED: session busy for %.0fs: %r", ANNOUNCE_WAIT_S, text)
+    """Per-session announce wiring (legacy per-wake mode). In endpoint mode the
+    job-level loop owns the announce queue instead."""
 
     @ctx.room.on("data_received")
     def _on_data(packet: rtc.DataPacket) -> None:
@@ -299,12 +314,150 @@ def _setup_announce(ctx: agents.JobContext, session: AgentSession) -> None:
         if not text:
             return
         log.info("announce queued (waiting for idle): %r", text)
-        _spawn(_speak_when_idle(text))
+        _spawn(_speak_when_idle(session, text))
 
 
+
+
+async def _run_attention(
+    ctx: agents.JobContext,
+    sleep_evt: asyncio.Event,
+    announce_q: "asyncio.Queue[str]",
+    announce: str | None = None,
+) -> None:
+    """One attention window in endpoint mode: open the (lazy) LLM session,
+    converse until the device re-gates (sleep signal) — or just deliver an
+    announcement to an idle device — then close the LLM. Transport stays up."""
+    mic_input = SebastianAudioInput(ctx.room)
+    session = _build_session()
+    instrument_session(session)
+    _setup_barge_in(ctx, session)
+    session.input.audio = mic_input
+    await session.start(
+        room=ctx.room,
+        agent=Sebastian(),
+        room_options=RoomOptions(audio_input=False),
+    )
+    out_tee = setup_output_recorder(session, ctx.room.name) if RECORD else None
+
+    async def _announce_pump() -> None:
+        # Announces arriving DURING an attention window ride the live session
+        # with the usual courtesy wait.
+        while True:
+            text = await announce_q.get()
+            await _speak_when_idle(session, text)
+
+    pump = asyncio.create_task(_announce_pump())
+    try:
+        if announce is not None:
+            # Let the realtime session finish its setup exchange first: a reply
+            # requested in the same instant the session opens gets dropped
+            # silently (first field test: clean open/close, zero audio).
+            await asyncio.sleep(1.0)
+            log.info("idle announce → say (TTS)")
+            # say(), not generate_reply(): a cold Gemini session returns empty
+            # generations for out-of-band replies (both instruction and
+            # synthetic-user-turn variants, measured). TTS is deterministic —
+            # exactly the right tool for a verbatim announcement anyway.
+            handle = session.say(announce)
+            try:
+                await handle.wait_for_playout()
+                log.info("idle announce playout done")
+            except Exception as e:
+                log.warning("idle announce failed: %r", e)
+            await asyncio.sleep(0.5)  # let the render tail reach the speaker
+        else:
+            await sleep_evt.wait()
+    finally:
+        pump.cancel()
+        with contextlib.suppress(Exception):
+            await session.aclose()
+        with contextlib.suppress(Exception):
+            await mic_input.aclose()
+        if out_tee is not None:
+            with contextlib.suppress(Exception):
+                await out_tee.aclose()
+
+
+async def _endpoint_entrypoint(ctx: agents.JobContext) -> None:
+    """Endpoint mode job: lives as long as the device's persistent connection.
+    Idle = in the room, LLM closed, waiting for wake signals or announces."""
+    m_jobs.add(1)
+    log.info("endpoint job accepted room=%s", ctx.job.room.name)
+    if RECORD:
+        setup_recorder(ctx)  # device mic WAV spans the whole connection
+
+    wake_evt = asyncio.Event()
+    sleep_evt = asyncio.Event()
+    gone_evt = asyncio.Event()
+    announce_q: asyncio.Queue[str] = asyncio.Queue()
+
+    def _on_data(packet: rtc.DataPacket) -> None:
+        if packet.topic == SESSION_TOPIC:
+            val = bytes(packet.data).decode("utf-8", "ignore")
+            if val == "wake":
+                sleep_evt.clear()
+                wake_evt.set()
+            elif val == "sleep":
+                sleep_evt.set()
+        elif packet.topic == ANNOUNCE_TOPIC:
+            try:
+                text = json.loads(bytes(packet.data).decode())["text"].strip()
+            except Exception:
+                return
+            if text:
+                announce_q.put_nowait(text)
+
+    def _on_gone(participant: rtc.RemoteParticipant) -> None:
+        if participant.identity == DEVICE_IDENTITY:
+            log.info("device disconnected — releasing attention loop")
+            sleep_evt.set()
+            gone_evt.set()
+
+    async def _delete_room_on_shutdown() -> None:
+        # If this job dies (agent restart/redeploy), the room would linger with
+        # the device idling inside, agentless — its idle watcher only checks
+        # transport health. Deleting the room makes the device reconnect and get
+        # a fresh dispatch. (Device-side agent-presence watchdog: firmware TODO.)
+        try:
+            await ctx.api.room.delete_room(api.DeleteRoomRequest(room=ctx.room.name))
+            log.info("endpoint shutdown — room deleted so the device reconnects")
+        except Exception as e:
+            log.warning("endpoint shutdown room delete failed: %r", e)
+
+    ctx.add_shutdown_callback(_delete_room_on_shutdown)
+    ctx.room.on("data_received", _on_data)
+    ctx.room.on("participant_disconnected", _on_gone)
+    await ctx.connect()
+    await ctx.wait_for_participant(identity=DEVICE_IDENTITY)
+    log.info("endpoint idle: device connected, LLM closed — waiting for wake/announce")
+
+    while not gone_evt.is_set():
+        wake_task = asyncio.create_task(wake_evt.wait())
+        ann_task = asyncio.create_task(announce_q.get())
+        gone_task = asyncio.create_task(gone_evt.wait())
+        done, pending = await asyncio.wait(
+            {wake_task, ann_task, gone_task}, return_when=asyncio.FIRST_COMPLETED
+        )
+        for t in pending:
+            t.cancel()
+        if gone_task in done:
+            break
+        if wake_task in done:
+            wake_evt.clear()
+            log.info("wake signal — opening LLM session")
+            await _run_attention(ctx, sleep_evt, announce_q)
+            log.info("attention closed — LLM down, endpoint idle again")
+        else:
+            text = ann_task.result()
+            log.info("idle announce — brief LLM session: %r", text)
+            await _run_attention(ctx, sleep_evt, announce_q, announce=text)
 
 
 async def entrypoint(ctx: agents.JobContext) -> None:
+    if ENDPOINT_MODE:
+        await _endpoint_entrypoint(ctx)
+        return
     m_jobs.add(1)
     log.info("job accepted room=%s", ctx.job.room.name)
     mic_input = SebastianAudioInput(ctx.room)

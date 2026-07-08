@@ -762,15 +762,35 @@ freeze-exception enabler), plus a token minted without the agent dispatch.
 1. **Self-host LiveKit** (§2) + the token server already does explicit dispatch. ✓
 2. **`announce(text)` slice** — HTTP face SHIPPED + validated (backlog #7); MCP
    face pending.
-3. **Always-connected / endpoint mode** — the enabler for *proactive* announce
-   (today a 409 when the device is idle), music, conference. **Design decision
-   discovered while scoping (2026-07-08):** if the device never disconnects, the
-   agent's realtime-LLM session would sit open 24/7 (idle provider cost +
-   provider session timeouts) — so the firmware change comes with an agent-side
-   **lazy LLM session lifecycle** (stay in the room always; open the
-   Gemini/OpenAI session on wake signal, close it after the conversation). Plan
-   both together; RAM/SCTP-soak validate the persistent WebRTC session with the
-   heap telemetry.
+3. **Always-connected / endpoint mode — SHIPPED v1, ear-validated (2026-07-08).**
+   Firmware: `alwaysConnected` provisioned mode — connects at boot, mic gated at
+   idle (readFrame's pre-handoff silence path, indefinitely), wake = open the
+   gate (green ring instantly, no connect phase), `sebastian.session` wake/sleep
+   signals, transport kept across conversations, reconnect on room death + a
+   15 s idle health check (CONNECTED + agent present). Agent
+   (`SEBASTIAN_ENDPOINT=1`): stays in the room, **lazy LLM lifecycle** — session
+   opens on the wake signal, closes on sleep; idle announces run a brief
+   TTS-only session. **Proactive announce to a sleeping device works** (heard:
+   "puedo avisarte sin que me despiertes", via curl, device untouched).
+   **Field-earned caveats / follow-ups:**
+   - **Announces speak via TTS (`session.say`), never the realtime model**: a
+     cold Gemini Live session returns empty/garbled first generations (~6 cases
+     measured: 0.007s/0-token replies, "Anuncio en curso.", "Let me check") —
+     TTS is deterministic and verbatim.
+   - **Cold-start toll on the first turn of every conversation** (lazy = fresh
+     Gemini per wake; first generation often empty → the nudge or the user's
+     repeat unblocks at ~6-12 s). TODO: shorten the endpoint nudge (~2.5 s),
+     and/or a keep-warm window (hold the LLM session ~2 min after each
+     conversation), and/or test OpenAI Realtime for cold-start behavior.
+   - **The client SDK lies about room state** after a server-side room delete
+     (stuck CONNECTED/RECONNECTING forever — #186 family): state-based health
+     checks are insufficient. TODO #1: **app-level liveness ping/pong** over the
+     data channel (device pings at idle; endpoint agent pongs; no pong 30 s →
+     recycle).
+   - **XVF state survives esp_restart**: a wedged audio path (mute speaker) only
+     clears on POWER-CYCLE — serial resets are not enough; also make the mute
+     state visible in telemetry/agent logs (half an hour was lost to a silent
+     speaker).
 4. **`record_note`** (consume the mic → store → Zetesis transcription).
 5. **Music publisher** (Ingest / publisher participant).
 6. **The web UI** ties the modes together.

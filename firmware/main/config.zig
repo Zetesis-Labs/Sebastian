@@ -61,6 +61,15 @@ pub var fixed_beam_azimuth_deg: f32 = 0.0;
 /// the half-duplex gate + wake-word barge-in handle the echo.
 pub var full_duplex: bool = true;
 
+/// Endpoint mode (ROADMAP §9): hold ONE persistent LiveKit session instead of
+/// connecting per wake. At idle the mic publishes gate silence (Opus DTX ≈ zero
+/// network) and the wake word runs on-device exactly as before — no voice leaves
+/// the device until wake. What changes: the server can push audio ANYTIME
+/// (proactive announce, music), and the wake→response path skips token+connect
+/// (~1-2 s faster, no per-wake connect failures). The agent pairs this with a
+/// lazy LLM session (opens on the `sebastian.session` "wake" signal).
+pub var always_connected: bool = false;
+
 // The three boot self-tests stay COMPILE-TIME (`const`), NOT runtime `var`. As a
 // runtime var they defeat dead-code elimination, so xvf_aec's probe machinery —
 // including its ~15 KB of static tone/rx buffers (TONE_PAIRS, tone_buf,
@@ -96,4 +105,5 @@ pub fn load() void {
     fixed_beam = sebastian_cfg_get_bool("fixed_beam", fixed_beam);
     fixed_beam_azimuth_deg = @floatFromInt(sebastian_cfg_get_i32("beam_az", @intFromFloat(fixed_beam_azimuth_deg)));
     full_duplex = sebastian_cfg_get_bool("full_duplex", full_duplex);
+    always_connected = sebastian_cfg_get_bool("always_conn", always_connected);
 }

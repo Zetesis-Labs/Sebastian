@@ -178,6 +178,17 @@ class SebastianAudioInput(agents.io.AudioInput):
         room.on("track_subscribed", self._on_track_subscribed)
         room.register_byte_stream_handler(PREROLL_TOPIC, self._on_preroll)
 
+        # Endpoint mode creates this input lazily (at wake), long after the
+        # device's mic track was subscribed — that event already fired, so
+        # attach to any existing device audio track now.
+        for participant in room.remote_participants.values():
+            if participant.identity != DEVICE_IDENTITY:
+                continue
+            for pub in participant.track_publications.values():
+                track = pub.track
+                if track is not None and track.kind == rtc.TrackKind.KIND_AUDIO:
+                    self._on_track_subscribed(track, pub, participant)
+
     def on_attached(self) -> None:
         self._attached = True
 
