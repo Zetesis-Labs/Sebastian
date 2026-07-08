@@ -230,10 +230,22 @@ beam (RIGHT slot)** and throw away the post-processing of the **comms channel
    automatic level normalization.
 6. **NS / dereverb in far-field.** The XVF has both (comms channel) but we block
    it by using the raw ASR channel — exploit it without ruining the ASR.
-7. **Session/transport robustness.** The SCTP storm
-   (esp-webrtc-solution#186), `silence_timeout` disconnects, and the fragile S3
-   native USB (flash and Web Serial re-enumerate/reset the board). The
-   "never fails" axis.
+7. **Session/transport robustness.** `silence_timeout` disconnects and the
+   fragile S3 native USB (flash and Web Serial re-enumerate/reset the board).
+   The "never fails" axis. **The SCTP INIT storm (esp-webrtc-solution#186) is
+   RESOLVED (2026-07-08)** via a 1-line patch in our `components/livekit`
+   override (`peer.c`): the device's two PCs behave differently — the
+   **publisher** peer's SCTP associates and carries ALL working data channels
+   both ways (pre-roll/barge_in out, agent_state in); the **subscriber** peer's
+   SCTP INIT is never answered and esp_peer retransmits with **no backoff** at
+   ~9/s all session (232-398 INITs observed; identical against LiveKit Cloud
+   and self-hosted v1.13.3 — device SDK bug, not server). Fix: only the
+   publisher requests a data channel → 0 INITs, and **~7 KB of internal heap
+   freed per session** (the storm's SCTP machinery). Negative result also
+   documented in-code: `no_auto_reconnect=true` does NOT help (it gates
+   whole-peer reconnect, not INIT retransmission). Peer↔role map was pinned by
+   the inverse experiment (disabling the publisher DC instead kills pre-roll →
+   no mic handoff → level=0 silence-timeout sessions).
 8. **Acoustic design (hardware-ish).** Mic array + speaker in one enclosure; the
    non-stationary echo is partly physical.
 

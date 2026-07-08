@@ -10,7 +10,7 @@ dependencies:
       type: service
     version: 0.5.3
   espressif/dl_fft:
-    component_hash: ced3cf28cc70452b7859c06f4e5059215167254a2047e34c893d6f501ccd6ea2
+    component_hash: 2f319e72f3ab6f673c83849d6a14b68c21165d4dce24e12af7c13714ba35a6e0
     dependencies:
     - name: idf
       require: private
@@ -18,7 +18,7 @@ dependencies:
     source:
       registry_url: https://components.espressif.com
       type: service
-    version: 0.4.0
+    version: 0.5.0
   espressif/esp-dsp:
     component_hash: 619639efc18cfa361a9e423739b9b0ffc14991effc6c027f955c2f2c3bf1754b
     dependencies:
@@ -170,7 +170,7 @@ dependencies:
       require: private
       version: '>=4.4'
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
     version: 0.7.11
   espressif/esp_codec_dev:
@@ -258,7 +258,7 @@ dependencies:
       require: private
       version: ^1.0.0
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
     version: 1.4.2
   espressif/esp_sccb_intf:
@@ -343,7 +343,7 @@ dependencies:
       require: private
       version: '>=5.0'
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
     version: 1.7.0
   espressif/gmf_audio:
@@ -438,46 +438,32 @@ dependencies:
     component_hash: 54bb18f2b0b44fdb6d30eca8ee1bbd0e9094086e46226917e83220dde4ce65ca
     dependencies: []
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
     version: 0.2.8
   livekit/livekit:
-    component_hash: 8ea93a0fec163e653631b1e5ceffe694580fc46e2a9034b269f4a2a28a3d1c2e
     dependencies:
     - name: espressif/esp_capture
-      registry_url: https://components.espressif.com
-      require: public
+      public: true
       version: ~0.7
     - name: espressif/esp_peer
-      registry_url: https://components.espressif.com
-      require: private
       version: ~1.4.2
     - name: espressif/esp_websocket_client
-      registry_url: https://components.espressif.com
-      require: private
       version: ~1.7.0
     - name: idf
-      require: private
       version: '>=5.4'
     - name: livekit/khash
-      registry_url: https://components.espressif.com
-      require: private
       version: ~0.2.8
     - name: livekit/nanopb
-      registry_url: https://components.espressif.com
-      require: private
       version: ~0.4.9
     - name: tempotian/av_render
-      registry_url: https://components.espressif.com
-      require: public
+      public: true
       version: ~0.9.1
     - name: tempotian/media_lib_sal
-      registry_url: https://components.espressif.com
-      require: private
       version: ~0.9.1
     source:
-      registry_url: https://components.espressif.com/
-      type: service
+      path: /Users/ruben/Developer/Sebastian/firmware/components/livekit
+      type: local
     targets:
     - esp32s3
     - esp32p4
@@ -486,7 +472,7 @@ dependencies:
     component_hash: 5b3bd915d2eb2ad1a7bb4a3ca655c40f31bab5f4f48e75ec04e300dc9ab78f4d
     dependencies: []
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
     version: 0.4.9
   livekit/sandbox_token:
@@ -523,23 +509,30 @@ dependencies:
       require: private
       version: ~0.9
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
     version: 0.9.1
   tempotian/media_lib_sal:
     component_hash: 6e7f5b5bf826e3e133162099c6e041559f19675fcbec214f7f92bba21708a004
     dependencies: []
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
     version: 0.9.1
 direct_dependencies:
 - espressif/esp-tflite-micro
+- espressif/esp_capture
 - espressif/esp_codec_dev
+- espressif/esp_peer
+- espressif/esp_websocket_client
 - idf
 - livekit/example_utils
+- livekit/khash
 - livekit/livekit
+- livekit/nanopb
 - livekit/sandbox_token
-manifest_hash: ed18c65de5b37870476eacce02ea8f5ff39dcfeafed2ff60b58a40d7c75f3475
+- tempotian/av_render
+- tempotian/media_lib_sal
+manifest_hash: d7ac8ecd70c8a16111d751ac3e9adc3e8834a7d3f42fa2e095c9365b3ed815f4
 target: esp32s3
 version: 2.0.0

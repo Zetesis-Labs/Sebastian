@@ -1,0 +1,10 @@
+dependencies:
+  espressif/esp32_s3_korvo_2: 4.1.0
+  idf: '>=5.4'
+  livekit/example_utils:
+    version: ~0.2.0
+  livekit/livekit:
+    version: 0.3.10
+  livekit/sandbox_token:
+    version: ~0.1.0
+  tempotian/codec_board: ~1.0.0
