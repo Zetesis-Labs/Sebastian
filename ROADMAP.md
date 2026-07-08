@@ -136,6 +136,12 @@ Actionable, deduplicated. Deep multi-session efforts link to their design sectio
 10. **Pre-roll PSRAM silently degrades** — reflect it in boot health.
 11. **Document invocation states in `config.zig`** — to the detail level of the
     LEFT/RIGHT channel decision (the last open audit finding).
+12. **NS replacement for self-host** (2026-07-08, from daily use): without
+    Cloud's BVC the model hears the raw beam — fine in a quiet room, degrades
+    with noise (mangled transcriptions, lost turns). Candidates in the §6
+    caveat: XVF comms-channel NS (§5 #6) or open-source NS (RNNoise) in the
+    agent's `AudioInput`. Until then: half_duplex on self-host (its echo role)
+    and accept raw-beam hearing.
 
 ---
 

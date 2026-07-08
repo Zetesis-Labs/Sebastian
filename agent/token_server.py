@@ -81,9 +81,23 @@ async def _ensure_agent_dispatch(lk: api.LiveKitAPI) -> None:
         parts = await lk.room.list_participants(
             api.ListParticipantsRequest(room=ROOM)
         )
-        if any(p.kind == api.ParticipantInfo.Kind.AGENT for p in parts.participants):
+        has_agent = any(
+            p.kind == api.ParticipantInfo.Kind.AGENT for p in parts.participants
+        )
+        has_device = any(p.identity == IDENTITY for p in parts.participants)
+        if has_agent and has_device:
+            # Live session re-fetch: exactly one agent already serving the
+            # device — dispatching another would talk over it.
             print("[token-server] agent already in room — skipping dispatch", flush=True)
             return
+        if has_agent and not has_device:
+            # Zombie signature (field bug 2026-07-08): the device left (silence
+            # timeout) but a quick re-wake found the old room still alive with
+            # the previous agent session in it — which ignores the new wake's
+            # pre-roll ("late stream ignored") and never answers. Self-heal:
+            # kill the stale room, fall through to a fresh dispatch.
+            print("[token-server] stale agent-only room — deleting + redispatching", flush=True)
+            await lk.room.delete_room(api.DeleteRoomRequest(room=ROOM))
     except Exception as e:  # room not created yet → dispatch below
         print(f"[token-server] no room yet ({e!r}) — dispatching", flush=True)
     await lk.agent_dispatch.create_dispatch(
