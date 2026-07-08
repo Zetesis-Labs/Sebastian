@@ -11,6 +11,27 @@ from tasks import spawn as _spawn
 
 log = logging.getLogger("sebastian.agent.audio")
 
+
+def _bvc_if_available():
+    """BVC noise cancellation, only where it can actually run.
+
+    BVC is a LiveKit Cloud service: against a self-hosted SFU it fails with
+    `not authenticated` + `failed to initialize the audio filter` and the model
+    hears RAW far-field audio (the device intentionally publishes the raw ASR
+    beam with no on-chip NS, counting on BVC as the single NS pass — so losing
+    it silently degrades transcription badly). Default: BVC on Cloud, none on
+    self-hosted. Override with SEBASTIAN_BVC=1/0 to force either way.
+    """
+    override = os.getenv("SEBASTIAN_BVC")
+    if override is not None:
+        enabled = override == "1"
+    else:
+        enabled = ".livekit.cloud" in os.getenv("LIVEKIT_URL", "")
+    if not enabled:
+        log.warning("[audio] BVC disabled (self-hosted SFU) — model hears the raw beam")
+        return None
+    return noise_cancellation.BVC()
+
 REC_PATH = "/tmp/sebastian_rx.wav"
 PREROLL_PATH = "/tmp/sebastian_preroll.wav"
 PREROLL_TOPIC = "sebastian.preroll"
@@ -196,7 +217,7 @@ class SebastianAudioInput(agents.io.AudioInput):
             sample_rate=LIVE_SAMPLE_RATE,
             num_channels=1,
             frame_size_ms=LIVE_FRAME_MS,
-            noise_cancellation=noise_cancellation.BVC(),
+            noise_cancellation=_bvc_if_available(),
         )
         self._track_task = asyncio.create_task(
             self._forward_track(participant.identity)

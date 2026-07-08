@@ -19,7 +19,13 @@ m_state = telemetry.counter(
 )
 m_errors = telemetry.counter("sebastian_agent_errors_total", "Session error events")
 
-NUDGE_AFTER_S = 3.0
+# 6s, not 3s: at 3s the nudge raced the model's own in-flight response (tool
+# turns naturally take >3s) — the orphaned generate_reply() then blocked 5s
+# waiting for a generation_created that never came, showing the user a zombie
+# "thinking" state ("failed to generate a reply" ERROR, observed twice
+# 2026-07-08). The nudge exists for a truly-silent opener, where +3s of extra
+# wait is a fine price for never colliding with a live generation.
+NUDGE_AFTER_S = 6.0
 AGENT_STATE_TOPIC = "sebastian.agent_state"
 
 
@@ -45,6 +51,17 @@ def instrument_session(session: AgentSession) -> None:
         # when the pre-roll injection cancels the greeting mid-generation.
         await asyncio.sleep(NUDGE_AFTER_S)
         nudge.task = None
+        # Defense in depth against the race above: only nudge into a session
+        # that is demonstrably idle. A generate_reply() fired while the model
+        # is generating (or a speech is playing) is doomed to the 5s timeout.
+        state = getattr(session, "agent_state", None)
+        speech = getattr(session, "current_speech", None)
+        if speech is not None or state not in (None, "listening"):
+            log.info(
+                "nudge skipped: session not idle (state=%s, speech=%s)",
+                state, speech is not None,
+            )
+            return
         log.warning(
             "no response %.1fs after first user turn — nudging generate_reply",
             NUDGE_AFTER_S,
@@ -99,6 +116,22 @@ def instrument_session(session: AgentSession) -> None:
         for call in ev.function_calls:
             m_tools.add(1, {"tool": call.name})
             log.info("tool executed: %s", call.name)
+
+    @session.on("metrics_collected")
+    def _on_metrics(ev: Any) -> None:
+        # Per-turn latency attribution for the "stuck thinking" class of bugs:
+        # RealtimeModelMetrics carries ttft (first token) and duration. Logged
+        # (→ Loki) rather than only countered, so a slow turn can be read back.
+        m = getattr(ev, "metrics", None)
+        if m is None:
+            return
+        fields = {
+            k: round(v, 3) if isinstance(v, float) else v
+            for k in ("ttft", "duration", "audio_duration", "input_tokens", "output_tokens")
+            if (v := getattr(m, k, None)) is not None
+        }
+        if fields:
+            log.info("metrics %s: %s", type(m).__name__, fields)
 
     @session.on("error")
     def _on_error(ev: Any) -> None:
