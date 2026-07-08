@@ -207,6 +207,10 @@ fn renderRefCb(data: ?[*]u8, size: c_int, _: ?*anyopaque) callconv(.c) c_int {
     return 0;
 }
 
+// Stashed for onDataReceived: the "interrupted" barge-in flush needs the render
+// handle from a C callback that has no access to the AudioPipeline.
+var speaker_render: c.av_render_handle_t = null;
+
 fn buildRenderer() AppError!RenderHandle {
     var i2s_cfg = std.mem.zeroes(c.i2s_render_cfg_t);
     i2s_cfg.play_handle = board.playbackHandle();
@@ -236,6 +240,7 @@ fn buildRenderer() AppError!RenderHandle {
     // av_render bug: set_fixed_frame_info stores the info but always returns
     // ESP_MEDIA_ERR_WRONG_STATE (ret is never set to 0) — ignore the code.
     _ = c.av_render_set_fixed_frame_info(handle, &frame);
+    speaker_render = handle;
     log.info("speaker render pipeline ready", .{});
     return handle.?;
 }
@@ -285,6 +290,18 @@ fn onDataReceived(data: *const c.livekit_data_received_t, _: ?*anyopaque) callco
     if (!std.mem.eql(u8, std.mem.span(topic), "sebastian.agent_state")) return;
 
     const state = bytes[0..data.payload.size];
+    if (std.mem.eql(u8, state, "interrupted")) {
+        // Barge-in: the agent aborted mid-speech, but SECONDS of its reply can
+        // still sit in the render FIFO (the model generates faster than
+        // realtime), so the speaker keeps narrating after the model went quiet
+        // ("no para"). Dump everything queued; the stream stays open for new
+        // audio (av_render_flush, not reset).
+        agent_speaking.store(false, .release);
+        mic_src.setAgentSpeaking(false);
+        if (speaker_render != null) _ = c.av_render_flush(speaker_render);
+        log.info("agent interrupted — render FIFO flushed", .{});
+        return;
+    }
     const speaking = std.mem.eql(u8, state, "speaking");
     agent_speaking.store(speaking, .release);
     mic_src.setAgentSpeaking(speaking); // half-duplex: gate the mic while it talks
@@ -406,12 +423,25 @@ fn unmuteXvf() bool {
 
 fn fullDuplexAllowed(aec_configured: bool) bool {
     if (!cfg.full_duplex) return false;
-    if (!cfg.fixed_beam) {
-        log.err("full-duplex requested but fixed_beam=false — forcing half-duplex", .{});
+    if (!aec_configured) {
+        // Both paths need the verified XVF config: path A for the converged
+        // linear AEC, path B because FAR_END_DSP_ENABLE=1 is also what feeds
+        // the far-end reference to the comms residual suppressor.
+        log.err("full-duplex requested but AEC config failed — forcing half-duplex", .{});
         return false;
     }
-    if (!aec_configured) {
-        log.err("full-duplex requested but AEC config failed — forcing half-duplex", .{});
+    if (cfg.mic_channel == .left) {
+        // Path B (comms beam): the non-linear residual suppressor cancels the
+        // loudspeaker echo WITHOUT a converged linear AEC and WITH the adaptive
+        // beam (hardware-validated, probeDualChannel: echo-rise −2 568 vs
+        // +101 655 raw). A fixed beam is not a prerequisite on this channel —
+        // full-duplex WITH talker tracking.
+        return true;
+    }
+    // Path A (raw ASR beam): only the converged linear AEC protects the mic,
+    // and it only converges on a fixed beam.
+    if (!cfg.fixed_beam) {
+        log.err("full-duplex requested but fixed_beam=false — forcing half-duplex", .{});
         return false;
     }
     return true;

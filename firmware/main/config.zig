@@ -29,7 +29,15 @@ pub const MicChannel = enum { left, right };
 
 /// The channel this unit is installed with. COMPILE-TIME: xvf_pcm.zig derives the
 /// I2S slot + gain shift from it at comptime, so changing it needs a reflash.
-pub const mic_channel: MicChannel = .right;
+///
+/// .left since 2026-07-08 (path B, ROADMAP §5): on the self-hosted SFU there is
+/// no cloud BVC, so the raw ASR beam reaches the model with NO noise suppression
+/// and NO residual-echo cleanup — full-duplex feeds the agent its own voice back
+/// ("se acopla") and noisy rooms degrade transcription. The comms beam provides
+/// both on-chip (validated: probeDualChannel echo-rise −2 568 adaptive/unconverged
+/// vs +101 655 on raw), and with BVC gone the old "double NS = tinny" concern no
+/// longer applies — comms is now the single NS pass by design.
+pub const mic_channel: MicChannel = .left;
 
 /// Freeze the XVF beamformer to a fixed direction so the AEC can converge.
 ///

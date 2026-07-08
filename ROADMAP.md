@@ -27,9 +27,12 @@ brains**. Self-hosted LiveKit is the shared foundation under both.
   dispatch.
 - **Conversation**: barge-in ("Sebastián" cuts the agent off); LINGER follow-up;
   `end_session` by voice; half-duplex gate while the agent speaks.
-- **Audio/AEC**: AEC reference closed and converged; full-duplex on a **fixed**
-  beam in production; path B (full-duplex **with tracking**) validated but not
-  integrated (→ §5).
+- **Audio/AEC**: AEC reference closed and converged; **path B SHIPPED
+  (2026-07-08)**: full-duplex **with talker tracking** in production — session
+  audio from the comms channel (on-chip residual echo suppression + NS +
+  de-reverb), adaptive beam, wake word validated on the processed channel, and
+  crisp barge-in (agent publishes `interrupted` → firmware flushes the render
+  FIFO). Details + what remains (double-talk fine-tuning, `calibrate_audio`) in §5.
 - **Agent**: livekit-agents 1.6.x; Gemini Live default (OpenAI Realtime
   fallback); Home Assistant via MCP with anti-hallucination grounding.
 - **Ops**: observability (agent→Loki per-turn, heartbeat; `tools/telemetry/`);
@@ -126,8 +129,11 @@ Actionable, deduplicated. Deep multi-session efforts link to their design sectio
    (`logHeap()` at boot + around connect, §6). Still pending: in-session audio
    levels, free heap trend, RSSI, temperature + Grafana alerts (reboot, SCTP,
    deaf channel, mute serial).
-6. **AEC project → full-duplex with tracking** — the big audio win; design + state
-   in §5. Path B is validated; what remains is integration + double-talk tuning.
+6. **AEC project → full-duplex with tracking** — *core SHIPPED 2026-07-08 (§5:
+   path B integrated, live-validated end to end).* Remaining: `PP_DTSENSITIVE`
+   double-talk fine-tuning if field use shows near-end speech loss, comms AGC
+   if levels prove hot, and the `calibrate_audio` voice tool (§5, needs the
+   volume actuator, item #7).
 7. **Volume by voice** (agent→device RPC; the data pipeline exists both ways) +
    LED by agent state (already received). Prerequisite for the `calibrate_audio`
    tool (§5).
@@ -136,12 +142,9 @@ Actionable, deduplicated. Deep multi-session efforts link to their design sectio
 10. **Pre-roll PSRAM silently degrades** — reflect it in boot health.
 11. **Document invocation states in `config.zig`** — to the detail level of the
     LEFT/RIGHT channel decision (the last open audit finding).
-12. **NS replacement for self-host** (2026-07-08, from daily use): without
-    Cloud's BVC the model hears the raw beam — fine in a quiet room, degrades
-    with noise (mangled transcriptions, lost turns). Candidates in the §6
-    caveat: XVF comms-channel NS (§5 #6) or open-source NS (RNNoise) in the
-    agent's `AudioInput`. Until then: half_duplex on self-host (its echo role)
-    and accept raw-beam hearing.
+12. ~~**NS replacement for self-host**~~ — *RESOLVED 2026-07-08 by the path-B
+    integration (#6): the comms channel carries the XVF's own NS + de-reverb
+    on-chip; transcription validated clean without BVC.*
 
 ---
 
@@ -276,12 +279,29 @@ adaptive beam**. Measured with noise at agent level:
 
 The mechanism is proven — no longer a research risk.
 
-**What's missing** (no new architecture — the plumbing exists: `mic_channel`,
-`full_duplex` flag, gate bypass):
-1. `mic_channel = .left` + `fixed_beam = false` → 2 flags + reflash.
-2. Tune the comms AGC (factory 32× = the "tinny sound") so it doesn't degrade ASR.
-3. Wake word on the processed channel, or wake-on-RIGHT + session-on-LEFT (both
-   slots arrive on the same I2S stream).
+**SHIPPED 2026-07-08** — integration validated live on the self-hosted stack:
+1. `mic_channel = .left` + adaptive beam + `fullDuplexAllowed` path-B branch
+   (comms channel needs neither a fixed beam nor AEC convergence — only the
+   verified `FAR_END_DSP_ENABLE=1` far-end reference).
+2. **Wake word works on the processed channel as-is** (fired at 88%, 3/3 field
+   tests) — no channel split needed, the shared-slot invariant stands.
+3. Transcription on comms is CLEAN without BVC (the "tinny/double-NS" concern
+   died with BVC: comms is now the single NS pass by design) — this also
+   resolved the self-host NS gap (old backlog #12).
+4. No self-echo phantom turns; residual suppressed (live_echo 32765→2270 while
+   render at 4.8M).
+5. **Crisp barge-in required one extra piece:** the model generates faster than
+   realtime, so seconds of reply sit in the device render FIFO — cancelling
+   generation alone leaves the speaker narrating ("no para"). The agent now
+   publishes `interrupted` on the agent_state topic when an assistant item
+   arrives truncated, and the firmware calls `av_render_flush` (stream stays
+   open). Also: `aec_warmup_duration=0.0` (the framework's 3s software-AEC
+   warmup blocked interruptions; ours is hardware), and instructions separate
+   "para/cállate" (stop + stay listening) from explicit farewell (end_session).
+
+**Still open (fine-tuning):** double-talk knob `PP_DTSENSITIVE` if the
+suppressor eats near-end speech in practice (first field tests: user speech got
+through, transcribed clean mid-playback); comms AGC only if levels prove hot.
 
 **⚠️ The only real gate: double-talk.** The probe measured **echo** (agent
 speaking, user quiet), **not double-talk** (both at once) — the Achilles heel of
@@ -454,10 +474,10 @@ needed** — pure extension of the voice pipeline, highest value-per-effort.
   custom `AudioInput` — server-side, fits the thin-endpoint model.
   **Cascade discovered in the field:** full-duplex mode also leaned on BVC as
   the second defense against residual speaker echo — without it the agent
-  hears its own voice as phantom turns ("se acopla"). On self-host, run
-  **half_duplex** (re-provision, adaptive beam back as a bonus) until the §5
-  path-B residual suppressor replaces BVC's echo role. Full-duplex + self-host
-  is BLOCKED on the AEC project, not just on an NS replacement.
+  heard its own voice as phantom turns ("se acopla"). **RESOLVED same day: the
+  §5 path-B integration shipped** — the comms channel's on-chip residual
+  suppressor + NS replace both of BVC's roles, self-hosted full-duplex works
+  with talker tracking.
 
 ---
 
