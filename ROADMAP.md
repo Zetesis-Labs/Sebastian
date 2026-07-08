@@ -436,6 +436,22 @@ needed** — pure extension of the voice pipeline, highest value-per-effort.
 - **RAM edge stands:** on-device modes (assistant / DLNA-if-ever / intercom) remain
   **mutually exclusive**, not simultaneous. Vision needs a camera; multi-room needs
   more units.
+- **Self-hosting loses BVC (discovered the hard way, 2026-07-08).** LiveKit's
+  noise cancellation is a **Cloud-authenticated service**: on a self-hosted SFU
+  the audio filter fails `not authenticated` and is silently disabled — and the
+  device intentionally publishes the raw ASR beam with **no on-chip NS**,
+  counting on BVC as the single NS pass, so the model hears raw far-field audio
+  (mangled transcriptions, lost turns → "it's gone dumb"). Now explicit
+  (`audio_input._bvc_if_available`, `SEBASTIAN_BVC` override). **Replacement
+  needed for self-host:** (a) enable the XVF's own NS/post-processing (comms
+  channel, §5 #6) or (b) an open-source NS (e.g. RNNoise) inside the agent's
+  custom `AudioInput` — server-side, fits the thin-endpoint model.
+  **Cascade discovered in the field:** full-duplex mode also leaned on BVC as
+  the second defense against residual speaker echo — without it the agent
+  hears its own voice as phantom turns ("se acopla"). On self-host, run
+  **half_duplex** (re-provision, adaptive beam back as a bonus) until the §5
+  path-B residual suppressor replaces BVC's echo role. Full-duplex + self-host
+  is BLOCKED on the AEC project, not just on an NS replacement.
 
 ---
 
