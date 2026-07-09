@@ -30,3 +30,10 @@ room, LiveKit dispatches a job and the agent joins automatically.
 Before having the firmware working you can talk to the agent from the
 browser with the [Agents Playground](https://agents-playground.livekit.io/) or
 `lk room join`, pointing to the same LiveKit Cloud project.
+
+## Deploy
+
+In production the three backend services (token server, agent worker, control
+plane) build from `Dockerfile` into images at `gauss.nexolabs.dev/sebastian/*`
+and deploy to Cortes via the `helm/sebastian` chart. See the chart README and
+`Mileto-Infra-GitOps/px-platon/cortes/sebastian/`.
