@@ -62,6 +62,9 @@ tokenServer:
     pullPolicy: IfNotPresent
   # existingSecret keys: LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET.
   existingSecret: ""
+  # hostPort on the node's LAN IP for the ESP32 (off Tailscale, can't reach the
+  # ingress). Empty ⇒ no hostPort (ClusterIP/ingress only). Set e.g. 8787 in prod.
+  hostPort: ""
   service:
     port: 80
     targetPort: 8787

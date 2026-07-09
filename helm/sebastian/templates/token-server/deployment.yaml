@@ -35,6 +35,13 @@ spec:
             - name: http
               containerPort: {{ .Values.tokenServer.service.targetPort }}
               protocol: TCP
+              {{- if .Values.tokenServer.hostPort }}
+              # The ESP32 is on the LAN, not on Tailscale, so it can't reach the
+              # Traefik ingress. A hostPort on the node's LAN IP gives the device
+              # a direct, DNS-free path: provision tokenServerUrl at
+              # http://<node-ip>:{{ .Values.tokenServer.hostPort }}/token.
+              hostPort: {{ .Values.tokenServer.hostPort }}
+              {{- end }}
           readinessProbe:
             httpGet:
               path: /health
