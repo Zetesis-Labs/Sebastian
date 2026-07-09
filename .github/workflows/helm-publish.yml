@@ -33,6 +33,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+
       - name: Log into registry (helm OCI)
         env:
           HARBOR_USER: ${{ secrets.HARBOR_USERNAME }}
