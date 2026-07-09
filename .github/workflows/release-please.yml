@@ -1,0 +1,125 @@
+name: Release Please
+
+# On push to main: release-please maintains a release PR from conventional
+# commits. Merging it cuts tags/releases per component, which triggers the
+# image/chart publishes and an auto-bump PR to Mileto's env.json — the same
+# pipeline as ZetesisPortal.
+#
+# Components:
+#   - agent (agent/)          → drives ALL THREE image tags (one uv package)
+#   - helm  (helm/sebastian/) → the chart
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: herschel-runners
+    outputs:
+      releases_created: ${{ steps.release.outputs.releases_created }}
+      agent_released: ${{ steps.release.outputs['agent--release_created'] }}
+      agent_version: ${{ steps.release.outputs['agent--version'] }}
+      helm_released: ${{ steps.release.outputs['helm/sebastian--release_created'] }}
+      helm_version: ${{ steps.release.outputs['helm/sebastian--version'] }}
+    steps:
+      - id: release
+        uses: googleapis/release-please-action@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  # One agent release → all three images at the same version.
+  publish-images:
+    needs: release-please
+    if: needs.release-please.outputs.agent_released == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/docker-publish.yml
+    with:
+      version: ${{ needs.release-please.outputs.agent_version }}
+    secrets:
+      HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+      HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+
+  publish-helm:
+    needs: release-please
+    if: needs.release-please.outputs.helm_released == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/helm-publish.yml
+    with:
+      version: ${{ needs.release-please.outputs.helm_version }}
+    secrets:
+      HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+      HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+
+  bump-mileto:
+    needs: [release-please, publish-images, publish-helm]
+    if: |
+      always() &&
+      needs.release-please.outputs.releases_created == 'true' &&
+      needs.publish-images.result != 'failure' &&
+      needs.publish-helm.result != 'failure'
+    runs-on: herschel-runners
+    steps:
+      - name: Checkout Mileto-Infra-GitOps
+        uses: actions/checkout@v6
+        with:
+          repository: Zetesis-Labs/Mileto-Infra-GitOps
+          token: ${{ secrets.GH_TOKEN }}
+          path: mileto-infra
+      - name: Bump env.json
+        env:
+          AGENT_RELEASED: ${{ needs.release-please.outputs.agent_released }}
+          HELM_RELEASED: ${{ needs.release-please.outputs.helm_released }}
+          AGENT_VERSION: ${{ needs.release-please.outputs.agent_version }}
+          HELM_VERSION: ${{ needs.release-please.outputs.helm_version }}
+        run: |
+          set -euo pipefail
+          cd mileto-infra
+          ENV_FILE=px-platon/cortes/sebastian/envs/prod/env.json
+          tmp=$(mktemp)
+          jq \
+            --arg agent_released "$AGENT_RELEASED" --arg agent "v$AGENT_VERSION" \
+            --arg helm_released "$HELM_RELEASED"  --arg helm "$HELM_VERSION" \
+            '
+            (if $agent_released == "true" then .tokenServerImageTag = $agent | .agentImageTag = $agent | .controlPlaneImageTag = $agent else . end) |
+            (if $helm_released  == "true" then .chartVersion        = $helm  else . end)
+            ' "$ENV_FILE" > "$tmp"
+          mv "$tmp" "$ENV_FILE"
+          git diff "$ENV_FILE" || true
+      - name: Commit and open PR
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd mileto-infra
+          if git diff --quiet; then
+            echo "No env.json changes to push."
+            exit 0
+          fi
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          BRANCH="auto-bump/sebastian-${{ github.run_id }}"
+          git checkout -b "$BRANCH"
+          git add px-platon/cortes/sebastian/envs/prod/env.json
+          git commit -m "chore(prod): bump Sebastian images and chart" \
+            -m "Auto-generated from Zetesis-Labs/Sebastian release ${{ github.sha }}." \
+            -m "Released: agent=${{ needs.release-please.outputs.agent_released }} v${{ needs.release-please.outputs.agent_version }}, helm=${{ needs.release-please.outputs.helm_released }} v${{ needs.release-please.outputs.helm_version }}."
+          git push origin "$BRANCH"
+          gh pr create \
+            --repo Zetesis-Labs/Mileto-Infra-GitOps \
+            --title "chore(prod): bump Sebastian — auto-bump from release ${{ github.sha }}" \
+            --body "Automated bump triggered by release of [Zetesis-Labs/Sebastian@${{ github.sha }}](https://github.com/Zetesis-Labs/Sebastian/commit/${{ github.sha }})." \
+            --label auto-bump \
+            --head "$BRANCH" \
+            --base main
