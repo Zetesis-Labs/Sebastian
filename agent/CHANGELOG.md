@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/Zetesis-Labs/Sebastian/compare/agent-v0.1.2...agent-v0.1.3) (2026-07-09)
+
+
+### Features
+
+* **agent:** control-plane announce scaffolding (per-session delivery) ([485413f](https://github.com/Zetesis-Labs/Sebastian/commit/485413f4cbcd68394d7747565eabc3aa18e31eff))
+
 ## [0.1.2](https://github.com/Zetesis-Labs/Sebastian/compare/agent-v0.1.1...agent-v0.1.2) (2026-07-09)
 
 
