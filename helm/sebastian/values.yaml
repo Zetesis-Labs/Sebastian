@@ -91,6 +91,9 @@ agent:
     pullPolicy: IfNotPresent
   # SEBASTIAN_ENDPOINT — always-connected/endpoint mode. Off until it lands.
   endpointMode: false
+  # Run on the node's network (needed when the SFU is hostNetwork, so the agent
+  # reaches its media/data over host loopback instead of the flaky pod→node path).
+  hostNetwork: false
   # existingSecret keys: LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET,
   #   GOOGLE_API_KEY (Gemini) and/or OPENAI_API_KEY, SEBASTIAN_HA_MCP_URL,
   #   SEBASTIAN_HA_TOKEN, MEM0_API_KEY (optional).

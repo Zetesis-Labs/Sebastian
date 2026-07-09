@@ -18,6 +18,14 @@ spec:
         {{- include "sebastian.labels" . | nindent 8 }}
         {{- include "sebastian.selectorLabels" (dict "ctx" . "component" "agent") | nindent 8 }}
     spec:
+      {{- if .Values.agent.hostNetwork }}
+      # Same node-network as the hostNetwork SFU: agent↔LiveKit media/data then
+      # flows host↔host (loopback on the node) instead of pod→node-IP, which
+      # Cilium makes unreliable for sustained WebRTC UDP (DTLS timeouts → the
+      # agent drops the room → the device's session collapses with it).
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- end }}
       # The worker registers with the SFU and drains jobs; give in-flight
       # conversations time to close on rollout.
       terminationGracePeriodSeconds: 60
