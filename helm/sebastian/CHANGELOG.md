@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/Zetesis-Labs/Sebastian/compare/helm-v0.1.2...helm-v0.1.3) (2026-07-09)
+
+
+### Bug Fixes
+
+* **helm:** token-server Recreate strategy + disable agent OTEL when no collector ([15c4832](https://github.com/Zetesis-Labs/Sebastian/commit/15c4832cf9be510f108ce14414e67bfc99a2c01c))
+
 ## [0.1.2](https://github.com/Zetesis-Labs/Sebastian/compare/helm-v0.1.1...helm-v0.1.2) (2026-07-09)
 
 
