@@ -8,6 +8,10 @@ metadata:
     {{- include "sebastian.selectorLabels" (dict "ctx" . "component" "token-server") | nindent 4 }}
 spec:
   replicas: {{ .Values.tokenServer.replicaCount }}
+  # Recreate, not RollingUpdate: the pod binds a hostPort, so a surge pod can't
+  # schedule alongside the old one (both want the same node port → stuck Pending).
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       {{- include "sebastian.selectorLabels" (dict "ctx" . "component" "token-server") | nindent 6 }}

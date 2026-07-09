@@ -48,6 +48,11 @@ spec:
             {{- if .Values.agent.otel.endpoint }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: {{ .Values.agent.otel.endpoint | quote }}
+            {{- else }}
+            # No collector in prod yet — disable OTEL so it doesn't retry
+            # localhost:4318 in a loop and spam the logs.
+            - name: SEBASTIAN_OTEL
+              value: "0"
             {{- end }}
           volumeMounts:
             - name: tmp
