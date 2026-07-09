@@ -6,3 +6,14 @@ type: application
 version: 0.1.0
 # App version — the backend image tag line these charts target by default.
 appVersion: "0.1.0"
+home: https://github.com/Zetesis-Labs/Sebastian
+sources:
+  - https://github.com/Zetesis-Labs/Sebastian
+keywords:
+  - sebastian
+  - livekit
+  - voice-agent
+  - esp32
+maintainers:
+  - name: Zetesis-Labs
+    url: https://github.com/Zetesis-Labs
