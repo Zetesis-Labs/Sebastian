@@ -1,0 +1,22 @@
+{{- if .Values.controlPlane.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "sebastian.fullname" . }}-control-plane
+  labels:
+    {{- include "sebastian.labels" . | nindent 4 }}
+    {{- include "sebastian.selectorLabels" (dict "ctx" . "component" "control-plane") | nindent 4 }}
+  {{- with .Values.controlPlane.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.controlPlane.service.port }}
+      targetPort: {{ .Values.controlPlane.service.targetPort }}
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "sebastian.selectorLabels" (dict "ctx" . "component" "control-plane") | nindent 4 }}
+{{- end }}

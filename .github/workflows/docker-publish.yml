@@ -1,0 +1,58 @@
+name: Build & Publish Backend Images
+
+# Builds the three Sebastian backend images from the single agent/Dockerfile
+# (parametrised by the SERVICE build-arg) and pushes them to Harbor. Same shape
+# as ZetesisPortal's backend publish: self-hosted runner, Harbor login,
+# :v<version> + :latest tags.
+#
+# Trigger manually with a version, or from a release workflow via workflow_call.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (semver, no leading v — e.g. 0.1.0)"
+        required: true
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+    secrets:
+      HARBOR_USERNAME:
+        required: true
+      HARBOR_PASSWORD:
+        required: true
+
+env:
+  REGISTRY: gauss.nexolabs.dev
+  HARBOR_PROJECT: sebastian
+
+jobs:
+  build:
+    runs-on: herschel-runners
+    strategy:
+      matrix:
+        service: [token-server, agent, control-plane]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Log into registry
+        env:
+          HARBOR_USER: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASS: ${{ secrets.HARBOR_PASSWORD }}
+        run: echo "${HARBOR_PASS}" | docker login "${REGISTRY}" -u "${HARBOR_USER}" --password-stdin
+
+      - name: Build and push ${{ matrix.service }}
+        run: |
+          IMAGE="${REGISTRY}/${HARBOR_PROJECT}/${{ matrix.service }}"
+          VERSION="v${{ inputs.version }}"
+          docker build \
+            -t "${IMAGE}:${VERSION}" \
+            -t "${IMAGE}:latest" \
+            --build-arg "SERVICE=${{ matrix.service }}" \
+            -f agent/Dockerfile \
+            agent
+          docker push "${IMAGE}:${VERSION}"
+          docker push "${IMAGE}:latest"

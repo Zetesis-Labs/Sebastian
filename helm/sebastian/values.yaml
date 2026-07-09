@@ -1,0 +1,140 @@
+# ============================================================================
+# Sebastian backend — default values. Mirrors ZetesisPortal's chart shape
+# (per-service blocks, existingSecret env, hardened securityContext, ingress).
+#
+# Four workloads:
+#   - livekit       self-hosted SFU (official image, hostNetwork for LAN media)
+#   - tokenServer   HTTP token minter + explicit agent dispatch (:8787)
+#   - agent         LiveKit agent worker (outbound-only, no service)
+#   - controlPlane  HTTP control face — announce, … (:8790)
+#
+# The ESP32 device and LiveKit sit on the SAME LAN, so media (UDP) and signalling
+# reach the node IP directly; only the HTTP faces go through the ingress.
+# ============================================================================
+
+# imagePullSecrets: [{ name: harbor-credentials }] — Harbor robot pull secret,
+# synced by an ExternalSecret in the GitOps repo.
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+# ----------------------------------------------------------------------------
+# LIVEKIT — self-hosted SFU
+# ----------------------------------------------------------------------------
+livekit:
+  enabled: true
+  image:
+    repository: livekit/livekit-server
+    tag: "v1.13.3"
+    pullPolicy: IfNotPresent
+  # hostNetwork so the SFU binds the node's LAN IP directly — the only way to get
+  # WebRTC media (single-port UDP mux) to a device on the same LAN without a
+  # public ingress. This is the one workload the ingress can't cover (UDP).
+  hostNetwork: true
+  # Advertised IP in ICE candidates. Empty ⇒ the pod's node IP (downward API
+  # status.hostIP) — correct under hostNetwork on a single-node LAN cluster.
+  nodeIP: ""
+  ports:
+    signal: 7880   # ws signalling + HTTP API
+    rtcTcp: 7881   # RTC fallback TCP
+    udpMux: 7882   # RTC media — single-port UDP mux (see configmap)
+  # existingSecret must expose LIVEKIT_API_KEY and LIVEKIT_API_SECRET; the key
+  # name registered with the SFU is `keyName` (default devkey, matches dev).
+  existingSecret: ""
+  keyName: "devkey"
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+# ----------------------------------------------------------------------------
+# TOKEN SERVER — HTTP :8787
+# ----------------------------------------------------------------------------
+tokenServer:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: gauss.nexolabs.dev/sebastian/token-server
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  # existingSecret keys: LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET.
+  existingSecret: ""
+  # hostPort on the node's LAN IP for the ESP32 (off Tailscale, can't reach the
+  # ingress). Empty ⇒ no hostPort (ClusterIP/ingress only). Set e.g. 8787 in prod.
+  hostPort: ""
+  service:
+    port: 80
+    targetPort: 8787
+    annotations: {}
+  ingress:
+    enabled: true
+    host: ""   # e.g. sebastian-token.nexolabs.dev
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+
+# ----------------------------------------------------------------------------
+# AGENT — LiveKit worker (no inbound service)
+# ----------------------------------------------------------------------------
+agent:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: gauss.nexolabs.dev/sebastian/agent
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  # SEBASTIAN_ENDPOINT — always-connected/endpoint mode. Off until it lands.
+  endpointMode: false
+  # existingSecret keys: LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET,
+  #   GOOGLE_API_KEY (Gemini) and/or OPENAI_API_KEY, SEBASTIAN_HA_MCP_URL,
+  #   SEBASTIAN_HA_TOKEN, MEM0_API_KEY (optional).
+  existingSecret: ""
+  otel:
+    endpoint: ""   # OTEL_EXPORTER_OTLP_ENDPOINT (LGTM). Empty ⇒ disabled.
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+# ----------------------------------------------------------------------------
+# CONTROL PLANE — HTTP :8790
+# ----------------------------------------------------------------------------
+controlPlane:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: gauss.nexolabs.dev/sebastian/control-plane
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  # existingSecret keys: LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET.
+  existingSecret: ""
+  service:
+    port: 80
+    targetPort: 8790
+    annotations: {}
+  ingress:
+    enabled: true
+    host: ""   # e.g. sebastian-control.nexolabs.dev
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+
+# ----------------------------------------------------------------------------
+# INGRESS (shared) — HTTP faces only (token server, control plane).
+# ----------------------------------------------------------------------------
+ingress:
+  enabled: true
+  className: ""
+  annotations: {}
+  tls: []

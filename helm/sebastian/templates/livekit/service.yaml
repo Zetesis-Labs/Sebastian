@@ -1,0 +1,22 @@
+{{- if .Values.livekit.enabled }}
+# In-cluster addressing for the Python services. NOTE: the canonical URL the
+# token server returns to the DEVICE is the node's LAN IP (ws://<node-ip>:7880),
+# not this ClusterIP — the ESP32 is off-cluster on the LAN. Media (UDP) never
+# goes through here: with hostNetwork it lands on the node IP directly.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "sebastian.fullname" . }}-livekit
+  labels:
+    {{- include "sebastian.labels" . | nindent 4 }}
+    {{- include "sebastian.selectorLabels" (dict "ctx" . "component" "livekit") | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.livekit.ports.signal }}
+      targetPort: {{ .Values.livekit.ports.signal }}
+      protocol: TCP
+      name: signal
+  selector:
+    {{- include "sebastian.selectorLabels" (dict "ctx" . "component" "livekit") | nindent 4 }}
+{{- end }}

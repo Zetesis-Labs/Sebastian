@@ -1,0 +1,21 @@
+{{- if .Values.livekit.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "sebastian.fullname" . }}-livekit
+  labels:
+    {{- include "sebastian.labels" . | nindent 4 }}
+    {{- include "sebastian.selectorLabels" (dict "ctx" . "component" "livekit") | nindent 4 }}
+data:
+  livekit.yaml: |
+    # Single-port UDP mux (not the default 50000-60000 range): a single port is
+    # mappable to a device on the LAN; a range is not. Advertised ICE IP is
+    # forced via --node-ip (the node's LAN IP), so use_external_ip is off.
+    port: {{ .Values.livekit.ports.signal }}
+    rtc:
+      tcp_port: {{ .Values.livekit.ports.rtcTcp }}
+      udp_port: {{ .Values.livekit.ports.udpMux }}
+      use_external_ip: false
+    logging:
+      level: info
+{{- end }}
