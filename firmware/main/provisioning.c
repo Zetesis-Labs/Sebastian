@@ -207,6 +207,9 @@ static bool store_wifi(cJSON *root) {
     // session timing stay compile-time, so they are intentionally not stored here.
     cJSON *mode = cJSON_GetObjectItem(root, "mode");
     if (ok && cJSON_IsString(mode)) nvs_set_str(h, "mode", mode->valuestring);
+    // Endpoint mode (ROADMAP §9): hold a persistent LiveKit session at idle so
+    // the server can push audio (announce/music) anytime. Top-level key.
+    store_cfg_bool(h, "always_conn", cJSON_GetObjectItem(root, "alwaysConnected"));
     cJSON *audio = cJSON_GetObjectItem(root, "audio");
     if (ok && cJSON_IsObject(audio)) {
         store_cfg_bool(h, "full_duplex", cJSON_GetObjectItem(audio, "fullDuplex"));
