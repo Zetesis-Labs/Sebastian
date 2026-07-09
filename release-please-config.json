@@ -1,0 +1,23 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "simple",
+  "include-component-in-tag": true,
+  "include-v-in-tag": true,
+  "separate-pull-requests": false,
+  "bump-minor-pre-major": true,
+  "bump-patch-for-minor-pre-major": true,
+  "packages": {
+    "agent": {
+      "package-name": "sebastian-agent",
+      "component": "agent",
+      "release-type": "python",
+      "changelog-path": "CHANGELOG.md"
+    },
+    "helm/sebastian": {
+      "package-name": "sebastian-chart",
+      "component": "helm",
+      "release-type": "helm",
+      "changelog-path": "CHANGELOG.md"
+    }
+  }
+}
