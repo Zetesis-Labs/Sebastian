@@ -1,9 +1,10 @@
 apiVersion: v2
 name: sebastian
-description: Sebastian smart-speaker backend — self-hosted LiveKit SFU + token server, agent worker and control plane (ROADMAP §2/§9)
+description: Sebastian smart-speaker backend — self-hosted LiveKit SFU + token
+  server, agent worker and control plane (ROADMAP §2/§9)
 type: application
 # Chart version — bumped by release-please on chart changes.
-version: 0.1.0
+version: 0.1.1
 # App version — the backend image tag line these charts target by default.
 appVersion: "0.1.0"
 home: https://github.com/Zetesis-Labs/Sebastian
