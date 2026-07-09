@@ -1,0 +1,46 @@
+name: Publish Helm Chart
+
+# Packages helm/sebastian and pushes it to Harbor as an OCI chart
+# (oci://gauss.nexolabs.dev/sebastian/sebastian), the same way ArgoCD consumes
+# ZetesisPortal's chart. Trigger manually with the chart version, or via
+# workflow_call from a release workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Chart version to publish (semver, no leading v — e.g. 0.1.0)"
+        required: true
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+    secrets:
+      HARBOR_USERNAME:
+        required: true
+      HARBOR_PASSWORD:
+        required: true
+
+env:
+  REGISTRY: gauss.nexolabs.dev
+  HARBOR_PROJECT: sebastian
+
+jobs:
+  publish:
+    runs-on: herschel-runners
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Log into registry (helm OCI)
+        env:
+          HARBOR_USER: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASS: ${{ secrets.HARBOR_PASSWORD }}
+        run: echo "${HARBOR_PASS}" | helm registry login "${REGISTRY}" -u "${HARBOR_USER}" --password-stdin
+
+      - name: Package and push chart
+        run: |
+          VERSION="${{ inputs.version }}"
+          helm package helm/sebastian --version "${VERSION}" --app-version "${VERSION}"
+          helm push "sebastian-${VERSION}.tgz" "oci://${REGISTRY}/${HARBOR_PROJECT}"

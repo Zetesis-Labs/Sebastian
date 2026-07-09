@@ -1,0 +1,15 @@
+# Build context is this agent/ dir — keep secrets and local cruft OUT of the image.
+.venv
+.env
+.env.*
+recordings/
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+KMS/
+tests/
+*.wav
+.DS_Store

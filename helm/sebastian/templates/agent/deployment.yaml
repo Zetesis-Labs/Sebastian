@@ -1,0 +1,60 @@
+{{- if .Values.agent.enabled }}
+{{- $secret := required "agent.existingSecret must be set (keys: LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET, GOOGLE_API_KEY and/or OPENAI_API_KEY, SEBASTIAN_HA_MCP_URL, SEBASTIAN_HA_TOKEN)" .Values.agent.existingSecret }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "sebastian.fullname" . }}-agent
+  labels:
+    {{- include "sebastian.labels" . | nindent 4 }}
+    {{- include "sebastian.selectorLabels" (dict "ctx" . "component" "agent") | nindent 4 }}
+spec:
+  replicas: {{ .Values.agent.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "sebastian.selectorLabels" (dict "ctx" . "component" "agent") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "sebastian.labels" . | nindent 8 }}
+        {{- include "sebastian.selectorLabels" (dict "ctx" . "component" "agent") | nindent 8 }}
+    spec:
+      # The worker registers with the SFU and drains jobs; give in-flight
+      # conversations time to close on rollout.
+      terminationGracePeriodSeconds: 60
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- include "sebastian.appSecurityContext" . | nindent 8 }}
+      containers:
+        - name: agent
+          image: "{{ .Values.agent.image.repository }}:{{ .Values.agent.image.tag }}"
+          imagePullPolicy: {{ .Values.agent.image.pullPolicy }}
+          securityContext:
+            {{- include "sebastian.containerSecurityContext" . | nindent 12 }}
+          # All provider/LiveKit/HA keys come from the one secret; config below.
+          envFrom:
+            - secretRef:
+                name: {{ $secret }}
+          env:
+            # Recordings write to the (read-only) filesystem — off in prod.
+            - name: SEBASTIAN_RECORD
+              value: "0"
+            - name: SEBASTIAN_ENDPOINT
+              value: {{ if .Values.agent.endpointMode }}"1"{{ else }}"0"{{ end }}
+            - name: TMPDIR
+              value: /tmp
+            {{- if .Values.agent.otel.endpoint }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.agent.otel.endpoint | quote }}
+            {{- end }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            {{- toYaml .Values.agent.resources | nindent 12 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

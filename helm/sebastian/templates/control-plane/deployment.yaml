@@ -1,0 +1,52 @@
+{{- if .Values.controlPlane.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "sebastian.fullname" . }}-control-plane
+  labels:
+    {{- include "sebastian.labels" . | nindent 4 }}
+    {{- include "sebastian.selectorLabels" (dict "ctx" . "component" "control-plane") | nindent 4 }}
+spec:
+  replicas: {{ .Values.controlPlane.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "sebastian.selectorLabels" (dict "ctx" . "component" "control-plane") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "sebastian.labels" . | nindent 8 }}
+        {{- include "sebastian.selectorLabels" (dict "ctx" . "component" "control-plane") | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- include "sebastian.appSecurityContext" . | nindent 8 }}
+      containers:
+        - name: control-plane
+          image: "{{ .Values.controlPlane.image.repository }}:{{ .Values.controlPlane.image.tag }}"
+          imagePullPolicy: {{ .Values.controlPlane.image.pullPolicy }}
+          securityContext:
+            {{- include "sebastian.containerSecurityContext" . | nindent 12 }}
+          env:
+            {{- include "sebastian.livekitEnv" .Values.controlPlane | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.controlPlane.service.targetPort }}
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.controlPlane.resources | nindent 12 }}
+{{- end }}

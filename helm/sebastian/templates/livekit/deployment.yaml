@@ -1,0 +1,89 @@
+{{- if .Values.livekit.enabled }}
+{{- $secret := required "livekit.existingSecret must be set (key: LIVEKIT_KEYS, format \"<keyName>: <secret>\")" .Values.livekit.existingSecret }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "sebastian.fullname" . }}-livekit
+  labels:
+    {{- include "sebastian.labels" . | nindent 4 }}
+    {{- include "sebastian.selectorLabels" (dict "ctx" . "component" "livekit") | nindent 4 }}
+spec:
+  # Single instance: a self-hosted SFU on one LAN node. No HPA.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "sebastian.selectorLabels" (dict "ctx" . "component" "livekit") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "sebastian.labels" . | nindent 8 }}
+        {{- include "sebastian.selectorLabels" (dict "ctx" . "component" "livekit") | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/livekit/configmap.yaml") . | sha256sum }}
+    spec:
+      {{- if .Values.livekit.hostNetwork }}
+      # Bind the node's LAN IP directly so WebRTC media (UDP mux) and signalling
+      # reach a device on the same LAN. ClusterFirstWithHostNet keeps cluster DNS.
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: livekit
+          image: "{{ .Values.livekit.image.repository }}:{{ .Values.livekit.image.tag }}"
+          imagePullPolicy: {{ .Values.livekit.image.pullPolicy }}
+          # node-ip: explicit value, else the node's IP via the downward API.
+          command: ["/livekit-server"]
+          args:
+            - --config
+            - /etc/livekit/livekit.yaml
+            - --node-ip
+            {{- if .Values.livekit.nodeIP }}
+            - {{ .Values.livekit.nodeIP | quote }}
+            {{- else }}
+            - $(NODE_IP)
+            {{- end }}
+          env:
+            {{- if not .Values.livekit.nodeIP }}
+            - name: NODE_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            {{- end }}
+            - name: LIVEKIT_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secret }}
+                  key: LIVEKIT_KEYS
+          ports:
+            - name: signal
+              containerPort: {{ .Values.livekit.ports.signal }}
+              protocol: TCP
+            - name: rtc-tcp
+              containerPort: {{ .Values.livekit.ports.rtcTcp }}
+              protocol: TCP
+            - name: rtc-udp
+              containerPort: {{ .Values.livekit.ports.udpMux }}
+              protocol: UDP
+          readinessProbe:
+            httpGet:
+              path: /
+              port: {{ .Values.livekit.ports.signal }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: config
+              mountPath: /etc/livekit
+              readOnly: true
+          resources:
+            {{- toYaml .Values.livekit.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "sebastian.fullname" . }}-livekit
+{{- end }}
