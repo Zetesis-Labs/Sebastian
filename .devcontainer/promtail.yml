@@ -1,0 +1,30 @@
+# Promtail de dev: raspa los logs del contenedor de LiveKit (un binario Go que no
+# puede auto-emitir OTLP) y los empuja al Loki del stack lgtm, con la etiqueta
+# service_name=livekit. Así el Grafana de dev tiene el log del SFU igual que prod
+# (donde promtail lo saca del pod). El device y el agente/token/control ya llegan
+# por OTLP; esto cierra la única pieza que no puede hablar OTLP.
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://lgtm:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: livekit
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+    relabel_configs:
+      # Solo el contenedor de LiveKit (los demás hablan OTLP o son el propio stack).
+      - source_labels: ["__meta_docker_container_name"]
+        regex: ".*livekit.*"
+        action: keep
+      - replacement: "livekit"
+        target_label: "service_name"
+      - source_labels: ["__meta_docker_container_name"]
+        regex: "/?(.*)"
+        target_label: "container"

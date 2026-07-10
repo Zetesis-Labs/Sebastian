@@ -612,7 +612,7 @@
         "type": "stat",
         "gridPos": {
           "x": 0,
-          "y": 52,
+          "y": 70,
           "w": 5,
           "h": 5
         },
@@ -650,7 +650,7 @@
         "type": "stat",
         "gridPos": {
           "x": 5,
-          "y": 52,
+          "y": 70,
           "w": 4,
           "h": 5
         },
@@ -676,7 +676,7 @@
         "type": "stat",
         "gridPos": {
           "x": 9,
-          "y": 52,
+          "y": 70,
           "w": 5,
           "h": 5
         },
@@ -715,7 +715,7 @@
         "type": "stat",
         "gridPos": {
           "x": 14,
-          "y": 52,
+          "y": 70,
           "w": 5,
           "h": 5
         },
@@ -752,7 +752,7 @@
         "type": "stat",
         "gridPos": {
           "x": 19,
-          "y": 52,
+          "y": 70,
           "w": 5,
           "h": 5
         },
@@ -778,7 +778,7 @@
         "type": "timeseries",
         "gridPos": {
           "x": 0,
-          "y": 57,
+          "y": 75,
           "w": 12,
           "h": 8
         },
@@ -817,7 +817,7 @@
         "type": "timeseries",
         "gridPos": {
           "x": 12,
-          "y": 57,
+          "y": 75,
           "w": 12,
           "h": 8
         },
@@ -855,6 +855,81 @@
             }
           },
           "overrides": []
+        }
+      },
+      {
+        "id": 27,
+        "title": "Logs — LiveKit SFU",
+        "type": "logs",
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
+        "gridPos": {
+          "x": 0,
+          "y": 52,
+          "w": 12,
+          "h": 9
+        },
+        "targets": [
+          {
+            "expr": "{service_name=\"livekit\"}"
+          }
+        ],
+        "options": {
+          "showTime": true,
+          "wrapLogMessage": true,
+          "sortOrder": "Descending"
+        }
+      },
+      {
+        "id": 28,
+        "title": "Logs — Token-server",
+        "type": "logs",
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
+        "gridPos": {
+          "x": 12,
+          "y": 52,
+          "w": 12,
+          "h": 9
+        },
+        "targets": [
+          {
+            "expr": "{service_name=\"sebastian-token-server\"}"
+          }
+        ],
+        "options": {
+          "showTime": true,
+          "wrapLogMessage": true,
+          "sortOrder": "Descending"
+        }
+      },
+      {
+        "id": 29,
+        "title": "Logs — Control-plane (announce)",
+        "type": "logs",
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
+        "gridPos": {
+          "x": 0,
+          "y": 61,
+          "w": 24,
+          "h": 9
+        },
+        "targets": [
+          {
+            "expr": "{service_name=\"sebastian-control-plane\"}"
+          }
+        ],
+        "options": {
+          "showTime": true,
+          "wrapLogMessage": true,
+          "sortOrder": "Descending"
         }
       }
     ]

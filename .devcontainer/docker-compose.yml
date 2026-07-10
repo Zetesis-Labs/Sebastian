@@ -41,6 +41,18 @@ services:
       - "7881:7881" # RTC fallback TCP
       - "7882:7882/udp" # RTC media — UDP mux de un solo puerto (ver livekit.yaml)
 
+  # Raspa los logs del contenedor de LiveKit (Go, no habla OTLP) y los empuja al
+  # Loki del lgtm como service_name=livekit → paridad con prod, donde promtail
+  # saca el log del SFU del pod. Ver .devcontainer/promtail.yml.
+  promtail:
+    image: grafana/promtail:latest
+    command: -config.file=/etc/promtail/config.yml
+    volumes:
+      - ./promtail.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - lgtm
+
   lgtm:
     image: grafana/otel-lgtm:latest
     # Sin container_name fijo: bajo orquestación de devcontainer, un nombre fijo

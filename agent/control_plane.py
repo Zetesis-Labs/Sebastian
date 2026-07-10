@@ -22,6 +22,7 @@ Reads LIVEKIT_URL / _API_KEY / _API_SECRET from .env (same as the agent).
 """
 
 import json
+import logging
 import os
 from typing import AsyncIterator
 
@@ -29,7 +30,11 @@ from aiohttp import web
 from dotenv import load_dotenv
 from livekit import api
 
+import telemetry
+
 load_dotenv()
+
+log = logging.getLogger("sebastian.control-plane")
 
 ANNOUNCE_TOPIC = "sebastian.announce"
 DEVICE_IDENTITY = os.getenv("SEBASTIAN_DEVICE_IDENTITY", "esp32-respeaker")
@@ -80,7 +85,7 @@ async def handle_announce(request: web.Request) -> web.Response:
     if room is None:
         # No session → the device isn't reachable. This is exactly the gap the
         # always-connected endpoint mode closes (ROADMAP §9).
-        print("[control] announce refused: device idle (no active room)", flush=True)
+        log.warning("announce refused: device idle (no active room)")
         return web.json_response(
             {"error": "device idle — no active session to announce into"},
             status=409,
@@ -94,7 +99,7 @@ async def handle_announce(request: web.Request) -> web.Response:
             destination_identities=[],  # broadcast; the agent is the only consumer
         )
     )
-    print(f"[control] announce → room={room}: {text!r}", flush=True)
+    log.info("announce → room=%s: %r", room, text)
     return web.json_response({"ok": True, "room": room})
 
 
@@ -109,12 +114,16 @@ async def _lk_client(app: web.Application) -> AsyncIterator[None]:
 
 
 def main() -> None:
+    # INFO to stdout + shipped to Loki under service_name "sebastian-control-plane"
+    # via the OTel handler telemetry.setup() attaches to the root logger.
+    logging.basicConfig(level=logging.INFO)
+    telemetry.setup("sebastian-control-plane")
     app = web.Application()
     app.cleanup_ctx.append(_lk_client)
     app.add_routes(
         [web.post("/announce", handle_announce), web.get("/health", handle_health)]
     )
-    print(f"[control] announce on {HOST}:{PORT} topic={ANNOUNCE_TOPIC}", flush=True)
+    log.info("announce on %s:%s topic=%s", HOST, PORT, ANNOUNCE_TOPIC)
     web.run_app(app, host=HOST, port=PORT)
 
 
