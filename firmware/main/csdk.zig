@@ -335,6 +335,9 @@ pub extern fn lk_example_network_connect() bool;
 // provisioned creds, falling back to the compiled default.
 pub extern fn sebastian_net_connect() bool;
 pub extern fn sebastian_provisioning_start() void;
+// Mirror ESP_LOG to a remote UDP syslog server (config in NVS). Call after the
+// network is up; no-op if syslog_ip is unprovisioned. See syslog_sink.c.
+pub extern fn sebastian_syslog_start() void;
 pub extern fn sebastian_get_token_url(out: [*]u8, out_size: usize) bool;
 pub extern fn esp_sntp_setoperatingmode(mode: u8) void;
 pub extern fn esp_sntp_setservername(idx: u8, server: [*:0]const u8) void;

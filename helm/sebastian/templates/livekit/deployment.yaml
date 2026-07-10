@@ -70,6 +70,11 @@ spec:
             - name: rtc-udp
               containerPort: {{ .Values.livekit.ports.udpMux }}
               protocol: UDP
+            {{- if .Values.livekit.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.livekit.ports.prometheus }}
+              protocol: TCP
+            {{- end }}
           readinessProbe:
             httpGet:
               path: /

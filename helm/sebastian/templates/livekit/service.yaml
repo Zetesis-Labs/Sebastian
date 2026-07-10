@@ -17,6 +17,12 @@ spec:
       targetPort: {{ .Values.livekit.ports.signal }}
       protocol: TCP
       name: signal
+    {{- if .Values.livekit.metrics.enabled }}
+    - port: {{ .Values.livekit.ports.prometheus }}
+      targetPort: {{ .Values.livekit.ports.prometheus }}
+      protocol: TCP
+      name: metrics
+    {{- end }}
   selector:
     {{- include "sebastian.selectorLabels" (dict "ctx" . "component" "livekit") | nindent 4 }}
 {{- end }}

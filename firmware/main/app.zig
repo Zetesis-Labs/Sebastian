@@ -657,6 +657,11 @@ export fn app_main() callconv(.c) void {
         return;
     };
 
+    // Network is up: start mirroring logs to the remote syslog server, so the
+    // device's serial output reaches Loki even though nothing reads its UART in
+    // prod (power + WiFi only). No-op if syslog_ip is unprovisioned.
+    c.sebastian_syslog_start();
+
     if (wakeword.init()) {
         health.ww = true;
         log.info("wake word model loaded (62KB, recall=99.3%)", .{});
