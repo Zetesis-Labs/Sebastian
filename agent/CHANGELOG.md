@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.4](https://github.com/Zetesis-Labs/Sebastian/compare/agent-v0.1.3...agent-v0.1.4) (2026-07-10)
+
+
+### Features
+
+* **agent:** logs OTLP en token-server y control-plane + paridad de logs en dev ([516e2d4](https://github.com/Zetesis-Labs/Sebastian/commit/516e2d469f70bf81976a0921822917a31e4dee93))
+* **agent:** paridad de logs dev↔prod (OTLP en token/control + promtail LiveKit) ([871f888](https://github.com/Zetesis-Labs/Sebastian/commit/871f8882e23e4d624b12e15ab555835e86a74072))
+
 ## [0.1.3](https://github.com/Zetesis-Labs/Sebastian/compare/agent-v0.1.2...agent-v0.1.3) (2026-07-09)
 
 
