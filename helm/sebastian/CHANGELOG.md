@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/Zetesis-Labs/Sebastian/compare/helm-v0.1.3...helm-v0.1.4) (2026-07-10)
+
+
+### Bug Fixes
+
+* **helm:** optional agent hostNetwork for reliable agent↔SFU media ([d40477b](https://github.com/Zetesis-Labs/Sebastian/commit/d40477b7b8ad2bfda8f906177a45b77b3a273a2b))
+
 ## [0.1.3](https://github.com/Zetesis-Labs/Sebastian/compare/helm-v0.1.2...helm-v0.1.3) (2026-07-09)
 
 
