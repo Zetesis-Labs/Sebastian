@@ -202,6 +202,16 @@ static bool store_wifi(cJSON *root) {
     cJSON *lk = cJSON_GetObjectItem(root, "livekit");
     cJSON *url = lk ? cJSON_GetObjectItem(lk, "tokenServerUrl") : NULL;
     if (ok && cJSON_IsString(url)) nvs_set_str(h, "token_url", url->valuestring);
+    // Optional telemetry: UDP syslog receiver for the device's logs (the firmware
+    // ships ESP_LOG here since nothing reads its serial in prod). syslog_sink.c
+    // reads these at boot; absent ⇒ the sink stays off.
+    cJSON *tel = cJSON_GetObjectItem(root, "telemetry");
+    if (ok && cJSON_IsObject(tel)) {
+        cJSON *sip = cJSON_GetObjectItem(tel, "syslogIp");
+        if (cJSON_IsString(sip)) nvs_set_str(h, "syslog_ip", sip->valuestring);
+        cJSON *sport = cJSON_GetObjectItem(tel, "syslogPort");
+        if (cJSON_IsNumber(sport)) nvs_set_i32(h, "syslog_port", (int32_t)sport->valueint);
+    }
     // Operating mode + audio behaviour (config.zig::load reads these at boot). All
     // optional: absent keys keep config.zig's compiled defaults. mic_channel and
     // session timing stay compile-time, so they are intentionally not stored here.
