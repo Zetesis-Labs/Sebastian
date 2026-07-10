@@ -1,11 +1,12 @@
-"""OTel wiring for the agent — logs + metrics to the local LGTM stack.
+"""OTel wiring for the Python services — logs + metrics to the local LGTM stack.
 
-Python-side mirror of tools/telemetry/bridge.py: everything ships to the same
-collector under service.name "sebastian-agent", so Grafana shows the device
-half and the agent half of every conversation side by side.
+Python-side mirror of tools/telemetry/bridge.py. Each service calls setup() with
+its own service.name (agent, token-server, control-plane) so Grafana shows every
+half of a conversation side by side under a distinct service_name — matching prod,
+where promtail ships the same per-component streams.
 
 Fails soft: with the collector down (or deps missing) the SDK queues/drops in
-background threads and the agent keeps working. Disable with SEBASTIAN_OTEL=0.
+background threads and the service keeps working. Disable with SEBASTIAN_OTEL=0.
 """
 
 import logging
@@ -26,7 +27,7 @@ def counter(name: str, description: str = "") -> Any:
     return _METER.create_counter(name, description=description)
 
 
-def setup() -> None:
+def setup(service_name: str = "sebastian-agent") -> None:
     global _METER
     if os.getenv("SEBASTIAN_OTEL", "1") == "0":
         return
@@ -47,7 +48,7 @@ def setup() -> None:
         return
 
     endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
-    resource = Resource.create({"service.name": "sebastian-agent"})
+    resource = Resource.create({"service.name": service_name})
 
     reader = PeriodicExportingMetricReader(
         OTLPMetricExporter(endpoint=f"{endpoint}/v1/metrics"),
@@ -56,7 +57,7 @@ def setup() -> None:
     metrics.set_meter_provider(
         MeterProvider(resource=resource, metric_readers=[reader])
     )
-    _METER = metrics.get_meter("sebastian.agent")
+    _METER = metrics.get_meter(service_name)
 
     provider = LoggerProvider(resource=resource)
     provider.add_log_record_processor(

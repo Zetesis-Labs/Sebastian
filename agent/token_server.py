@@ -35,6 +35,7 @@ agent). Serve it on the LAN the device is on; point the firmware at it via
 `token_server_url` in secrets.zig.
 """
 
+import logging
 import os
 import secrets
 from datetime import timedelta
@@ -44,7 +45,11 @@ from aiohttp import web
 from dotenv import load_dotenv
 from livekit import api
 
+import telemetry
+
 load_dotenv()
+
+log = logging.getLogger("sebastian.token-server")
 
 ROOM_PREFIX = "sebastian"
 IDENTITY = "esp32-respeaker"
@@ -90,9 +95,9 @@ async def handle_token(request: web.Request) -> web.Response:
             api.CreateAgentDispatchRequest(agent_name=AGENT_NAME, room=room)
         )
     except Exception as e:
-        print(f"[token-server] dispatch failed — refusing token: {e!r}", flush=True)
+        log.error("dispatch failed — refusing token: %r", e)
         return web.Response(status=503, text="agent dispatch failed")
-    print(f"[token-server] token + dispatch issued room={room}", flush=True)
+    log.info("token + dispatch issued room=%s", room)
     body = f"{LIVEKIT_URL}\n{_mint(room)}"
     return web.Response(text=body, content_type="text/plain")
 
@@ -108,12 +113,17 @@ async def _lk_client(app: web.Application) -> AsyncIterator[None]:
 
 
 def main() -> None:
+    # INFO to stdout (dev terminal) AND, via the OTel handler telemetry.setup()
+    # attaches to the root logger, shipped to Loki under service_name
+    # "sebastian-token-server" — same per-component stream prod gets from promtail.
+    logging.basicConfig(level=logging.INFO)
+    telemetry.setup("sebastian-token-server")
     app = web.Application()
     app.cleanup_ctx.append(_lk_client)
     app.add_routes([web.get("/token", handle_token), web.get("/health", handle_health)])
-    print(
-        f"[token-server] {LIVEKIT_URL} rooms={ROOM_PREFIX}-* agent={AGENT_NAME} on {HOST}:{PORT}",
-        flush=True,
+    log.info(
+        "%s rooms=%s-* agent=%s on %s:%s",
+        LIVEKIT_URL, ROOM_PREFIX, AGENT_NAME, HOST, PORT,
     )
     web.run_app(app, host=HOST, port=PORT)
 
