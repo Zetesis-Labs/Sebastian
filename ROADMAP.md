@@ -122,6 +122,12 @@ still need their own wireless path, §6 pre-deploy); uptime couples to the homel
 
 ## 3. Live backlog (prioritized)
 
+> **Gate first:** before this backlog resumes, the **[living-room-ready
+> milestone](MILESTONE.md)** has to close — the auth / OTA / observability /
+> privacy exit criteria that stand between the bench and a deployed device. Items
+> below whose ordering it revisits (self-host #2, telemetry #5, validation #1) are
+> subsumed there; treat MILESTONE.md as the authoritative pre-deploy order.
+
 Actionable, deduplicated. Deep multi-session efforts link to their design section.
 
 1. **Validation in daily real-world use** — closures by `silence_timeout` (not

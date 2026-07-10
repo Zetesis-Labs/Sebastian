@@ -68,6 +68,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for full details.
 | [docs/BUILD_AND_RUN.md](docs/BUILD_AND_RUN.md) | Operator guide: build, flash, run the agent, dispatch and audio verification. |
 | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Playbook symptom → root cause → solution from the bring-up session. |
 | [docs/STATUS.md](docs/STATUS.md) | Current project status and open quality items. |
+| [MILESTONE.md](MILESTONE.md) | The `living-room-ready` gate: exit criteria (auth, OTA, observability, privacy) between bench prototype and a deployed device. |
 
 ## Structure
 
