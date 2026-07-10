@@ -1,0 +1,21 @@
+{{- if and .Values.livekit.enabled .Values.livekit.metrics.enabled .Values.livekit.metrics.serviceMonitor.enabled }}
+# Scrape del /metrics del SFU (Go). Requiere el operator de Prometheus (CRDs de
+# kube-prometheus-stack). En prod lo recoge el Prometheus de cortes
+# (serviceMonitorSelectorNilUsesHelmValues:false) y viaja por remote_write al
+# Prometheus central de pizarro con cluster=cortes.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "sebastian.fullname" . }}-livekit
+  labels:
+    {{- include "sebastian.labels" . | nindent 4 }}
+    {{- include "sebastian.selectorLabels" (dict "ctx" . "component" "livekit") | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "sebastian.selectorLabels" (dict "ctx" . "component" "livekit") | nindent 6 }}
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: {{ .Values.livekit.metrics.serviceMonitor.interval }}
+{{- end }}

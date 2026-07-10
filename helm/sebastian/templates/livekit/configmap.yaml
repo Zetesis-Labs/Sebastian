@@ -16,6 +16,11 @@ data:
       tcp_port: {{ .Values.livekit.ports.rtcTcp }}
       udp_port: {{ .Values.livekit.ports.udpMux }}
       use_external_ip: false
+    {{- if .Values.livekit.metrics.enabled }}
+    # Exposes /metrics with the SFU's app metrics (livekit_*) + Go runtime. Under
+    # hostNetwork this binds on the node IP; the ServiceMonitor scrapes it there.
+    prometheus_port: {{ .Values.livekit.ports.prometheus }}
+    {{- end }}
     logging:
       level: info
 {{- end }}

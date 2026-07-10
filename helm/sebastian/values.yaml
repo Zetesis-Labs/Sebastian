@@ -39,6 +39,17 @@ livekit:
     signal: 7880   # ws signalling + HTTP API
     rtcTcp: 7881   # RTC fallback TCP
     udpMux: 7882   # RTC media — single-port UDP mux (see configmap)
+    prometheus: 6789  # LiveKit /metrics — the Go SFU's own app metrics
+  # LiveKit server (Go SFU) exposes Prometheus metrics on prometheus_port: rooms,
+  # participants, tracks, forwarded packets/bytes, NACKs, PLIs, quality, plus the
+  # Go runtime. Off by default upstream; we turn it on so the SFU is observable.
+  metrics:
+    enabled: true
+    serviceMonitor:
+      # Requires the Prometheus operator CRDs (kube-prometheus-stack). The device
+      # dashboard / infra dashboard read these via the cortes ServiceMonitor scrape.
+      enabled: true
+      interval: 30s
   # existingSecret must expose LIVEKIT_API_KEY and LIVEKIT_API_SECRET; the key
   # name registered with the SFU is `keyName` (default devkey, matches dev).
   existingSecret: ""
