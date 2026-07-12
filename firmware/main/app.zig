@@ -43,6 +43,10 @@ const PREROLL_MAX_ATTEMPTS: u32 = 8; // ~4s of retries before giving up
 var room: c.livekit_room_handle_t = null;
 var agent_ready = std.atomic.Value(bool).init(false);
 var agent_speaking = std.atomic.Value(bool).init(false);
+// Server-side endpointing: the agent decided the conversation is over and asked
+// us to close. The disconnect must stay device-initiated — a server-side room
+// delete can leave this client stuck CONNECTED forever (#186 family).
+var close_requested = std.atomic.Value(bool).init(false);
 // Peak |render sample| (>>8) since the session loop last read it. Fed by the
 // av_render reference callback (the speaker output), it is a data-channel-
 // INDEPENDENT proof that the agent is talking — the keepalive that survives a
@@ -302,6 +306,10 @@ fn onDataReceived(data: *const c.livekit_data_received_t, _: ?*anyopaque) callco
         log.info("agent interrupted — render FIFO flushed", .{});
         return;
     }
+    if (std.mem.eql(u8, state, "close")) {
+        close_requested.store(true, .release);
+        return;
+    }
     const speaking = std.mem.eql(u8, state, "speaking");
     agent_speaking.store(speaking, .release);
     mic_src.setAgentSpeaking(speaking); // half-duplex: gate the mic while it talks
@@ -546,6 +554,9 @@ fn retryPrerollIfNeeded(session: *SessionLoopState, wake_id: u32) void {
 
 fn runActiveSession(wake_id: u32) void {
     var session = SessionLoopState{};
+    // A "close" that raced the end of the previous session must not kill this
+    // one at tick 0 (same hygiene as the agent_speaking gate in teardown).
+    close_requested.store(false, .release);
     while (true) : (session.timing.tick += 1) {
         c.vTaskDelay(SESSION_TICK_MS);
         session.observeActivity();
@@ -559,6 +570,13 @@ fn runActiveSession(wake_id: u32) void {
 
         if (connectionEnded(state)) {
             log.info("room disconnected early (state={})", .{state});
+            break;
+        }
+        if (close_requested.load(.acquire)) {
+            // "agent close" is a bridge.py close-reason label — keep the phrase.
+            log.info("session agent close: quiet_ms={d}", .{
+                (session.timing.tick - session.timing.last_voice_tick) * SESSION_TICK_MS,
+            });
             break;
         }
         if (session.silenceExpired()) {

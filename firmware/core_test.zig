@@ -1039,10 +1039,13 @@ test "aec float pair reader decodes little-endian command payloads" {
 }
 
 test "session silence closes only after the min-active window with no activity" {
+    // The watchdog boundary with zero activity is whichever gate opens LAST:
+    // both the min-active window and the silence window must have elapsed.
+    const boundary = @max(session.MIN_ACTIVE_TICKS, session.SILENCE_TICKS);
     var t = session.Timing{};
-    t.tick = session.MIN_ACTIVE_TICKS - 1;
+    t.tick = boundary - 1;
     try std.testing.expect(!t.silenceExpired());
-    t.tick = session.MIN_ACTIVE_TICKS;
+    t.tick = boundary;
     try std.testing.expect(t.silenceExpired());
 }
 
