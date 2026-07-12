@@ -47,6 +47,11 @@ PREROLL_WAIT_TIMEOUT = 6.0
 # Cortes-time version. Privacy: local only, gate before any remote deployment.
 RECORD_DIR = os.getenv("SEBASTIAN_RECORD_DIR", "recordings")
 RECORD = os.getenv("SEBASTIAN_RECORD", "1") != "0"
+# Raw-track tap (_mic.wav): starts at the handoff, so it MISSES the pre-roll —
+# misleading to listen to. The model-input tee (_model.wav) is the ground truth;
+# enable this only to bisect device/SFU defects vs agent-pipeline defects
+# (agent/record.py covers the ad-hoc case too).
+RECORD_TRACK = os.getenv("SEBASTIAN_RECORD_TRACK", "0") == "1"
 GATE_SILENCE_PEAK = 100
 
 def _frame_peak(frame: rtc.AudioFrame) -> int:
@@ -160,6 +165,8 @@ class SebastianAudioInput(agents.io.AudioInput):
     def __init__(self, room: rtc.Room) -> None:
         super().__init__(label="SebastianMic")
         self._room = room
+        self._model_wav: wave.Wave_write | None = None
+        self._model_frames = 0
         # Bounded so a stalled consumer applies backpressure instead of growing
         # unbounded in memory. ~1000 * 50ms frames is generous headroom for the
         # pre-roll burst at hand-off while still capping the queue.
@@ -199,7 +206,32 @@ class SebastianAudioInput(agents.io.AudioInput):
         frame = await self._queue.get()
         if frame is None:
             raise StopAsyncIteration
+        self._record_model_frame(frame)
         return frame
+
+    def _record_model_frame(self, frame: rtc.AudioFrame) -> None:
+        """Tee of EXACTLY what the model consumes: pre-roll injected, gate
+        silence trimmed, 24 kHz — the ground truth for debugging what Sebastian
+        heard. The track-tap recording (_mic.wav) starts at the handoff and
+        misses the pre-roll, so it can't answer that question."""
+        if not RECORD:
+            return
+        if self._model_wav is None:
+            os.makedirs(RECORD_DIR, exist_ok=True)
+            stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            path = os.path.join(RECORD_DIR, f"{stamp}_{self._room.name}_model.wav")
+            self._model_wav = wave.open(path, "wb")
+            self._model_wav.setnchannels(frame.num_channels)
+            self._model_wav.setsampwidth(2)
+            self._model_wav.setframerate(frame.sample_rate)
+            log.info("[recorder] writing model-input audio to %s", path)
+        self._model_wav.writeframes(bytes(frame.data))
+        self._model_frames += 1
+        # wave only patches sizes on close; flush the fd so a killed process
+        # still leaves recoverable PCM (same trick as RecordingAudioOutput).
+        if self._model_frames % 100 == 0:
+            with contextlib.suppress(Exception):
+                self._model_wav._file.flush()  # type: ignore[attr-defined]
 
     async def aclose(self) -> None:
         self._room.off("track_subscribed", self._on_track_subscribed)
@@ -216,6 +248,10 @@ class SebastianAudioInput(agents.io.AudioInput):
         if self._stream:
             await self._stream.aclose()
             self._stream = None
+        if self._model_wav is not None:
+            with contextlib.suppress(Exception):
+                self._model_wav.close()
+            self._model_wav = None
         await self._queue.put(None)
 
     def _on_preroll(self, reader: rtc.ByteStreamReader, participant: str) -> None:
