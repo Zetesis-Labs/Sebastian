@@ -263,7 +263,10 @@ fn wwTask(_: ?*anyopaque) callconv(.c) void {
         }
     }
 
-    resyncRx(); // hand the channel back cleanly for mic_src
+    // Deliberately NO resyncRx() here: mic_src re-latches once in its own
+    // task at the first live read, and wwTask resyncs at entry on the way
+    // back. A second disable/enable at exit doubled the glitch window right
+    // at the wake→live seam (razor-cut first words in the recordings).
     log.info("detection task done", .{});
     ww_exited.store(true, .release);
     c.vTaskDelete(null);

@@ -160,6 +160,7 @@ fn readI2s(samples: usize) ?usize {
     var bytes_read: usize = 0;
     const bytes_to_read = samples * BYTES_PER_STEREO_I2S_SAMPLE;
     if (c.i2s_channel_read(board.i2sRx(), read_buf.ptr, bytes_to_read, &bytes_read, 200) != c.ESP_OK) {
+        _ = stat_timeouts.fetchAdd(1, .monotonic);
         return null;
     }
     return bytes_read / BYTES_PER_STEREO_I2S_SAMPLE;
@@ -212,9 +213,41 @@ fn healChannelIfBad(peak: u32, mean: i32) void {
     if (heal_bad_frames < HEAL_BAD_FRAMES) return;
     heal_bad_frames = 0;
     heal_count += 1;
+    _ = stat_heals.fetchAdd(1, .monotonic);
     log.warn("mic channel degenerate (peak={d} dc={d}) — self-heal resync #{d}", .{ peak, mean, heal_count });
     _ = c.i2s_channel_disable(board.i2sRx());
     _ = c.i2s_channel_enable(board.i2sRx());
+}
+
+// Capture-health telemetry: short I2S reads (frame tail padded), read timeouts
+// and self-heal resyncs are the fingerprints of the micro-cut bursts heard in
+// the field recordings (razor-cut gaps + ~200ms holes). They used to be
+// invisible — the padding was silent and only the heal logged. app.zig drains
+// these each AEC-log window (takeReadStats) so they land in Grafana.
+var stat_short_reads = std.atomic.Value(u32).init(0);
+var stat_pad_samples = std.atomic.Value(u32).init(0);
+var stat_timeouts = std.atomic.Value(u32).init(0);
+var stat_heals = std.atomic.Value(u32).init(0);
+
+pub const ReadStats = struct {
+    short_reads: u32,
+    pad_samples: u32,
+    timeouts: u32,
+    heals: u32,
+
+    pub fn healthy(self: ReadStats) bool {
+        return self.short_reads == 0 and self.timeouts == 0 and self.heals == 0;
+    }
+};
+
+/// Capture-health counters since the last call, then reset.
+pub fn takeReadStats() ReadStats {
+    return .{
+        .short_reads = stat_short_reads.swap(0, .monotonic),
+        .pad_samples = stat_pad_samples.swap(0, .monotonic),
+        .timeouts = stat_timeouts.swap(0, .monotonic),
+        .heals = stat_heals.swap(0, .monotonic),
+    };
 }
 
 // Echo telemetry: peak of the captured beam while the agent speaks. The gate
@@ -275,7 +308,16 @@ fn writeCapturedSamples(out: [*]i16, got: usize, total: usize) void {
 
     updatePeak(peak);
     if (got > 0) healChannelIfBad(peak, @intCast(@divTrunc(sum, @as(i64, @intCast(got)))));
-    while (i < total) : (i += 1) out[i] = 0; // pad short I2S reads only
+
+    // Short read: the driver stalled mid-frame. Padding with zeros was audible
+    // as a razor-cut micro-gap ("saturated" click) in the published voice —
+    // hold the last sample instead (TROUBLESHOOTING §7) and count it.
+    if (i < total) {
+        _ = stat_short_reads.fetchAdd(1, .monotonic);
+        _ = stat_pad_samples.fetchAdd(@intCast(total - got), .monotonic);
+        const hold: i16 = if (got > 0) out[got - 1] else 0;
+        while (i < total) : (i += 1) out[i] = hold;
+    }
 }
 
 fn updatePts(frame: *c.esp_capture_stream_frame_t, samples: usize) void {
