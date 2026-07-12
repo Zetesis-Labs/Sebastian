@@ -128,6 +128,67 @@ still need their own wireless path, §6 pre-deploy); uptime couples to the homel
 > below whose ordering it revisits (self-host #2, telemetry #5, validation #1) are
 > subsumed there; treat MILESTONE.md as the authoritative pre-deploy order.
 
+> **Re-prioritized 2026-07-11 — pure-speaker focus.** Three decisions prune the
+> list: (a) **MILESTONE A1/A2 will not be done incrementally** — the
+> token-server + control-plane layer gets rebuilt as a single smart-speaker
+> **provisioning server**, and auth/rate-limiting land there by design (see the
+> MILESTONE annotation); (b) the **volume actuator is rejected**, and with it
+> its dependents (`calibrate_audio`, whisper mode, volume-by-voice); (c) the §5
+> **full-duplex self-interrupt finding is obsolete** — it does not reproduce in
+> daily use, so no `PP_DTSENSITIVE` session is pending. Near-term order, all
+> pure-speaker work:
+>
+> 1. **Real endpointing** (§5 #3) — replace "amplitude ≥ `SESSION_VOICE_LEVEL`,
+>    12 s fixed" (`app.zig:104`, `core/session_core.zig`) with a real close
+>    decision: proper VAD (speech vs noise, not level), adaptive window, and
+>    the **agent** deciding end-of-conversation — it knows turns, open
+>    questions, farewells; the model-driven `end_session` already exists —
+>    signalled over the existing data channel. The firmware timeout demotes to
+>    last-resort watchdog (net down / agent dead). Mostly agent-side Python.
+>    *v1 SHIPPED 2026-07-13 (`feat/endpointing`, bench-validated: idle close
+>    12.5 s with device-initiated disconnect <1 s, question window 25 s
+>    (`expects_answer=True`), farewell via the same primitive, no premature
+>    cuts on long user pauses, and the 60 s watchdog live-tested — agent held
+>    open on purpose, device self-rescued at exactly quiet_ms=60000).* Known
+>    edge, unfixed: an agent dying mid-"speaking" leaves the device's
+>    `agent_speaking` flag stale (no "listening" ever arrives) → the keepalive
+>    holds the session to the 10-min cap. Cheap guard if it ever bites:
+>    invalidate the flag when the render has been silent for a few seconds
+>    (the `render_peak` signal already exists).
+> 2. **Wake word: split recall from precision** (§7 #1) — board threshold loose
+>    (`wakeword.zig:40`, one constant → recall), agent re-verifies every fire
+>    on the already-streamed pre-roll and aborts silently (precision). The old
+>    caveat (per-trigger connects billed on Cloud) died with the Cortes
+>    self-host — LAN connects are free. Every rejected fire is a labeled hard
+>    negative, so the §7 retraining dataset builds itself. Do the
+>    "para/stop"-during-TTS wake model (§4 extras) in the same pass.
+> 3. **In-session speaker attribution — the TV-hijack finding (§5,
+>    2026-07-13)**: with a session open, TV speech reads as user turns and the
+>    adaptive beam tracks the TV. Layer 1 now (session beam lock at wake DoA —
+>    small firmware, the pieces exist); layers 2/3 (DoA turn-gating,
+>    per-turn speaker verification) after the wake word split, sharing its
+>    plumbing. Full plan in §5.
+> 4. **On-device timers via RPC** (#9) — agent schedules, firmware rings even
+>    if the internet drops.
+> 5. **Reliability hygiene batch** (one firmware PR, allowed under the freeze):
+>    MILESTONE B3 reboot-on-boot-failure + boot-loop guard, B4 SNTP-before-TLS,
+>    XVF mute state in telemetry (the §9.3 silent-speaker lesson), pre-roll
+>    PSRAM health (#11).
+> 6. **MILESTONE C4 "mark this moment" + C2 correlation ID** — daily-use
+>    validation (#1) is already running on the prod stack; these make its
+>    failures analyzable instead of timestamp archaeology.
+> 7. **MILESTONE B1 OTA, firmware side** (dual partition, client,
+>    rollback-on-failed-boot) — before any unattended week, and before the
+>    freeze becomes a trap. Image **serving** is a first-class requirement of
+>    the future provisioning server, not built here.
+> 8. **MILESTONE B2 secure boot / flash encryption** — last, only after OTA
+>    works (rollback is the safety net), validated on a sacrificial unit.
+>
+> Transversal: the determinism harness (#4) pays for itself before the chained
+> firmware PRs. Explicit non-dos: endpoint mode to `main` (still blocked on the
+> liveness ping/pong), barge-in over loud music (needs the music publisher —
+> platform work, not speaker work).
+
 Actionable, deduplicated. Deep multi-session efforts link to their design section.
 
 1. **Validation in daily real-world use** — closures by `silence_timeout` (not
@@ -169,12 +230,10 @@ Actionable, deduplicated. Deep multi-session efforts link to their design sectio
    levels, free heap trend, RSSI, temperature + Grafana alerts (reboot, SCTP,
    deaf channel, mute serial).
 6. **AEC project → full-duplex with tracking** — *core SHIPPED 2026-07-08 (§5:
-   path B integrated, live-validated end to end).* Remaining: `PP_DTSENSITIVE`
-   double-talk fine-tuning — full-duplex **self-interrupts** on the realtime
-   model (transcribed residual/user audio mid-speech, §5 field finding); until
-   tuned, **half_duplex is the daily-driver mode**. Then comms AGC if levels
-   prove hot, and the `calibrate_audio` voice tool (§5, needs the volume
-   actuator, item #8).
+   path B integrated, live-validated end to end).* ~~Remaining: `PP_DTSENSITIVE`
+   double-talk fine-tuning~~ — *obsolete 2026-07-11: the §5 self-interrupt
+   finding did not persist in daily use; full-duplex works with the knob
+   untouched.* `calibrate_audio` died with the volume actuator (#8, rejected).
 7. **Control-plane `announce(text)` slice** (§9) — *HTTP face SHIPPED +
    ear-validated (2026-07-08):* `agent/control_plane.py` (`make control`, :8790)
    → finds the device's active room → data on `sebastian.announce` → agent
@@ -191,9 +250,9 @@ Actionable, deduplicated. Deep multi-session efforts link to their design sectio
    **per-session mic recordings** (`agent/recordings/<ts>_<room>.wav`, on by
    default, `SEBASTIAN_RECORD=0` disables) — the local Egress for
    forensics/dataset.
-8. **Volume by voice** (agent→device RPC; the data pipeline exists both ways) +
-   LED by agent state (already received). Prerequisite for the `calibrate_audio`
-   tool (§5).
+8. ~~**Volume by voice**~~ — *rejected 2026-07-11*, together with the
+   `audio_render` volume actuator and its dependents (`calibrate_audio`,
+   whisper mode, ducking-by-volume). LED by agent state already received.
 9. **On-device timers via RPC** — they ring even if the internet drops.
 10. **Agent AGC** — re-framer to 10 ms before the APM, if recovered.
 11. **Pre-roll PSRAM silently degrades** — reflect it in boot health.
@@ -288,8 +347,12 @@ beam (RIGHT slot)** and throw away the post-processing of the **comms channel
 2. **Barge-in over loud playback.** Tested over its own TTS, not over loud music;
    needs the AEC to hold a high-SNR far-end reference and the wake to fire on the
    residual.
-3. **Decent endpointing / VAD.** Today a level-based `silence_timeout` (crude, and
-   what was cutting sessions). Needs real endpointing (energy + time + context).
+3. **Decent endpointing / VAD.** ~~Today a level-based `silence_timeout` (crude,
+   and what was cutting sessions).~~ *v1 shipped 2026-07-13
+   (`feat/endpointing`): the agent closes idle sessions over the data channel
+   (`agent/endpointing.py` — turns + agent/user state + question-aware window)
+   and the device disconnects itself; the firmware level timeout is a 60 s
+   last-resort watchdog.*
 4. **Reliable wake word.** Threshold raised 0.62→0.80 with field data, but lacks
    systematic false-positive measurement and distance/noise validation → **§7**.
 5. **AGC / distance normalization.** Fixed `mic_gain` + static SHIFT vs. Alexa's
@@ -317,6 +380,33 @@ beam (RIGHT slot)** and throw away the post-processing of the **comms channel
 
 The first three (#1 full-duplex+tracking, #3 endpointing, #4 robust wake) are the
 core of "how a smart speaker manages audio"; #7 is what makes it usable daily.
+
+### Field finding (2026-07-13) — the TV hijacks an open session (in-session speaker attribution)
+
+With a session legitimately open and the full-duplex mic live, TV speech is
+transcribable audio: the realtime model treats it as user turns and answers
+it — and worse, the **adaptive beam tracks the loudest active source**, so when
+the TV talks the array aims *at the TV*. This is NOT the §7 phantom-wake
+problem (the wake was real); it is *who is the agent listening to* once the
+session exists. No single simple fix — a three-layer plan, cheap to durable:
+
+1. **Session beam lock at wake DoA (firmware, small — the pieces exist).** The
+   wake already reads DoA (the LED points at the caller, §4 ATTENDING) and
+   `fixed_beam`/`azimuth` are runtime XVF knobs: lock the beam toward the
+   caller at handoff, release at teardown. Spatially attenuates the TV whenever
+   it is off the user's axis. Limits: a colinear TV, a user who walks around
+   mid-session. Allowed under the §6 freeze (controllability, not capability).
+2. **DoA turn-gating in the agent.** Stream DoA at ~5 Hz over the lossy channel
+   (§4 signal #6, unbuilt) and drop turns whose direction disagrees with the
+   wake direction. Also builds the telemetry that §7 fusion and §8 arbitration
+   reuse.
+3. **Per-turn speaker verification (the durable fix).** Embedding (ECAPA-class)
+   of each turn against enrolled voices, agent-side: unknown voice → turn
+   ignored. Kills the TV even on-axis; prerequisite of per-person memory (§4
+   signal #7). Real work: enrolment UX, threshold tuning, per-turn latency.
+
+Freebie worth one line (unreliable alone): a system-instruction telling the
+model to ignore clearly-unaddressed background speech (TV/radio).
 
 ### The AEC project — full-duplex WITH tracking
 
@@ -376,6 +466,12 @@ min-duration/word gate exposed under `turn_detection="realtime_llm"`).
 self-interrupt; intentional barge-in still works via the wake word) — the robust
 fallback until the double-talk round is tuned. Full-duplex-on-self-host is
 therefore *validated but not yet daily-driver-solid*.
+
+> **Update 2026-07-11: this finding is obsolete.** The self-interrupts did not
+> persist in daily use on the prod (Cortes) stack — full-duplex runs clean with
+> `PP_DTSENSITIVE` untouched, and no tuning session is pending. The paragraphs
+> above are kept for the diagnostic method (how to tell acoustic coupling from
+> transcribable residual), not as an open issue.
 
 **⚠️ The only real gate: double-talk.** The probe measured **echo** (agent
 speaking, user quiet), **not double-talk** (both at once) — the Achilles heel of

@@ -45,6 +45,12 @@ The self-host milestone (§3 #2) is **not "done" until this group is done** — 
 the change that makes the surface internet-reachable, so its own security is in
 scope, not a separate later task.
 
+> **2026-07-11 decision:** A1/A2 will **not** be implemented incrementally on
+> `token_server.py` / `control_plane.py`. That whole layer is being replaced by
+> a single smart-speaker **provisioning server**, where auth, rate-limiting and
+> OTA image serving are first-class design requirements. A1/A2 carry over as
+> exit criteria for *that* server; A3/A4 remain as written.
+
 - [ ] **A1 — `/token` requires authentication and is rate-limited.**
   - *Today:* `agent/token_server.py:82` serves a valid LiveKit JWT to any
     anonymous GET, **and** fires `create_dispatch` (a paid-LLM agent) per request.

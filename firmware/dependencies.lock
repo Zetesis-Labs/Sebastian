@@ -10,7 +10,7 @@ dependencies:
       type: service
     version: 0.5.3
   espressif/dl_fft:
-    component_hash: 2f319e72f3ab6f673c83849d6a14b68c21165d4dce24e12af7c13714ba35a6e0
+    component_hash: a955ca29581de2177ddf25759273bd83f082b3c805e735fe6ee105858643989b
     dependencies:
     - name: idf
       require: private
@@ -18,7 +18,7 @@ dependencies:
     source:
       registry_url: https://components.espressif.com
       type: service
-    version: 0.5.0
+    version: 0.6.0
   espressif/esp-dsp:
     component_hash: 619639efc18cfa361a9e423739b9b0ffc14991effc6c027f955c2f2c3bf1754b
     dependencies:
@@ -417,7 +417,7 @@ dependencies:
   idf:
     source:
       type: idf
-    version: 5.4.0
+    version: 5.4.4
   livekit/example_utils:
     component_hash: ff95b8f3425c8cb4aa9d3dacf9560679b0f7fc61af880f1648647468af1c3796
     dependencies:
@@ -462,7 +462,7 @@ dependencies:
     - name: tempotian/media_lib_sal
       version: ~0.9.1
     source:
-      path: /Users/ruben/Developer/Sebastian/firmware/components/livekit
+      path: /workspace/firmware/components/livekit
       type: local
     targets:
     - esp32s3
@@ -533,6 +533,6 @@ direct_dependencies:
 - livekit/sandbox_token
 - tempotian/av_render
 - tempotian/media_lib_sal
-manifest_hash: d7ac8ecd70c8a16111d751ac3e9adc3e8834a7d3f42fa2e095c9365b3ed815f4
+manifest_hash: 1d8ca37101e4fc1c8c407fa8cecc0460d7a2501af0eb1e8278dfcefbc9f576b0
 target: esp32s3
 version: 2.0.0

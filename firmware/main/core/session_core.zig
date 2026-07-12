@@ -9,7 +9,10 @@
 
 pub const TICK_MS: u32 = 10;
 pub const MIN_ACTIVE_TICKS: u32 = 20 * 1000 / TICK_MS; // don't close in the first 20s
-pub const SILENCE_TICKS: u32 = 12 * 1000 / TICK_MS; // 12s of true silence closes
+// Watchdog, not the primary close: the agent ends idle conversations first
+// (data-channel "close", agent/endpointing.py — it sees transcribed turns and
+// context, not amplitude). This only fires when the agent is dead or mute.
+pub const SILENCE_TICKS: u32 = 60 * 1000 / TICK_MS;
 pub const MAX_TICKS: u32 = 600 * 1000 / TICK_MS; // 10min safety cap
 pub const AGENT_AUDIO_HANGOVER_TICKS: u32 = 2500 / TICK_MS; // inter-sentence gaps + echo tail
 

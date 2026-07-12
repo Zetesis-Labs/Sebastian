@@ -23,10 +23,8 @@ import os
 import time
 from pathlib import Path
 
-import aiohttp
-
 from dotenv import load_dotenv
-from livekit import agents, api, rtc
+from livekit import agents, rtc
 from livekit.agents import (
     Agent,
     AgentSession,
@@ -42,6 +40,7 @@ from openai.types.beta.realtime.session import TurnDetection
 
 import telemetry
 from audio_input import SebastianAudioInput, setup_recorder, setup_output_recorder, RECORD
+from endpointing import close_device_session, setup_endpointing
 from instrumentation import instrument_session
 from tasks import spawn as _spawn
 from typing import Any
@@ -108,19 +107,6 @@ GOODBYE_GRACE_S = 3.0
 PHANTOM_SESSION_S = 12.0  # a user-closed session shorter than this ≈ likely phantom wake
 
 
-async def _delete_room_after_goodbye(job_ctx: agents.JobContext) -> None:
-    await asyncio.sleep(GOODBYE_GRACE_S)
-    try:
-        await job_ctx.api.room.delete_room(
-            api.DeleteRoomRequest(room=job_ctx.room.name)
-        )
-        log.info("session ended by user request — room deleted")
-    except aiohttp.ServerDisconnectedError:
-        log.info("session ended by user request — room deleted")
-    except Exception as e:
-        log.warning("end_session: delete_room failed: %r", e)
-
-
 class Sebastian(Agent):
     def __init__(self) -> None:
         self._started = time.monotonic()
@@ -173,7 +159,14 @@ class Sebastian(Agent):
             "end_session after %.1fs%s — closing room",
             dur, "  [likely-phantom]" if short else "",
         )
-        _spawn(_delete_room_after_goodbye(get_job_context()))
+        # Same close primitive as the idle endpointing: device-initiated
+        # disconnect, delete_room only as cleanup. The pre-grace lets the
+        # goodbye finish draining on the speaker before the device tears down.
+        _spawn(
+            close_device_session(
+                get_job_context(), reason="user_request", pre_grace_s=GOODBYE_GRACE_S
+            )
+        )
         return "Sesión terminándose."
 
 
@@ -314,6 +307,7 @@ async def entrypoint(ctx: agents.JobContext) -> None:
     instrument_session(session)
     _setup_barge_in(ctx, session)
     _setup_announce(ctx, session)
+    setup_endpointing(ctx, session)
     session.input.audio = mic_input
     await session.start(
         room=ctx.room,

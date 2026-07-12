@@ -156,7 +156,7 @@ RE_ECHO = re.compile(
     r"(?: keepalive=(?P<ka>\w+))?"
 )
 RE_AGENT = re.compile(r"agent state: (\w+)")
-RE_CLOSE_REASON = re.compile(r"(silence timeout|max duration|disconnected early)")
+RE_CLOSE_REASON = re.compile(r"(silence timeout|max duration|disconnected early|agent close)")
 RE_MUTE = re.compile(r"xvf_ui: mute: (on|off)")
 RE_MUTE_BOOT = re.compile(r"mute readback: (MUTED|UNMUTED)")
 RE_IDF_TS = re.compile(r"^[IWE] \((\d+)\)")
