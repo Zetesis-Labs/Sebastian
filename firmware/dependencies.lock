@@ -462,7 +462,7 @@ dependencies:
     - name: tempotian/media_lib_sal
       version: ~0.9.1
     source:
-      path: /workspace/firmware/components/livekit
+      path: ../components/livekit
       type: local
     targets:
     - esp32s3
