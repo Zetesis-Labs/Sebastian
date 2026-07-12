@@ -137,6 +137,16 @@ const SessionLoopState = struct {
         });
         self.render_peak_window = 0;
         self.echo_window = 0;
+
+        // Capture health — nonzero means the published voice had micro-cuts
+        // this window (short reads / timeouts / heals). warn so Grafana's log
+        // panel surfaces it; silent when healthy.
+        const rs = mic_src.takeReadStats();
+        if (!rs.healthy()) {
+            log.warn("mic capture: short_reads={d} pad_samples={d} timeouts={d} heals={d}", .{
+                rs.short_reads, rs.pad_samples, rs.timeouts, rs.heals,
+            });
+        }
     }
 
     fn silenceExpired(self: SessionLoopState) bool {
@@ -530,10 +540,22 @@ fn completeWakeHandoff(session: *SessionLoopState, state: c_int, wake_id: u32) v
     if (!agent_ready.load(.acquire)) return;
 
     session.handoff_done = true;
+    // Timed: the handoff seam is where start-of-session micro-cuts happen
+    // (recordings show razor-cut frames right here). stop_ms is how long the
+    // live mic waited for the wake task to exit; send_ms is the pre-roll
+    // data-channel burst that competes with the first live audio frames.
+    const t0 = c.esp_timer_get_time();
     wakeword.stop();
+    const t_stop = c.esp_timer_get_time();
     mic_src.setLive(true);
-    log.info("mic handoff wake_id={d} pre_roll_ms={d}", .{ wake_id, pre_roll.availableMs() });
     session.preroll_pending = !pre_roll.send(room, wake_id);
+    const t_send = c.esp_timer_get_time();
+    log.info("mic handoff wake_id={d} pre_roll_ms={d} stop_ms={d} send_ms={d}", .{
+        wake_id,
+        pre_roll.availableMs(),
+        @divTrunc(t_stop - t0, 1000),
+        @divTrunc(t_send - t_stop, 1000),
+    });
 }
 
 fn retryPrerollIfNeeded(session: *SessionLoopState, wake_id: u32) void {

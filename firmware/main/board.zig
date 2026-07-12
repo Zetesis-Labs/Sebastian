@@ -135,8 +135,14 @@ fn initI2s() Error!void {
     var rx_chan = std.mem.zeroes(c.i2s_chan_config_t);
     rx_chan.id = c.I2S_NUM_1;
     rx_chan.role = c.I2S_ROLE_SLAVE;
-    rx_chan.dma_desc_num = 6;
-    rx_chan.dma_frame_num = 240;
+    // 8×360 = 2880 frames ≈ 60ms @48k (was 6×240 ≈ 30ms). The capture is
+    // consumer-paced with no ring, so this DMA depth is the ONLY cushion
+    // against encoder/WiFi stalls; 30ms overran in the field (micro-cut
+    // bursts: dropped-sample discontinuities in the recordings). Costs
+    // ~11.5KB more internal DMA RAM — margin vs the TLS DMA is logged at
+    // init (the var/DCE lesson: that margin is thin on this board).
+    rx_chan.dma_desc_num = 8;
+    rx_chan.dma_frame_num = 360;
     try ok(c.i2s_new_channel(&rx_chan, null, &i2s_rx), "i2s_new_channel rx");
 
     var rx_cfg = stdCfg();
@@ -219,6 +225,10 @@ pub fn init() Error!void {
     i2cScan();
     try initAic3104();
     try initI2s();
+    log.info("internal heap after I2S: free={d}B dma_free={d}B", .{
+        c.heap_caps_get_free_size(c.MALLOC_CAP_INTERNAL),
+        c.heap_caps_get_free_size(c.MALLOC_CAP_DMA),
+    });
     try initPlayback();
     try initRecord();
     log.info("Board init complete", .{});

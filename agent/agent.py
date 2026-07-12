@@ -39,7 +39,7 @@ from livekit.plugins import google, openai
 from openai.types.beta.realtime.session import TurnDetection
 
 import telemetry
-from audio_input import SebastianAudioInput, setup_recorder, setup_output_recorder, RECORD
+from audio_input import SebastianAudioInput, setup_recorder, setup_output_recorder, RECORD, RECORD_TRACK
 from endpointing import close_device_session, setup_endpointing
 from instrumentation import instrument_session
 from tasks import spawn as _spawn
@@ -301,7 +301,9 @@ async def entrypoint(ctx: agents.JobContext) -> None:
     log.info("job accepted room=%s", ctx.job.room.name)
     mic_input = SebastianAudioInput(ctx.room)
     ctx.add_shutdown_callback(mic_input.aclose)
-    if RECORD:
+    if RECORD and RECORD_TRACK:
+        # Raw-track tap — off by default: it starts at the handoff (no
+        # pre-roll), so _model.wav is what you want to listen to.
         setup_recorder(ctx)
     session = _build_session()
     instrument_session(session)
