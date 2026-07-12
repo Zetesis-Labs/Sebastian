@@ -22,6 +22,11 @@ check: fw-test
 fw-test:
 	cd firmware && ../tools/zig.sh test core_test.zig
 
+# OJO: el build reescribe el `path:` del override livekit en dependencies.lock
+# a la ruta ABSOLUTA de este entorno. En git debe quedar RELATIVA
+# (`../components/livekit`) o el build revienta en cualquier otra máquina
+# (CI, devcontainer, Mac). No commitees esa reescritura:
+#   git checkout firmware/dependencies.lock
 fw-build:
 	cd firmware && idf.py build
 
