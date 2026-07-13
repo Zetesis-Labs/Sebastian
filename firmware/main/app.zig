@@ -12,6 +12,11 @@
 //! The XVF I2S RX channel is shared: the wakeword task owns it during idle,
 //! mic_src.readFrame() owns it during the active session. Each hand-off includes
 //! an i2s_channel_disable/enable resync to re-latch onto the running clock.
+//!
+//! Session choreography lives in core/session_reducer.zig (pure, host-tested):
+//! the LiveKit callbacks push events into a FreeRTOS queue, the session loop
+//! consumes them (the queue timeout IS the 10ms tick) and executes the actions
+//! the reducer returns. This file is only the imperative shell.
 
 const std = @import("std");
 const board = @import("board.zig");
@@ -23,36 +28,40 @@ const wakeword = @import("wakeword.zig");
 const xvf_aec = @import("xvf_aec.zig");
 const pre_roll = @import("pre_roll.zig");
 const session_core = @import("core/session_core.zig");
+const reducer = @import("core/session_reducer.zig");
 const token = @import("token.zig");
 const c = @import("csdk.zig");
 
 const log = std.log.scoped(.sebastian);
 
 // Session timing constants + the pure keepalive/silence logic live in
-// core/session_core.zig (host-testable). These aliases keep the loop/watchdog
-// call sites here readable.
+// core/session_core.zig; the session choreography (thresholds, phases, retry
+// cadence) in core/session_reducer.zig — both host-testable. These aliases
+// keep the loop/watchdog call sites here readable.
 const SESSION_TICK_MS: u32 = session_core.TICK_MS;
 const SESSION_MAX_TICKS: u32 = session_core.MAX_TICKS;
-const SESSION_VOICE_LEVEL: u32 = 3000;
-const AGENT_AUDIO_LEVEL: u32 = 1000; // render peak (>>8) over the auto_clear zero floor = agent speaking
-const AEC_LOG_PERIOD_TICKS: u32 = 500;
-const AEC_LOG_OFFSET_TICKS: u32 = 250;
-const PREROLL_RETRY_TICKS: u32 = 50; // 500ms between pre-roll send retries
-const PREROLL_MAX_ATTEMPTS: u32 = 8; // ~4s of retries before giving up
 
 var room: c.livekit_room_handle_t = null;
-var agent_ready = std.atomic.Value(bool).init(false);
-var agent_speaking = std.atomic.Value(bool).init(false);
-// Server-side endpointing: the agent decided the conversation is over and asked
-// us to close. The disconnect must stay device-initiated — a server-side room
-// delete can leave this client stuck CONNECTED forever (#186 family).
-var close_requested = std.atomic.Value(bool).init(false);
 // Peak |render sample| (>>8) since the session loop last read it. Fed by the
 // av_render reference callback (the speaker output), it is a data-channel-
 // INDEPENDENT proof that the agent is talking — the keepalive that survives a
-// dead SCTP link. Reset by the session loop each tick via swap.
+// dead SCTP link. Stays an atomic (NOT a queue event): the render thread
+// produces it every few ms, so it is sampled into each tick via swap.
 var render_peak = std.atomic.Value(u32).init(0);
 var wake_seq: u32 = 0;
+
+// Discrete session events (agent state, participant info) flow through this
+// queue from the LiveKit callback threads into the session loop. Created once
+// at boot, reset at each session open so nothing raced from the previous
+// session leaks into the next one (the old tick-0 "close" hygiene).
+const EVENT_QUEUE_LEN: c_uint = 16;
+var event_queue: c.QueueHandle_t = null;
+
+fn pushEvent(event: reducer.Event) void {
+    if (c.xQueueGenericSend(event_queue, &event, 0, 0) != 1) {
+        log.warn("session event queue full — event dropped", .{});
+    }
+}
 
 const CaptureHandle = *anyopaque;
 const RenderHandle = *anyopaque;
@@ -85,76 +94,6 @@ const BootHealth = struct {
 
     fn ok(self: BootHealth) bool {
         return self.xvf and self.codecs and self.audio and self.ww;
-    }
-};
-
-const SessionLoopState = struct {
-    timing: session_core.Timing = .{},
-    render_peak_window: u32 = 0,
-    echo_window: u32 = 0,
-    last_level: u32 = 0,
-    handoff_done: bool = false,
-    preroll_pending: bool = false,
-    preroll_attempts: u32 = 0,
-    marked_active: bool = false,
-
-    fn observeActivity(self: *SessionLoopState) void {
-        self.observeMicLevel();
-        self.observeAgentDataChannel();
-        self.observeRenderPeak();
-    }
-
-    fn observeMicLevel(self: *SessionLoopState) void {
-        self.last_level = mic_src.level();
-        if (self.last_level >= SESSION_VOICE_LEVEL) self.timing.markVoiceActivity();
-    }
-
-    fn observeAgentDataChannel(self: *SessionLoopState) void {
-        if (agent_speaking.load(.acquire)) self.timing.markVoiceActivity();
-    }
-
-    fn observeRenderPeak(self: *SessionLoopState) void {
-        const rpeak = render_peak.swap(0, .monotonic);
-        self.render_peak_window = @max(self.render_peak_window, rpeak);
-        if (rpeak >= AGENT_AUDIO_LEVEL) self.timing.noteAgentAudio();
-        if (!self.timing.agentAudioActive()) return;
-
-        self.timing.markVoiceActivity();
-        self.echo_window = @max(self.echo_window, self.last_level);
-    }
-
-    fn shouldLogAec(self: SessionLoopState) bool {
-        return self.timing.tick % AEC_LOG_PERIOD_TICKS == AEC_LOG_OFFSET_TICKS;
-    }
-
-    fn logAecDiagnostics(self: *SessionLoopState) void {
-        xvf_aec.logState();
-        log.info("echo: gated_peak={d} live_echo={d} render_peak={d} keepalive={}", .{
-            mic_src.takeGatedPeak(),
-            self.echo_window,
-            self.render_peak_window,
-            self.timing.agentAudioActive(),
-        });
-        self.render_peak_window = 0;
-        self.echo_window = 0;
-
-        // Capture health — nonzero means the published voice had micro-cuts
-        // this window (short reads / timeouts / heals). warn so Grafana's log
-        // panel surfaces it; silent when healthy.
-        const rs = mic_src.takeReadStats();
-        if (!rs.healthy()) {
-            log.warn("mic capture: short_reads={d} pad_samples={d} timeouts={d} heals={d}", .{
-                rs.short_reads, rs.pad_samples, rs.timeouts, rs.heals,
-            });
-        }
-    }
-
-    fn silenceExpired(self: SessionLoopState) bool {
-        return self.timing.silenceExpired();
-    }
-
-    fn maxDurationReached(self: SessionLoopState) bool {
-        return self.timing.maxDurationReached();
     }
 };
 
@@ -280,7 +219,7 @@ fn onParticipantInfo(info: *const c.livekit_participant_info_t, _: ?*anyopaque) 
     if (info.kind != c.LIVEKIT_PARTICIPANT_KIND_AGENT) return;
 
     const active = info.state == c.LIVEKIT_PARTICIPANT_STATE_ACTIVE;
-    agent_ready.store(active, .release);
+    pushEvent(.{ .agent_active = active });
     if (info.identity) |identity| {
         log.info("agent participant: {s} state={d}", .{ std.mem.span(identity), info.state });
     } else {
@@ -303,26 +242,20 @@ fn onDataReceived(data: *const c.livekit_data_received_t, _: ?*anyopaque) callco
     const bytes = data.payload.bytes orelse return;
     if (!std.mem.eql(u8, std.mem.span(topic), "sebastian.agent_state")) return;
 
+    // Classify here (the raw payload is only valid during this callback) and
+    // let the session loop react: it blocks on the queue, so the mic gate and
+    // the render flush land within a context switch, not a poll tick.
     const state = bytes[0..data.payload.size];
     if (std.mem.eql(u8, state, "interrupted")) {
-        // Barge-in: the agent aborted mid-speech, but SECONDS of its reply can
-        // still sit in the render FIFO (the model generates faster than
-        // realtime), so the speaker keeps narrating after the model went quiet
-        // ("no para"). Dump everything queued; the stream stays open for new
-        // audio (av_render_flush, not reset).
-        agent_speaking.store(false, .release);
-        mic_src.setAgentSpeaking(false);
-        if (speaker_render != null) _ = c.av_render_flush(speaker_render);
-        log.info("agent interrupted — render FIFO flushed", .{});
+        pushEvent(.{ .agent_state = .interrupted });
         return;
     }
     if (std.mem.eql(u8, state, "close")) {
-        close_requested.store(true, .release);
+        pushEvent(.{ .agent_state = .close });
         return;
     }
     const speaking = std.mem.eql(u8, state, "speaking");
-    agent_speaking.store(speaking, .release);
-    mic_src.setAgentSpeaking(speaking); // half-duplex: gate the mic while it talks
+    pushEvent(.{ .agent_state = if (speaking) .speaking else .quiet });
     log.info("agent state: {s}", .{state});
 }
 
@@ -334,8 +267,6 @@ fn connectNetwork() AppError!void {
 }
 
 fn openSession(audio: AudioPipeline, conn: token.Connection) AppError!void {
-    agent_ready.store(false, .release);
-
     var opts = std.mem.zeroes(c.livekit_room_options_t);
     opts.subscribe.kind = c.LIVEKIT_MEDIA_TYPE_AUDIO;
     opts.subscribe.renderer = audio.speaker;
@@ -499,7 +430,11 @@ fn nextWakeId() u32 {
 
 fn openSessionForWake(audio: AudioPipeline, conn: token.Connection, wake_id: u32) bool {
     log.info("opening session wake_id={d} pre_roll_ms={d}", .{ wake_id, pre_roll.availableMs() });
-    render_peak.store(0, .monotonic); // discard any speaker tail from the previous session
+    // Session hygiene BEFORE the room exists: drop any event raced from the end
+    // of the previous session (a late "close" must not kill this one at tick 0)
+    // and any speaker tail still in the render-peak accumulator.
+    _ = c.xQueueGenericReset(event_queue, 0);
+    render_peak.store(0, .monotonic);
     // Budget: max session + connect/close margin. Disarmed after teardown;
     // if anything below wedges, the watchdog reboots us back to listening.
     wdgArm(@as(i32, SESSION_MAX_TICKS * SESSION_TICK_MS / 1000) + 45);
@@ -513,33 +448,24 @@ fn openSessionForWake(audio: AudioPipeline, conn: token.Connection, wake_id: u32
     return true;
 }
 
-fn publishBargeRequest(session: *SessionLoopState) void {
-    if (!mic_src.takeBargeRequest()) return;
-
-    agent_speaking.store(false, .release);
-    session.timing.markVoiceActivity(); // the user is about to talk
-    publishBargeIn();
+fn classifyConnection(state: c_int) reducer.Connection {
+    if (state == c.LIVEKIT_CONNECTION_STATE_CONNECTED) return .connected;
+    if (state == c.LIVEKIT_CONNECTION_STATE_DISCONNECTED or
+        state == c.LIVEKIT_CONNECTION_STATE_FAILED) return .ended;
+    return .connecting;
 }
 
-fn connectionEnded(state: c_int) bool {
-    return state == c.LIVEKIT_CONNECTION_STATE_DISCONNECTED or
-        state == c.LIVEKIT_CONNECTION_STATE_FAILED;
+fn sampleTick(raw_state: *c_int) reducer.Event {
+    raw_state.* = c.livekit_room_get_state(room);
+    return .{ .tick = .{
+        .connection = classifyConnection(raw_state.*),
+        .mic_level = mic_src.level(),
+        .render_peak = render_peak.swap(0, .monotonic),
+        .barge_request = mic_src.takeBargeRequest(),
+    } };
 }
 
-fn markRoomActive(session: *SessionLoopState, state: c_int) void {
-    if (session.marked_active) return;
-    if (state != c.LIVEKIT_CONNECTION_STATE_CONNECTED) return;
-
-    session.marked_active = true;
-    xvf_ui.setState(.active); // ring: DoA beam — I'm listening
-}
-
-fn completeWakeHandoff(session: *SessionLoopState, state: c_int, wake_id: u32) void {
-    if (session.handoff_done) return;
-    if (state != c.LIVEKIT_CONNECTION_STATE_CONNECTED) return;
-    if (!agent_ready.load(.acquire)) return;
-
-    session.handoff_done = true;
+fn completeWakeHandoff(st: *reducer.State, wake_id: u32) void {
     // Timed: the handoff seam is where start-of-session micro-cuts happen
     // (recordings show razor-cut frames right here). stop_ms is how long the
     // live mic waited for the wake task to exit; send_ms is the pre-roll
@@ -548,7 +474,7 @@ fn completeWakeHandoff(session: *SessionLoopState, state: c_int, wake_id: u32) v
     wakeword.stop();
     const t_stop = c.esp_timer_get_time();
     mic_src.setLive(true);
-    session.preroll_pending = !pre_roll.send(room, wake_id);
+    const sent = pre_roll.send(room, wake_id);
     const t_send = c.esp_timer_get_time();
     log.info("mic handoff wake_id={d} pre_roll_ms={d} stop_ms={d} send_ms={d}", .{
         wake_id,
@@ -556,62 +482,90 @@ fn completeWakeHandoff(session: *SessionLoopState, state: c_int, wake_id: u32) v
         @divTrunc(t_stop - t0, 1000),
         @divTrunc(t_send - t_stop, 1000),
     });
+    _ = st.step(.{ .preroll_sent = sent });
 }
 
-fn retryPrerollIfNeeded(session: *SessionLoopState, wake_id: u32) void {
-    if (!session.preroll_pending) return;
-    if (session.timing.tick % PREROLL_RETRY_TICKS != 0) return;
-
-    session.preroll_attempts += 1;
+fn retryPreroll(st: *reducer.State, wake_id: u32) void {
     if (pre_roll.send(room, wake_id)) {
-        session.preroll_pending = false;
-        log.info("pre-roll retry ok (attempt {d})", .{session.preroll_attempts});
+        log.info("pre-roll retry ok (attempt {d})", .{st.preroll_attempts});
+        _ = st.step(.{ .preroll_sent = true });
         return;
     }
-    if (session.preroll_attempts < PREROLL_MAX_ATTEMPTS) return;
+    _ = st.step(.{ .preroll_sent = false });
+    if (st.preroll == .given_up) {
+        log.warn("pre-roll given up after {d} retries", .{st.preroll_attempts});
+    }
+}
 
-    session.preroll_pending = false;
-    log.warn("pre-roll given up after {d} retries", .{session.preroll_attempts});
+fn logAecDiagnostics(win: reducer.AecLog) void {
+    xvf_aec.logState();
+    log.info("echo: gated_peak={d} live_echo={d} render_peak={d} keepalive={}", .{
+        mic_src.takeGatedPeak(),
+        win.echo_window,
+        win.render_peak_window,
+        win.keepalive,
+    });
+
+    // Capture health — nonzero means the published voice had micro-cuts
+    // this window (short reads / timeouts / heals). warn so Grafana's log
+    // panel surfaces it; silent when healthy.
+    const rs = mic_src.takeReadStats();
+    if (!rs.healthy()) {
+        log.warn("mic capture: short_reads={d} pad_samples={d} timeouts={d} heals={d}", .{
+            rs.short_reads, rs.pad_samples, rs.timeouts, rs.heals,
+        });
+    }
+}
+
+fn applyActions(st: *reducer.State, actions: reducer.Actions, wake_id: u32) void {
+    // Latency-sensitive first: the half-duplex gate and the barge-in flush.
+    if (actions.mic_gate) |speaking| mic_src.setAgentSpeaking(speaking);
+    if (actions.flush_render) {
+        // Barge-in: the agent aborted mid-speech, but SECONDS of its reply can
+        // still sit in the render FIFO (the model generates faster than
+        // realtime), so the speaker keeps narrating after the model went quiet
+        // ("no para"). Dump everything queued; the stream stays open for new
+        // audio (av_render_flush, not reset).
+        if (speaker_render != null) _ = c.av_render_flush(speaker_render);
+        log.info("agent interrupted — render FIFO flushed", .{});
+    }
+    if (actions.publish_barge) publishBargeIn();
+    if (actions.ui_active) xvf_ui.setState(.active); // ring: DoA beam — I'm listening
+    if (actions.handoff) completeWakeHandoff(st, wake_id);
+    if (actions.retry_preroll) retryPreroll(st, wake_id);
+    if (actions.log_aec) |win| logAecDiagnostics(win);
+}
+
+fn logSessionClose(st: *const reducer.State, reason: reducer.CloseReason, raw_state: c_int) void {
+    // These lines feed tools/telemetry/bridge.py (RE_CLOSE_REASON) — the
+    // phrases "disconnected early", "agent close", "silence timeout" and
+    // "max duration" are load-bearing.
+    const quiet_ms = (st.timing.tick - st.timing.last_voice_tick) * SESSION_TICK_MS;
+    switch (reason) {
+        .disconnected => log.info("room disconnected early (state={})", .{raw_state}),
+        .agent_close => log.info("session agent close: quiet_ms={d}", .{quiet_ms}),
+        .silence => log.info("session silence timeout: level={d} threshold={d} quiet_ms={d}", .{
+            st.last_level, reducer.VOICE_LEVEL, quiet_ms,
+        }),
+        .max_duration => log.info("session max duration reached ({d} ms) — closing", .{SESSION_MAX_TICKS * SESSION_TICK_MS}),
+    }
 }
 
 fn runActiveSession(wake_id: u32) void {
-    var session = SessionLoopState{};
-    // A "close" that raced the end of the previous session must not kill this
-    // one at tick 0 (same hygiene as the agent_speaking gate in teardown).
-    close_requested.store(false, .release);
-    while (true) : (session.timing.tick += 1) {
-        c.vTaskDelay(SESSION_TICK_MS);
-        session.observeActivity();
-        publishBargeRequest(&session);
-        if (session.shouldLogAec()) session.logAecDiagnostics();
-
-        const state = c.livekit_room_get_state(room);
-        markRoomActive(&session, state);
-        completeWakeHandoff(&session, state, wake_id);
-        retryPrerollIfNeeded(&session, wake_id);
-
-        if (connectionEnded(state)) {
-            log.info("room disconnected early (state={})", .{state});
-            break;
+    var st = reducer.State{};
+    var raw_state: c_int = c.LIVEKIT_CONNECTION_STATE_DISCONNECTED;
+    while (true) {
+        var event: reducer.Event = undefined;
+        // The queue wait doubles as the tick clock: a discrete event wakes the
+        // loop immediately (the old poll added up to a full tick of gate/flush
+        // lag), a timeout becomes the tick carrying the sampled observations.
+        if (c.xQueueReceive(event_queue, &event, SESSION_TICK_MS) != 1) {
+            event = sampleTick(&raw_state);
         }
-        if (close_requested.load(.acquire)) {
-            // "agent close" is a bridge.py close-reason label — keep the phrase.
-            log.info("session agent close: quiet_ms={d}", .{
-                (session.timing.tick - session.timing.last_voice_tick) * SESSION_TICK_MS,
-            });
-            break;
-        }
-        if (session.silenceExpired()) {
-            log.info("session silence timeout: level={d} threshold={d} quiet_ms={d}", .{
-                session.last_level,
-                SESSION_VOICE_LEVEL,
-                (session.timing.tick - session.timing.last_voice_tick) * SESSION_TICK_MS,
-            });
-            break;
-        }
-        if (session.maxDurationReached()) {
-            log.info("session max duration reached ({d} ms) — closing", .{SESSION_MAX_TICKS * SESSION_TICK_MS});
-            break;
+        applyActions(&st, st.step(event), wake_id);
+        switch (st.phase) {
+            .done => |reason| return logSessionClose(&st, reason, raw_state),
+            else => {},
         }
     }
 }
@@ -619,7 +573,6 @@ fn runActiveSession(wake_id: u32) void {
 fn teardownActiveSession() void {
     wakeword.stop(); // no-op if the handoff already stopped it
     mic_src.setLive(false);
-    agent_speaking.store(false, .release);
     mic_src.setAgentSpeaking(false); // never carry a stale gate into the next session
     wdgArm(25); // close budget — livekit_room_close has hung forever before
     closeSession();
@@ -719,6 +672,12 @@ export fn app_main() callconv(.c) void {
         });
     }
     logHeap("boot");
+
+    event_queue = c.xQueueGenericCreate(EVENT_QUEUE_LEN, @sizeOf(reducer.Event), 0);
+    if (event_queue == null) {
+        log.err("session event queue allocation failed — halting", .{});
+        return;
+    }
 
     // Watchdog on core 1, above the main loop's priority: it must run even if
     // the main task wedges inside a blocking LiveKit call.

@@ -5,6 +5,7 @@ const decimator = @import("main/core/decimator.zig");
 const gate = @import("main/core/mic_gate.zig");
 const pcm = @import("main/xvf_pcm.zig");
 const pre_roll = @import("main/core/pre_roll_core.zig");
+const reducer = @import("main/core/session_reducer.zig");
 const session = @import("main/core/session_core.zig");
 const token = @import("main/core/token_core.zig");
 
@@ -1102,4 +1103,250 @@ test "session max duration is a hard cap" {
     try std.testing.expect(!t.maxDurationReached());
     t.tick = session.MAX_TICKS;
     try std.testing.expect(t.maxDurationReached());
+}
+
+// ── Session reducer: event traces ────────────────────────────────────────────
+// Each test is a replayable event sequence against the pure session state
+// machine — the layer where every field bug so far actually lived. A field
+// incident's event log should paste straight into a test like these.
+
+/// Drive a fresh session to the live phase (connected, agent active, pre-roll
+/// delivered) and return it. This is the common preamble of most traces.
+fn liveSession() reducer.State {
+    var st = reducer.State{};
+    _ = st.step(.{ .agent_active = true });
+    const a = st.step(.{ .tick = .{ .connection = .connected } });
+    std.debug.assert(a.handoff);
+    _ = st.step(.{ .preroll_sent = true });
+    return st;
+}
+
+test "reducer stays out of the room until CONNECTED" {
+    var st = reducer.State{};
+    _ = st.step(.{ .agent_active = true });
+    const a = st.step(.{ .tick = .{ .connection = .connecting } });
+
+    try std.testing.expect(!a.ui_active);
+    try std.testing.expect(!a.handoff);
+    try std.testing.expect(st.phase == .connecting);
+}
+
+test "reducer handoff fires exactly once regardless of event order" {
+    // Agent event first (it queued while livekit_room_connect was blocking):
+    // the first CONNECTED tick lights the ring and hands off in one step.
+    var st = reducer.State{};
+    _ = st.step(.{ .agent_active = true });
+    var a = st.step(.{ .tick = .{ .connection = .connected } });
+    try std.testing.expect(a.ui_active);
+    try std.testing.expect(a.handoff);
+    _ = st.step(.{ .preroll_sent = true });
+    a = st.step(.{ .tick = .{ .connection = .connected } });
+    try std.testing.expect(!a.ui_active);
+    try std.testing.expect(!a.handoff);
+
+    // Connection first, agent later: ui_active on the first CONNECTED tick,
+    // handoff only once the agent is active.
+    var st2 = reducer.State{};
+    a = st2.step(.{ .tick = .{ .connection = .connected } });
+    try std.testing.expect(a.ui_active);
+    try std.testing.expect(!a.handoff);
+    _ = st2.step(.{ .agent_active = true });
+    a = st2.step(.{ .tick = .{ .connection = .connected } });
+    try std.testing.expect(!a.ui_active);
+    try std.testing.expect(a.handoff);
+
+    // The agent bouncing later never re-fires the handoff.
+    _ = st2.step(.{ .preroll_sent = true });
+    _ = st2.step(.{ .agent_active = false });
+    _ = st2.step(.{ .agent_active = true });
+    a = st2.step(.{ .tick = .{ .connection = .connected } });
+    try std.testing.expect(!a.handoff);
+}
+
+test "reducer replays the endpointing close and stays terminal" {
+    var st = liveSession();
+    var a = st.step(.{ .agent_state = .speaking });
+    try std.testing.expectEqual(@as(?bool, true), a.mic_gate);
+
+    a = st.step(.{ .agent_state = .close });
+    try std.testing.expectEqual(reducer.CloseReason.agent_close, st.phase.done);
+
+    // Terminal: nothing after done produces actions or moves the phase.
+    a = st.step(.{ .tick = .{ .connection = .connected, .barge_request = true } });
+    try std.testing.expect(!a.publish_barge);
+    a = st.step(.{ .agent_state = .speaking });
+    try std.testing.expectEqual(@as(?bool, null), a.mic_gate);
+    try std.testing.expectEqual(reducer.CloseReason.agent_close, st.phase.done);
+}
+
+test "reducer keepalive: speaker audio keeps the session open (field bug)" {
+    var st = liveSession();
+
+    // The agent talks (speaker peaks) while the AEC cancels the echo, so the
+    // mic reads silence — well past MIN_ACTIVE + SILENCE. The session must
+    // never close mid-reply: only the render-peak keepalive holds it open.
+    const talk_until = session.MIN_ACTIVE_TICKS + session.SILENCE_TICKS + 500;
+    while (st.timing.tick < talk_until) {
+        _ = st.step(.{ .tick = .{ .connection = .connected, .render_peak = 2000 } });
+        try std.testing.expect(st.phase == .live);
+    }
+
+    // Agent stops: the hangover holds briefly, then the full silence window
+    // must elapse before the close — after the real end, never before.
+    var steps: u32 = 0;
+    while (st.phase != .done) : (steps += 1) {
+        _ = st.step(.{ .tick = .{ .connection = .connected } });
+    }
+    try std.testing.expectEqual(reducer.CloseReason.silence, st.phase.done);
+    try std.testing.expect(steps >= session.SILENCE_TICKS);
+    try std.testing.expect(steps <= session.SILENCE_TICKS + session.AGENT_AUDIO_HANGOVER_TICKS);
+}
+
+test "reducer keepalive: the speaking data-channel state keeps the session open" {
+    var st = liveSession();
+    _ = st.step(.{ .agent_state = .speaking });
+
+    const talk_until = session.MIN_ACTIVE_TICKS + session.SILENCE_TICKS + 500;
+    while (st.timing.tick < talk_until) {
+        _ = st.step(.{ .tick = .{ .connection = .connected } });
+        try std.testing.expect(st.phase == .live);
+    }
+
+    const a = st.step(.{ .agent_state = .quiet });
+    try std.testing.expectEqual(@as(?bool, false), a.mic_gate);
+
+    // No hangover here (no render audio): the close comes exactly one silence
+    // window after the last speaking tick.
+    var steps: u32 = 0;
+    while (st.phase != .done) : (steps += 1) {
+        _ = st.step(.{ .tick = .{ .connection = .connected } });
+    }
+    try std.testing.expectEqual(reducer.CloseReason.silence, st.phase.done);
+    try std.testing.expectEqual(session.SILENCE_TICKS, steps);
+}
+
+test "reducer interrupted flushes the render FIFO but is not user activity" {
+    var st = liveSession();
+    _ = st.step(.{ .agent_state = .speaking });
+    for (0..10) |_| _ = st.step(.{ .tick = .{ .connection = .connected } });
+    const last_voice = st.timing.last_voice_tick;
+
+    const a = st.step(.{ .agent_state = .interrupted });
+
+    try std.testing.expect(a.flush_render);
+    try std.testing.expectEqual(@as(?bool, false), a.mic_gate);
+    try std.testing.expect(!st.agent_speaking);
+    // The silence timer keeps running from the agent's last audible tick.
+    try std.testing.expectEqual(last_voice, st.timing.last_voice_tick);
+}
+
+test "reducer barge-in publishes the interrupt and counts as voice activity" {
+    var st = liveSession();
+    _ = st.step(.{ .agent_state = .speaking });
+
+    const a = st.step(.{ .tick = .{ .connection = .connected, .barge_request = true } });
+
+    try std.testing.expect(a.publish_barge);
+    // mic_src already dropped its own gate at detection — no gate action.
+    try std.testing.expectEqual(@as(?bool, null), a.mic_gate);
+    try std.testing.expect(!st.agent_speaking);
+    // The barge tick itself is voice activity (the user is about to talk).
+    try std.testing.expectEqual(st.timing.tick - 1, st.timing.last_voice_tick);
+}
+
+test "reducer pre-roll retry cadence gives up after max attempts" {
+    var st = reducer.State{};
+    _ = st.step(.{ .agent_active = true });
+    const first = st.step(.{ .tick = .{ .connection = .connected } });
+    try std.testing.expect(first.handoff);
+    _ = st.step(.{ .preroll_sent = false }); // initial send failed
+    try std.testing.expectEqual(reducer.Preroll.pending, st.preroll);
+
+    // Voice on every tick so the silence watchdog never interferes; run past
+    // the full retry window and count the retry actions the reducer emits.
+    var retries: u32 = 0;
+    const horizon = reducer.PREROLL_RETRY_TICKS * (reducer.PREROLL_MAX_ATTEMPTS + 3);
+    while (st.timing.tick < horizon) {
+        const a = st.step(.{ .tick = .{ .connection = .connected, .mic_level = reducer.VOICE_LEVEL } });
+        if (a.retry_preroll) {
+            retries += 1;
+            try std.testing.expectEqual(retries, st.preroll_attempts);
+            try std.testing.expectEqual(@as(u32, 0), (st.timing.tick - 1) % reducer.PREROLL_RETRY_TICKS);
+            _ = st.step(.{ .preroll_sent = false });
+        }
+    }
+
+    try std.testing.expectEqual(reducer.PREROLL_MAX_ATTEMPTS, retries);
+    try std.testing.expectEqual(reducer.Preroll.given_up, st.preroll);
+    try std.testing.expect(st.phase == .live); // giving up never closes the session
+}
+
+test "reducer pre-roll retry stops after a successful send" {
+    var st = reducer.State{};
+    _ = st.step(.{ .agent_active = true });
+    _ = st.step(.{ .tick = .{ .connection = .connected } });
+    _ = st.step(.{ .preroll_sent = false });
+
+    var retries: u32 = 0;
+    const horizon = reducer.PREROLL_RETRY_TICKS * 6;
+    while (st.timing.tick < horizon) {
+        const a = st.step(.{ .tick = .{ .connection = .connected, .mic_level = reducer.VOICE_LEVEL } });
+        if (a.retry_preroll) {
+            retries += 1;
+            _ = st.step(.{ .preroll_sent = true }); // delivered on the first retry
+        }
+    }
+
+    try std.testing.expectEqual(@as(u32, 1), retries);
+    try std.testing.expectEqual(reducer.Preroll.idle, st.preroll);
+}
+
+test "reducer silence watchdog closes an agentless session at the boundary" {
+    // The agent never joins (no handoff, no audio): the watchdog must still
+    // close the session once both the min-active and silence gates open.
+    var st = reducer.State{};
+    var steps: u32 = 0;
+    while (st.phase != .done) : (steps += 1) {
+        _ = st.step(.{ .tick = .{ .connection = .connected } });
+    }
+    try std.testing.expectEqual(reducer.CloseReason.silence, st.phase.done);
+    try std.testing.expectEqual(@max(session.MIN_ACTIVE_TICKS, session.SILENCE_TICKS) + 1, steps);
+}
+
+test "reducer disconnect wins over a simultaneous silence expiry" {
+    var st = reducer.State{};
+    st.timing.tick = @max(session.MIN_ACTIVE_TICKS, session.SILENCE_TICKS);
+    _ = st.step(.{ .tick = .{ .connection = .ended } });
+    try std.testing.expectEqual(reducer.CloseReason.disconnected, st.phase.done);
+}
+
+test "reducer max duration caps a conversation with constant voice" {
+    var st = liveSession();
+    while (st.phase != .done) {
+        _ = st.step(.{ .tick = .{ .connection = .connected, .mic_level = reducer.VOICE_LEVEL } });
+    }
+    try std.testing.expectEqual(reducer.CloseReason.max_duration, st.phase.done);
+    try std.testing.expectEqual(session.MAX_TICKS, st.timing.tick);
+}
+
+test "reducer aec diagnostics window fires on cadence and resets" {
+    var st = liveSession();
+    var logs: u32 = 0;
+    var first: ?reducer.AecLog = null;
+    while (st.timing.tick < reducer.AEC_LOG_PERIOD_TICKS * 2) {
+        const a = st.step(.{
+            .tick = .{
+                .connection = .connected,
+                .mic_level = reducer.VOICE_LEVEL,
+                .render_peak = 500, // below AGENT_AUDIO_LEVEL: no keepalive
+            },
+        });
+        if (a.log_aec) |win| {
+            logs += 1;
+            if (first == null) first = win;
+        }
+    }
+    try std.testing.expectEqual(@as(u32, 2), logs);
+    try std.testing.expectEqual(@as(u32, 500), first.?.render_peak_window);
+    try std.testing.expect(!first.?.keepalive);
 }
