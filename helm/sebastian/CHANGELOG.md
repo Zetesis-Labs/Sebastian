@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.5](https://github.com/Zetesis-Labs/Sebastian/compare/helm-v0.1.4...helm-v0.1.5) (2026-07-13)
+
+
+### Bug Fixes
+
+* **agent:** wake-verify con gatillo real — fantasmas de minutos a ~3s ([230085e](https://github.com/Zetesis-Labs/Sebastian/commit/230085eea8dee0b653464deef752c3ddbf461192))
+* **helm:** volumen escribible para los phantom clips del agente ([34086d9](https://github.com/Zetesis-Labs/Sebastian/commit/34086d9797a78678d8191a736493370396b16b4b))
+
 ## [0.1.4](https://github.com/Zetesis-Labs/Sebastian/compare/helm-v0.1.3...helm-v0.1.4) (2026-07-10)
 
 
