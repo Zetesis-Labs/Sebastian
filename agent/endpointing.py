@@ -49,6 +49,12 @@ IDLE_CLOSE_S = float(os.getenv("SEBASTIAN_IDLE_CLOSE_S", "12"))
 QUESTION_IDLE_CLOSE_S = float(os.getenv("SEBASTIAN_QUESTION_IDLE_CLOSE_S", "25"))
 CLOSE_GRACE_S = 3.0  # device teardown time before the room cleanup
 POLL_S = 0.5
+# The idle clock must not run while the device is still fighting its way into
+# the room (field, 2026-07-13: a flaky first TCP connect to the prod SFU took
+# >12s of retries and the idle close DELETED the room under it). Idle counts
+# only once the device is present; if it never shows up, close as cleanup.
+DEVICE_IDENTITY = os.getenv("SEBASTIAN_DEVICE_IDENTITY", "esp32-respeaker")
+JOIN_GRACE_S = 45.0
 
 
 async def close_device_session(
@@ -110,6 +116,24 @@ def setup_endpointing(ctx: JobContext, session: AgentSession) -> None:
         state.touch()
 
     async def _watch() -> None:
+        started = time.monotonic()
+        device_joined = False
+        while not device_joined:
+            await asyncio.sleep(POLL_S)
+            device_joined = any(
+                p.identity == DEVICE_IDENTITY
+                for p in ctx.room.remote_participants.values()
+            )
+            if device_joined:
+                state.touch()  # the idle clock starts at the device's arrival
+                break
+            if time.monotonic() - started >= JOIN_GRACE_S:
+                m_close.add(1, {"expects_answer": "no_device"})
+                log.info(
+                    "device never joined within %.0fs — cleaning up", JOIN_GRACE_S
+                )
+                await close_device_session(ctx, reason="no_device")
+                return
         while True:
             await asyncio.sleep(POLL_S)
             # Anything non-idle is activity: the user mid-utterance (their turn
