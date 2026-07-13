@@ -52,6 +52,24 @@
       "runtimeArgs": ["${workspaceFolder}/tools/devtools.sh", "${input:zigMode}"],
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal"
+    },
+    {
+      "name": "Provision: full-duplex",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "tools/provision_device.py", "tools/provisioning/full_duplex.json"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Provision: half-duplex",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "tools/provision_device.py", "tools/provisioning/half_duplex.json"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
     }
   ],
   "inputs": [
