@@ -189,6 +189,10 @@ class SebastianAudioInput(agents.io.AudioInput):
         self.preroll_ready = (
             self._preroll_ready
         )  # exposed: entrypoint skips the greeting on it
+        # Raw pre-roll PCM (s16 mono), exposed for wake_verify.py: the wake
+        # word sits at the tail of this buffer and the verifier re-checks it.
+        self.preroll_pcm: bytes = b""
+        self.preroll_sample_rate: int = preroll.SAMPLE_RATE
         self._preroll_frames: list[rtc.AudioFrame] = []
         self._preroll_consumed = False
         self._attached = True
@@ -318,6 +322,8 @@ class SebastianAudioInput(agents.io.AudioInput):
             return
 
         self._preroll_frames = self._pcm_to_frames(pcm, sample_rate)
+        self.preroll_pcm = pcm
+        self.preroll_sample_rate = sample_rate
         self._preroll_ready.set()
         duration_ms = len(pcm) // 2 * 1000 // sample_rate if sample_rate else 0
         log.info(

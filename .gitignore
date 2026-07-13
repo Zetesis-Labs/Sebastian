@@ -50,3 +50,4 @@ web-installer/node_modules/
 web-installer/dist/
 .devcontainer/.env
 agent/recordings/
+agent/phantoms/
