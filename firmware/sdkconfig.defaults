@@ -30,3 +30,9 @@ CONFIG_SPIRAM_FETCH_INSTRUCTIONS=y
 CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
 CONFIG_ESP32S3_DATA_CACHE_64KB=y
 CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y
+
+# Handshake WS: el 101 de LiveKit llega coalescido con el primer frame
+# (JoinResponse ~1KB) y el parser de transport_ws declara error si la
+# lectura llena el buffer aunque el terminador esté dentro (bug IDF).
+# 4KB deja margen holgado para el burst 101+frames.
+CONFIG_WS_BUFFER_SIZE=4096
