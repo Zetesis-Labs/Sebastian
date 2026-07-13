@@ -51,6 +51,13 @@ spec:
               value: "0"
             - name: SEBASTIAN_ENDPOINT
               value: {{ if .Values.agent.endpointMode }}"1"{{ else }}"0"{{ end }}
+            - name: SEBASTIAN_WAKE_VERIFY_ACTION
+              value: {{ .Values.agent.wakeVerify.action | default "kill" | quote }}
+            # Phantom clips (the §7 hard-negative dataset) go to the data
+            # emptyDir — the rootfs is read-only and the saver prunes to
+            # SEBASTIAN_PHANTOM_KEEP, so the size limit is belt-and-braces.
+            - name: SEBASTIAN_PHANTOM_DIR
+              value: /data/phantoms
             - name: TMPDIR
               value: /tmp
             {{- if .Values.agent.otel.endpoint }}
@@ -65,9 +72,14 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: data
+              mountPath: /data
           resources:
             {{- toYaml .Values.agent.resources | nindent 12 }}
       volumes:
         - name: tmp
           emptyDir: {}
+        - name: data
+          emptyDir:
+            sizeLimit: 1Gi
 {{- end }}
