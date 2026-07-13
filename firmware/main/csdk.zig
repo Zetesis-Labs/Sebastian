@@ -25,6 +25,15 @@ pub const TaskFunction_t = ?*const fn (?*anyopaque) callconv(.c) void;
 pub const TSK_NO_AFFINITY: c_int = 0x7FFFFFFF;
 pub extern fn xTaskCreatePinnedToCore(code: TaskFunction_t, name: [*:0]const u8, stack_depth: u32, params: ?*anyopaque, prio: u32, handle: ?*anyopaque, core_id: c_int) c_int;
 
+// FreeRTOS queues. xQueueCreate/xQueueSend/xQueueReset are queue.h macros over
+// these Generic variants: queue_type 0 = queueQUEUE_TYPE_BASE, copy_position
+// 0 = queueSEND_TO_BACK, new_queue 0 = pdFALSE. Returns pdTRUE (1) on success.
+pub const QueueHandle_t = ?*anyopaque;
+pub extern fn xQueueGenericCreate(queue_length: c_uint, item_size: c_uint, queue_type: u8) QueueHandle_t;
+pub extern fn xQueueGenericSend(queue: QueueHandle_t, item: *const anyopaque, ticks_to_wait: u32, copy_position: c_int) c_int;
+pub extern fn xQueueReceive(queue: QueueHandle_t, buffer: *anyopaque, ticks_to_wait: u32) c_int;
+pub extern fn xQueueGenericReset(queue: QueueHandle_t, new_queue: c_int) c_int;
+
 // --- I2C (esp_driver_i2c / i2c_master) ---------------------------------------
 pub const i2c_master_bus_handle_t = ?*anyopaque;
 pub const i2c_master_dev_handle_t = ?*anyopaque;

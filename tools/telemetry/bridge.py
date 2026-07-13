@@ -135,6 +135,10 @@ c_heal = meter.create_counter("sebastian_channel_heals_total", description="I2S 
 c_wdg = meter.create_counter("sebastian_watchdog_fires_total")
 c_preroll = meter.create_counter("sebastian_preroll_sent_total")
 c_barge = meter.create_counter("sebastian_barge_ins_total", description="Wake-word interrupts over agent speech")
+c_mic_capture = meter.create_counter(
+    "sebastian_mic_capture_faults_total",
+    description="Micro-cut capture faults per AEC window, by kind (short_reads/pad_samples/timeouts/heals)",
+)
 c_aec_sessions = meter.create_counter("sebastian_aec_sessions_total", description="Sessions by whether the AEC converged (last in-session read)")
 c_err = meter.create_counter("sebastian_error_lines_total")
 
@@ -157,6 +161,11 @@ RE_ECHO = re.compile(
 )
 RE_AGENT = re.compile(r"agent state: (\w+)")
 RE_CLOSE_REASON = re.compile(r"(silence timeout|max duration|disconnected early|agent close)")
+# Capture-health deltas per AEC window (mic_src.takeReadStats — read-and-reset);
+# the firmware only logs the line when some fault is nonzero.
+RE_MIC_CAPTURE = re.compile(
+    r"mic capture: short_reads=(\d+) pad_samples=(\d+) timeouts=(\d+) heals=(\d+)"
+)
 RE_MUTE = re.compile(r"xvf_ui: mute: (on|off)")
 RE_MUTE_BOOT = re.compile(r"mute readback: (MUTED|UNMUTED)")
 RE_IDF_TS = re.compile(r"^[IWE] \((\d+)\)")
@@ -192,6 +201,10 @@ def handle(line: str) -> None:
         pending_close_reason = "unknown"
     elif m := RE_CLOSE_REASON.search(line):
         pending_close_reason = m.group(1).replace(" ", "_")
+    elif m := RE_MIC_CAPTURE.search(line):
+        for kind, val in zip(("short_reads", "pad_samples", "timeouts", "heals"), m.groups()):
+            if int(val):
+                c_mic_capture.add(int(val), {"kind": kind})
     elif m := RE_ECHO.search(line):
         last["echo_gated_peak"] = int(m.group("gated"))
         if m.group("live") is not None:
