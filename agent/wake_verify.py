@@ -43,11 +43,19 @@ m_verify = telemetry.counter(
 )
 
 ENABLED = os.getenv("SEBASTIAN_WAKE_VERIFY", "1") != "0"
+# What a REJECT does. kill: interrupt + device-initiated close (~3s back to
+# idle — the phantom antidote). shadow: verdict + clip + metric only, no
+# action — for measuring precision without risking real sessions. off: skip
+# verification entirely. Runtime-degradable via env, no code change.
+ACTION = os.getenv("SEBASTIAN_WAKE_VERIFY_ACTION", "kill")
 # Tail of the pre-roll to transcribe. The board fires ON the wake word but the
 # pre-roll keeps filling through token fetch + connect (~2s), so the fire sits
 # ~2s BEFORE the tail end — 5s covers wake + lead-in (field: 3.5s left whisper
 # only the post-fire fragment and a phantom slipped through as "unclear").
-WINDOW_S = float(os.getenv("SEBASTIAN_WAKE_VERIFY_WINDOW_S", "5.0"))
+# 8s, not 5: a slow connect pushes the fire further from the tail end and the
+# wake word falls OUT of the window — field 2026-07-13: a legitimate session
+# transcribed with no trace of the wake word and was falsely REJECTed.
+WINDOW_S = float(os.getenv("SEBASTIAN_WAKE_VERIFY_WINDOW_S", "8.0"))
 ASR_MODEL = os.getenv("SEBASTIAN_WAKE_VERIFY_MODEL", "whisper-1")
 ASR_TIMEOUT_S = 5.0
 PREROLL_WAIT_S = 6.0  # no pre-roll by then = greeting path, nothing to verify
@@ -55,7 +63,12 @@ PREROLL_WAIT_S = 6.0  # no pre-roll by then = greeting path, nothing to verify
 # content — the "clear speech" bar of the fail-open policy. 10, not 12: the
 # field phantom "de todo esto" (10 chars) is clear speech and must not pass.
 MIN_SPEECH_CHARS = 10
+# Relative default suits dev (repo cwd, writable); prod mounts an emptyDir and
+# points this at it via the chart (the rootfs is read-only there).
 PHANTOM_DIR = os.getenv("SEBASTIAN_PHANTOM_DIR", "phantoms")
+# Keep the newest N clips — the hard-negative dataset is valuable but bounded
+# (prod backs it with a size-limited emptyDir; never grow without limit).
+PHANTOM_KEEP = int(os.getenv("SEBASTIAN_PHANTOM_KEEP", "200"))
 
 
 def _normalize(text: str) -> str:
@@ -100,6 +113,14 @@ def _save_phantom_clip(buf: io.BytesIO, room_name: str) -> None:
     with open(path, "wb") as f:
         f.write(buf.getbuffer())
     log.info("[wake-verify] hard negative saved: %s", path)
+    # Prune oldest beyond the cap (names sort chronologically by stamp).
+    clips = sorted(
+        os.path.join(PHANTOM_DIR, n)
+        for n in os.listdir(PHANTOM_DIR)
+        if n.endswith(".wav")
+    )
+    for old in clips[:-PHANTOM_KEEP]:
+        os.remove(old)
 
 
 async def _transcribe(buf: io.BytesIO) -> str:
@@ -126,7 +147,7 @@ def setup_wake_verify(ctx: JobContext, session: AgentSession, mic_input) -> None
     wake pays zero latency. A phantom might get a syllable out before the
     verdict lands (~1-2s); interrupt() cuts it and the close tears down.
     """
-    if not ENABLED:
+    if not ENABLED or ACTION == "off":
         return
 
     async def _verify() -> None:
@@ -153,22 +174,31 @@ def setup_wake_verify(ctx: JobContext, session: AgentSession, mic_input) -> None
 
         if matches_wake_word(transcript) or not is_clear_speech(transcript):
             m_verify.add(1, {"verdict": "pass"})
-            log.info(
-                "[wake-verify] pass in %.1fs: %r", elapsed, transcript[:120]
-            )
+            # Transcript at DEBUG only: living-room speech must not land in Loki.
+            log.info("[wake-verify] pass in %.1fs (%d chars)", elapsed, len(transcript))
+            log.debug("[wake-verify] pass transcript: %r", transcript[:120])
             return
 
         m_verify.add(1, {"verdict": "reject"})
         log.info(
-            "[wake-verify] REJECT in %.1fs — clear speech, no wake word: %r",
+            "[wake-verify] REJECT in %.1fs — clear speech, no wake word (%d chars)",
             elapsed,
-            transcript[:120],
+            len(transcript),
         )
-        _save_phantom_clip(buf, ctx.room.name)
+        log.debug("[wake-verify] reject transcript: %r", transcript[:120])
+        # Act FIRST (the phantom dies here, ~3s after the false fire), save
+        # after — and guarded, so persisting the clip can never break the kill
+        # (field 2026-07-13: a read-only fs killed this task between the log
+        # and the close, leaving phantoms streaming to the model for 12s).
+        if ACTION == "kill":
+            try:
+                session.interrupt()  # cut any reply already in flight
+            except Exception:
+                pass
+            await close_device_session(ctx, reason="phantom")
         try:
-            session.interrupt()  # cut any reply already in flight
-        except Exception:
-            pass
-        await close_device_session(ctx, reason="phantom")
+            _save_phantom_clip(buf, ctx.room.name)
+        except OSError as e:
+            log.warning("[wake-verify] phantom clip not saved: %r", e)
 
     _spawn(_verify())
