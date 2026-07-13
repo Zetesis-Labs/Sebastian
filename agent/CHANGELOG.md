@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.6](https://github.com/Zetesis-Labs/Sebastian/compare/agent-v0.1.5...agent-v0.1.6) (2026-07-13)
+
+
+### Bug Fixes
+
+* **agent:** el reloj de idle no corre hasta que el device entra en la room ([c962d74](https://github.com/Zetesis-Labs/Sebastian/commit/c962d749f015103b94cbd129507f9cb024608e10))
+* **agent:** gracia de join — el idle no cuenta mientras el device pelea por conectar ([2e7fb0d](https://github.com/Zetesis-Labs/Sebastian/commit/2e7fb0dd9f1f4fc0dc91fad4d0cbe991a77efd44))
+
 ## [0.1.5](https://github.com/Zetesis-Labs/Sebastian/compare/agent-v0.1.4...agent-v0.1.5) (2026-07-13)
 
 
