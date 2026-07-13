@@ -102,6 +102,12 @@ agent:
     pullPolicy: IfNotPresent
   # SEBASTIAN_ENDPOINT — always-connected/endpoint mode. Off until it lands.
   endpointMode: false
+  # Server-side wake verification (SEBASTIAN_WAKE_VERIFY_ACTION):
+  #   kill — a REJECT aborts the phantom session (~3s back to idle)
+  #   shadow — verdict + clip + metric only, no action (precision measurement)
+  #   off — skip verification
+  wakeVerify:
+    action: kill
   # Run on the node's network (needed when the SFU is hostNetwork, so the agent
   # reaches its media/data over host loopback instead of the flaky pod→node path).
   hostNetwork: false
