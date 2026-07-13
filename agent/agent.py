@@ -43,6 +43,7 @@ import telemetry
 from audio_input import SebastianAudioInput, setup_recorder, setup_output_recorder, RECORD, RECORD_TRACK
 from endpointing import AGENT_STATE_TOPIC, close_device_session, setup_endpointing
 from instrumentation import instrument_session
+from wake_verify import setup_wake_verify
 from tasks import spawn as _spawn
 from typing import Any
 
@@ -339,6 +340,7 @@ async def entrypoint(ctx: agents.JobContext) -> None:
     _setup_barge_in(ctx, session)
     _setup_announce(ctx, session)
     setup_endpointing(ctx, session)
+    setup_wake_verify(ctx, session, mic_input)
     session.input.audio = mic_input
 
     async def _flush_device_render() -> None:

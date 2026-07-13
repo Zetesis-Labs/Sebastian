@@ -162,6 +162,15 @@ still need their own wireless path, §6 pre-deploy); uptime couples to the homel
 >    self-host — LAN connects are free. Every rejected fire is a labeled hard
 >    negative, so the §7 retraining dataset builds itself. Do the
 >    "para/stop"-during-TTS wake model (§4 extras) in the same pass.
+>    *v1 SHIPPED 2026-07-13 (`feat/wake-verify`, field-validated: threshold
+>    0.80→0.60, Whisper re-verify on the 5 s pre-roll tail, fail-open policy —
+>    ASR errors and unclear speech pass, so misses cannot regress; 3
+>    near-homophone phrases rejected in 1.1–1.9 s with silent device-initiated
+>    abort, genuine wakes pass at zero added latency, hard negatives
+>    auto-saved to `agent/phantoms/`. Also shipped: the Gemini-unrecoverable
+>    zombie guard (close on model_error). NOT included: the "para/stop" wake
+>    model. v2 = retrain on the collected dataset (§7 #2), fire probability in
+>    the SBPR header (strict verify for marginal fires), local ASR.*
 > 3. **In-session speaker attribution — the TV-hijack finding (§5,
 >    2026-07-13)**: with a session open, TV speech reads as user turns and the
 >    adaptive beam tracks the TV. Layer 1 now (session beam lock at wake DoA —
@@ -742,7 +751,8 @@ user shut down. Two design corrections learned here:
 ### Suggested order
 
 1. **Two-stage server re-verify** (#1) — kills audible phantoms now, lets the board
-   threshold go loose → also fixes the "didn't fire at 81 %" miss.
+   threshold go loose → also fixes the "didn't fire at 81 %" miss. *SHIPPED
+   2026-07-13 — `agent/wake_verify.py`; details in the §3 order, item 2.*
 2. **Measure** false positives with the session-without-turn proxy → phantom dataset.
 3. **Retrain** (#2) on it; add **DoA fusion** (#4) as a cheap gate.
 4. **Speaker-ID** (#3) if TV/guests turn out to be the dominant source.

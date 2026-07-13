@@ -5,6 +5,7 @@ from typing import Any
 
 from livekit.agents import AgentSession, get_job_context
 import telemetry
+from endpointing import close_device_session
 from phantom import PhantomDetector
 from tasks import spawn as _spawn
 
@@ -144,3 +145,12 @@ def instrument_session(session: AgentSession) -> None:
     def _on_error(ev: Any) -> None:
         m_errors.add(1)
         log.error("session error: %s", ev.error)
+        # Zombie guard (field bug, 2026-07-13): Gemini died unrecoverable
+        # (1007 "context exhausted") mid-story — the AgentSession closed but
+        # nobody told the device, which sat listening to nobody while ambient
+        # noise kept resetting its 60s watchdog. On an unrecoverable model
+        # error, close the device session through the same primitive as the
+        # endpointing (device-initiated disconnect, delete_room as cleanup).
+        if getattr(ev.error, "recoverable", True) is False:
+            log.warning("unrecoverable session error — closing device session")
+            _spawn(close_device_session(get_job_context(), reason="model_error"))

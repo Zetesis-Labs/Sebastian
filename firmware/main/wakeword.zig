@@ -32,12 +32,12 @@ extern fn mww_last_prob() f32;
 // ── Model constants (from wakeword/sebastian.json) ──────────────────────────
 
 const MODEL = @embedFile("sebastian.tflite");
-// Detection threshold. Raised from 0.62 after field telemetry: accidental
-// activations clustered right at the old cutoff (repeated 62% and 73% spikes),
-// while genuine "Sebastián" fired at 92–98%. 0.80 sits in that gap — it drops
-// the marginal false positives and keeps the confident real wakes. Lower toward
-// ~0.72 only if real wakes start getting missed.
-const PROBABILITY_CUTOFF: f32 = 0.80;
+// Detection threshold. History: 0.62 → 0.80 (field telemetry: accidentals at
+// 62-73%, genuine at 92-98%) → 0.60 with the two-stage split (ROADMAP §7 #1):
+// the board now optimizes RECALL (a genuine wake missed at 81% was the cost of
+// 0.80) and PRECISION lives server-side — the agent re-verifies every fire
+// against the pre-roll (agent/wake_verify.py) and silently aborts non-wakes.
+const PROBABILITY_CUTOFF: f32 = 0.60;
 const SLIDING_WINDOW: c_int = 4;
 
 // ── I2S decimation ───────────────────────────────────────────────────────────
