@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.1.5](https://github.com/Zetesis-Labs/Sebastian/compare/agent-v0.1.4...agent-v0.1.5) (2026-07-13)
+
+
+### Features
+
+* **agent:** endpointing por inactividad con cierre device-initiated ([dfb5c75](https://github.com/Zetesis-Labs/Sebastian/commit/dfb5c7551513bc5e80313ac46344416f9d51ce25))
+* **agent:** full-duplex talk-over interruptions + immediate device flush ([7787cf3](https://github.com/Zetesis-Labs/Sebastian/commit/7787cf38ce530364dfe7ee1d56f695f4fde2800e))
+* **agent:** record the model-input audio per session (_model.wav) ([233be86](https://github.com/Zetesis-Labs/Sebastian/commit/233be86e4b17b4510c3fe602db9295118d6ce91e))
+* **agent:** verificación en dos etapas del wake word sobre el pre-roll ([9a7fb3e](https://github.com/Zetesis-Labs/Sebastian/commit/9a7fb3efaaa6bf28452ea31bd819a382495970a6))
+* endpointing server-side — el agente decide el fin de la conversación ([6a61a26](https://github.com/Zetesis-Labs/Sebastian/commit/6a61a2684a3a5c81b5298bd05319163564db825c))
+* wake word split — recall en placa, precisión en servidor ([3ffa8a4](https://github.com/Zetesis-Labs/Sebastian/commit/3ffa8a426f66c76535b09e7570be4d7cfaec00a8))
+
+
+### Bug Fixes
+
+* mic micro-cuts — device capture fixes + model-input recording ([ffc0818](https://github.com/Zetesis-Labs/Sebastian/commit/ffc0818a5f46855cf2844f080f99ca134beaf9fa))
+
+
+### Documentation
+
+* **roadmap:** re-priorización 2026-07-11 (foco altavoz puro) ([9f4621b](https://github.com/Zetesis-Labs/Sebastian/commit/9f4621be3de4b6e06f29287dd031714c2ab15a98))
+
 ## [0.1.4](https://github.com/Zetesis-Labs/Sebastian/compare/agent-v0.1.3...agent-v0.1.4) (2026-07-10)
 
 
