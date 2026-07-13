@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.7](https://github.com/Zetesis-Labs/Sebastian/compare/agent-v0.1.6...agent-v0.1.7) (2026-07-13)
+
+
+### Bug Fixes
+
+* **agent:** gatillo del wake-verify robusto — actuar antes de grabar, ventana 8s ([eb18108](https://github.com/Zetesis-Labs/Sebastian/commit/eb18108abdd92de416634cfe2376edb605afe356))
+* **agent:** wake-verify con gatillo real — fantasmas de minutos a ~3s ([230085e](https://github.com/Zetesis-Labs/Sebastian/commit/230085eea8dee0b653464deef752c3ddbf461192))
+
 ## [0.1.6](https://github.com/Zetesis-Labs/Sebastian/compare/agent-v0.1.5...agent-v0.1.6) (2026-07-13)
 
 
