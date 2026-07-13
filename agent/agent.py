@@ -35,12 +35,13 @@ from livekit.agents import (
 )
 from livekit.agents.voice.agent_session import TurnHandlingOptions
 from livekit.agents.voice.room_io import RoomOptions
-from livekit.plugins import google, openai
+from google.genai import types as genai_types
+from livekit.plugins import google, openai, silero
 from openai.types.beta.realtime.session import TurnDetection
 
 import telemetry
 from audio_input import SebastianAudioInput, setup_recorder, setup_output_recorder, RECORD, RECORD_TRACK
-from endpointing import close_device_session, setup_endpointing
+from endpointing import AGENT_STATE_TOPIC, close_device_session, setup_endpointing
 from instrumentation import instrument_session
 from tasks import spawn as _spawn
 from typing import Any
@@ -74,6 +75,10 @@ GEMINI_MODEL = os.getenv(
     "gemini-2.5-flash-native-audio-preview-12-2025",
 )
 GEMINI_VOICE = os.getenv("SEBASTIAN_GEMINI_VOICE", os.getenv("SEBASTIAN_VOICE", "Puck"))
+# Native-audio models REJECT a language code (field-tested: 1007 "Unsupported
+# language code 'es-ES'" kills the session at setup) — they are auto-only, so
+# the Cyrillic/Afrikaans transcript drift has no config fix on this model.
+# Only set this env when running a half-cascade model.
 GEMINI_LANGUAGE = os.getenv("SEBASTIAN_GEMINI_LANGUAGE", "").strip()
 OPENAI_REALTIME_MODEL = os.getenv(
     "SEBASTIAN_OPENAI_REALTIME_MODEL", "gpt-realtime-mini"
@@ -182,6 +187,16 @@ def _build_gemini_realtime_model() -> google.realtime.RealtimeModel:
         voice=GEMINI_VOICE,
         proactivity=True,
         enable_affective_dialog=True,
+        # Less sensitive speech-start detection: with the TV in the room,
+        # Gemini's default AAD committed noise blips as user turns ("Ma",
+        # "sê. Dis waar.") that truncated replies within seconds of starting.
+        # Real interruptions don't need this hair-trigger — the talk-over
+        # detector (audio_input.py) covers the instant-cut path.
+        realtime_input_config=genai_types.RealtimeInputConfig(
+            automatic_activity_detection=genai_types.AutomaticActivityDetection(
+                start_of_speech_sensitivity=genai_types.StartSensitivity.START_SENSITIVITY_LOW,
+            ),
+        ),
     )
     if GEMINI_LANGUAGE:
         kwargs["language"] = GEMINI_LANGUAGE
@@ -193,7 +208,14 @@ def _build_openai_realtime_model() -> openai.realtime.RealtimeModel:
     return openai.realtime.RealtimeModel(
         model=OPENAI_REALTIME_MODEL,
         voice=OPENAI_VOICE,
-        turn_detection=TurnDetection(type="semantic_vad", eagerness="low"),
+        # eagerness=low is an ENDPOINTING choice (don't commit the user's turn
+        # while they pause to think). interrupt_response must be explicit: the
+        # field-observed default let talk-over speech pass WITHOUT the server
+        # interrupting the ongoing reply — no input_speech_started reached the
+        # framework, so playback (and the device render FIFO) narrated on.
+        turn_detection=TurnDetection(
+            type="semantic_vad", eagerness="low", interrupt_response=True
+        ),
     )
 
 
@@ -216,6 +238,13 @@ def _build_session() -> AgentSession:
         # a cold realtime session returns empty generations for out-of-band
         # replies, so announces speak via deterministic TTS instead.
         tts=openai.TTS(),
+        # NOTE on interruptions: with turn_detection="realtime_llm" the
+        # framework hard-ignores every local interruption path (VAD events,
+        # transcript activity — see agent_activity.on_vad_inference_done), and
+        # the server's semantic_vad only rules at END of utterance. Instant
+        # talk-over interruption is therefore OURS: SebastianAudioInput runs
+        # silero on the mic frames and on_talk_over calls session.interrupt()
+        # (wired in entrypoint), the same call the wake-word barge-in uses.
         turn_handling=TurnHandlingOptions(turn_detection="realtime_llm"),
         mcp_servers=_ha_mcp_servers(),
         # Default 3.0s exists for the framework's SOFTWARE AEC to warm up; our
@@ -299,7 +328,7 @@ def _setup_barge_in(ctx: agents.JobContext, session: AgentSession) -> None:
 async def entrypoint(ctx: agents.JobContext) -> None:
     m_jobs.add(1)
     log.info("job accepted room=%s", ctx.job.room.name)
-    mic_input = SebastianAudioInput(ctx.room)
+    mic_input = SebastianAudioInput(ctx.room, vad=silero.VAD.load())
     ctx.add_shutdown_callback(mic_input.aclose)
     if RECORD and RECORD_TRACK:
         # Raw-track tap — off by default: it starts at the handoff (no
@@ -311,6 +340,33 @@ async def entrypoint(ctx: agents.JobContext) -> None:
     _setup_announce(ctx, session)
     setup_endpointing(ctx, session)
     session.input.audio = mic_input
+
+    async def _flush_device_render() -> None:
+        # The item.interrupted→flush relay in instrumentation fires when the
+        # item FINALIZES — observed 56s after the interrupt. The device FIFO
+        # keeps narrating all that time, so flush it here, immediately.
+        try:
+            await ctx.room.local_participant.publish_data(
+                b"interrupted", topic=AGENT_STATE_TOPIC, reliable=True
+            )
+        except Exception as e:
+            log.warning("device flush publish failed: %r", e)
+
+    def _on_talk_over() -> None:
+        # Sustained voice while Sebastian speaks → cut him off NOW. The
+        # framework won't do this itself in realtime_llm mode (see
+        # _build_session): interrupt() truncates the agent-side playout and
+        # the direct publish flushes what the device already buffered.
+        if str(getattr(session, "agent_state", "")) != "speaking":
+            return
+        log.info("talk-over detected — interrupting agent speech")
+        try:
+            session.interrupt()
+        except Exception as e:
+            log.warning("talk-over interrupt failed: %r", e)
+        _spawn(_flush_device_render())
+
+    mic_input.on_talk_over = _on_talk_over
     await session.start(
         room=ctx.room,
         agent=Sebastian(),

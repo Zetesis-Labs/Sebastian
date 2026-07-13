@@ -3,9 +3,11 @@ import contextlib
 import logging
 import os
 import wave
+from collections.abc import Callable
 from datetime import datetime
 
 from livekit import agents, rtc
+from livekit.agents import vad as agents_vad
 from livekit.plugins import noise_cancellation
 import preroll
 from tasks import spawn as _spawn
@@ -53,6 +55,10 @@ RECORD = os.getenv("SEBASTIAN_RECORD", "1") != "0"
 # (agent/record.py covers the ad-hoc case too).
 RECORD_TRACK = os.getenv("SEBASTIAN_RECORD_TRACK", "0") == "1"
 GATE_SILENCE_PEAK = 100
+# Sustained speech (s) before the talk-over callback fires. Long enough that
+# residual echo blips and TV noise don't trigger it; short enough to feel
+# instant. Tune with SEBASTIAN_TALKOVER_MIN_S.
+TALK_OVER_MIN_SPEECH_S = float(os.getenv("SEBASTIAN_TALKOVER_MIN_S", "0.4"))
 
 def _frame_peak(frame: rtc.AudioFrame) -> int:
     mv = memoryview(frame.data)
@@ -162,11 +168,19 @@ def setup_output_recorder(session: agents.AgentSession, room_name: str) -> Recor
 
 
 class SebastianAudioInput(agents.io.AudioInput):
-    def __init__(self, room: rtc.Room) -> None:
+    def __init__(self, room: rtc.Room, vad: agents_vad.VAD | None = None) -> None:
         super().__init__(label="SebastianMic")
         self._room = room
         self._model_wav: wave.Wave_write | None = None
         self._model_frames = 0
+        # Talk-over detector: with turn_detection="realtime_llm" the framework
+        # DISCARDS local VAD interruptions (agent_activity.on_vad_inference_done
+        # returns early) and semantic_vad only rules at END of utterance — so
+        # full-duplex FELT half-duplex: you couldn't shut the agent up mid-reply.
+        # We run silero over the same frames the model gets and let agent.py
+        # decide (session.interrupt(), same call the wake-word barge-in uses).
+        self.on_talk_over: Callable[[], None] | None = None  # set by agent.py
+        self._vad_stream = vad.stream() if vad is not None else None
         # Bounded so a stalled consumer applies backpressure instead of growing
         # unbounded in memory. ~1000 * 50ms frames is generous headroom for the
         # pre-roll burst at hand-off while still capping the queue.
@@ -184,6 +198,11 @@ class SebastianAudioInput(agents.io.AudioInput):
 
         room.on("track_subscribed", self._on_track_subscribed)
         room.register_byte_stream_handler(PREROLL_TOPIC, self._on_preroll)
+
+        if self._vad_stream is not None:
+            vad_task = asyncio.create_task(self._consume_vad())
+            self._tasks.add(vad_task)
+            vad_task.add_done_callback(self._tasks.discard)
 
         # Endpoint mode creates this input lazily (at wake), long after the
         # device's mic track was subscribed — that event already fired, so
@@ -208,6 +227,26 @@ class SebastianAudioInput(agents.io.AudioInput):
             raise StopAsyncIteration
         self._record_model_frame(frame)
         return frame
+
+    async def _consume_vad(self) -> None:
+        """Fire on_talk_over after sustained speech. agent.py gates on the
+        agent actually speaking, so a callback while he is quiet is a no-op —
+        which also debounces: after the interrupt he stops speaking."""
+        assert self._vad_stream is not None
+        log.info("[talk-over] vad consumer started")
+        last_speaking = False
+        async for ev in self._vad_stream:
+            if ev.type != agents_vad.VADEventType.INFERENCE_DONE:
+                continue
+            if ev.speaking != last_speaking:
+                last_speaking = ev.speaking
+                log.info(
+                    "[talk-over] vad speaking=%s dur=%.2fs", ev.speaking, ev.speech_duration
+                )
+            if not ev.speaking or ev.speech_duration < TALK_OVER_MIN_SPEECH_S:
+                continue
+            if self.on_talk_over is not None:
+                self.on_talk_over()
 
     def _record_model_frame(self, frame: rtc.AudioFrame) -> None:
         """Tee of EXACTLY what the model consumes: pre-roll injected, gate
@@ -248,6 +287,9 @@ class SebastianAudioInput(agents.io.AudioInput):
         if self._stream:
             await self._stream.aclose()
             self._stream = None
+        if self._vad_stream is not None:
+            await self._vad_stream.aclose()
+            self._vad_stream = None
         if self._model_wav is not None:
             with contextlib.suppress(Exception):
                 self._model_wav.close()
@@ -370,6 +412,8 @@ class SebastianAudioInput(agents.io.AudioInput):
             leading_silence = True
             dropped = 0
             async for ev in stream:
+                if self._vad_stream is not None:
+                    self._vad_stream.push_frame(ev.frame)
                 if not self._attached:
                     continue
                 if leading_silence:
