@@ -4,7 +4,7 @@
 //! load wake word model → idle detection loop.
 //!
 //! Idle loop (low power, no LiveKit):
-//!   wakeword task reads I2S directly and feeds the 62KB streaming CNN.
+//!   wakeword task reads I2S directly and feeds the okay_nabu streaming CNN.
 //!   On detection → keep filling local pre-roll while opening LiveKit →
 //!   hand off the mic when the room and agent are ready → silence timeout →
 //!   close room → back to wake word detection.
@@ -657,7 +657,7 @@ export fn app_main() callconv(.c) void {
 
     if (wakeword.init()) {
         health.ww = true;
-        log.info("wake word model loaded (62KB, recall=99.3%)", .{});
+        log.info("wake word model loaded (okay_nabu, 59KB)", .{});
     } else {
         log.err("wake word model init failed — halting", .{});
         return;

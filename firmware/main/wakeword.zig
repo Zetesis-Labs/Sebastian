@@ -1,6 +1,6 @@
 //! Wake word detection task for Sebastian.
 //!
-//! Embeds sebastian.tflite (62KB) and runs the microWakeWord streaming CNN
+//! Embeds okay_nabu.tflite (59KB) and runs the microWakeWord streaming CNN
 //! on 16kHz mono PCM derived from the XVF3800 I2S stream. The task owns the
 //! I2S RX channel while it runs; on exit it resyncs the channel so that
 //! mic_src.readFrame() can take over cleanly when the LiveKit session opens.
@@ -29,16 +29,18 @@ extern fn mww_feed(pcm_16k: [*]const i16, n: c_int) bool;
 extern fn mww_reset() void;
 extern fn mww_last_prob() f32;
 
-// ── Model constants (from wakeword/sebastian.json) ──────────────────────────
+// ── Model constants (from wakeword/okay_nabu.json) ──────────────────────────
 
-const MODEL = @embedFile("sebastian.tflite");
-// Detection threshold. History: 0.62 → 0.80 (field telemetry: accidentals at
-// 62-73%, genuine at 92-98%) → 0.60 with the two-stage split (ROADMAP §7 #1):
-// the board now optimizes RECALL (a genuine wake missed at 81% was the cost of
-// 0.80) and PRECISION lives server-side — the agent re-verifies every fire
-// against the pre-roll (agent/wake_verify.py) and silently aborts non-wakes.
-const PROBABILITY_CUTOFF: f32 = 0.60;
-const SLIDING_WINDOW: c_int = 4;
+const MODEL = @embedFile("okay_nabu.tflite");
+// Detection threshold. The stock "okay_nabu" model (Kevin Ahrendt / ESPHome) is
+// well separated — its recommended cutoff is 0.97. We still run the two-stage
+// split (ROADMAP §7 #1): the board favors RECALL and PRECISION lives server-side
+// (agent/wake_verify.py re-verifies each fire against the pre-roll). 0.7 keeps
+// recall headroom over 0.97 without the over-sensitivity 0.60 caused on the old
+// poorly-separated custom model. Tune from the phantom-clip dataset.
+const PROBABILITY_CUTOFF: f32 = 0.70;
+// okay_nabu.json: sliding_window_size = 5 (the old custom model used 4).
+const SLIDING_WINDOW: c_int = 5;
 
 // ── I2S decimation ───────────────────────────────────────────────────────────
 // XVF streams 48kHz stereo 32-bit; the model wants 16kHz mono. We read one
@@ -105,7 +107,7 @@ pub fn stop() void {
 
 // ── Session-time barge-in detection ──────────────────────────────────────────
 // While the agent speaks the mic is gated (half-duplex), but the wake model
-// is idle and the I2S is still being drained by mic_src — so "Sebastián"
+// is idle and the I2S is still being drained by mic_src — so "Okay Nabu"
 // spoken OVER the agent can still be detected and used as an interrupt, the
 // same way Alexa's own name barges in. Shares the decimator and model state
 // with the idle task; only valid while that task is stopped (session active).

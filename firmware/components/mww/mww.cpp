@@ -1,6 +1,6 @@
 // microWakeWord inference engine for Sebastian.
 //
-// Model: sebastian.tflite  (trained with TaterTotterson/microWakeWord-Trainer-AppleSilicon)
+// Model: okay_nabu.tflite  (stock microWakeWord model, Kevin Ahrendt / ESPHome)
 // Input: [1, 2, 40] int8 — two consecutive 10ms filterbank feature frames.
 // Output: [1, 1] uint8 — detection probability.
 //
@@ -57,8 +57,9 @@ static FrontendState   frontend_state;
 static tflite::MicroInterpreter *interpreter = nullptr;
 static tflite::MicroResourceVariables *resource_vars = nullptr;
 
-// 2-frame ring buffer (model input is [1, 2, 40])
-static int8_t feat_ring[2][kNumChannels];
+// 3-frame ring buffer (okay_nabu input is [1, 3, 40])
+static constexpr int kFramesPerInvoke = 3;
+static int8_t feat_ring[kFramesPerInvoke][kNumChannels];
 static int    feat_count = 0;
 
 // Sliding window
@@ -148,7 +149,7 @@ bool mww_init(const uint8_t *model_data, size_t /*model_len*/,
 
     TfLiteTensor *in = interpreter->input(0);
     if (in->dims->size != 3 ||
-        in->dims->data[1] != 2 ||
+        in->dims->data[1] != kFramesPerInvoke ||
         in->dims->data[2] != kNumChannels) {
         return false;
     }
@@ -171,20 +172,21 @@ bool mww_feed(const int16_t *pcm_16k, int num_samples) {
         if (out.size == 0) continue;
 
         // Quantize feature frame into the next ring slot
-        int slot = feat_count % 2;
+        int slot = feat_count % kFramesPerInvoke;
         for (int i = 0; i < kNumChannels; i++) {
             feat_ring[slot][i] = quantize(i < (int)out.size ? out.values[i] : 0);
         }
         feat_count++;
 
-        // Streaming contract: the model consumes 2 FRESH frames per Invoke
-        // (input [1,2,40], stride 20ms). Invoking on overlapping pairs would
-        // advance the internal state twice as fast on duplicated data.
-        if (feat_count % 2 != 0) continue;
+        // Streaming contract: the model consumes kFramesPerInvoke FRESH frames
+        // per Invoke (okay_nabu: [1,3,40], stride 30ms). Invoking on overlapping
+        // windows would advance the internal state on duplicated data.
+        if (feat_count % kFramesPerInvoke != 0) continue;
 
         int8_t *inp = interpreter->input(0)->data.int8;
-        memcpy(inp,                feat_ring[0], kNumChannels);
-        memcpy(inp + kNumChannels, feat_ring[1], kNumChannels);
+        for (int f = 0; f < kFramesPerInvoke; f++) {
+            memcpy(inp + f * kNumChannels, feat_ring[f], kNumChannels);
+        }
 
         if (interpreter->Invoke() != kTfLiteOk) continue;
 
