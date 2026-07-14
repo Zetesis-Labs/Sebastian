@@ -1,18 +1,17 @@
 """Two-stage wake word verification, server side (ROADMAP §7 #1).
 
 The board threshold is a single knob pulled in opposite directions: raise it
-and genuine wakes get missed (a real "Sebastián" scored 81%), lower it and the
-TV opens sessions. The split: the BOARD keeps recall (threshold loosened to
-0.60, wakeword.zig), and THIS module supplies precision — every board fire is
-re-verified against the pre-roll audio with real compute, and a fire that was
-not "Sebastián" is aborted silently through the same device-initiated close
-primitive the endpointing uses.
+and genuine wakes get missed, lower it and the TV opens sessions. The split:
+the BOARD keeps recall (threshold in wakeword.zig), and THIS module supplies
+precision — every board fire is re-verified against the pre-roll audio with
+real compute, and a fire that was not "Okay Nabu" is aborted silently through
+the same device-initiated close primitive the endpointing uses.
 
 FAIL-OPEN by design: a session is killed only when the ASR heard *clear speech
 that clearly is not the wake word*. Empty, short or ambiguous transcripts pass,
 and any transcription error passes. The pre-split behavior is therefore the
 floor — this can only remove confident phantoms, never add misses. (The ASR
-prompt biases toward hearing "Sebastián", which errs the same direction.)
+prompt biases toward hearing "Okay Nabu", which errs the same direction.)
 
 Every rejected fire saves its audio clip: that is the §7 hard-negative dataset
 for retraining microWakeWord, building itself during normal use.
@@ -77,15 +76,22 @@ def _normalize(text: str) -> str:
 
 
 def matches_wake_word(transcript: str) -> bool:
-    """True if the transcript plausibly contains "Sebastián" (generous)."""
+    """True if the transcript plausibly contains "Okay Nabu" (generous).
+
+    Whisper transcribes an English brand phrase spoken with a Spanish accent
+    unpredictably ("ok/okay/oki", "nabu/naboo/navu/nabú"), so match the
+    distinctive "nabu" token loosely and let the fail-open policy cover the
+    rest. Anchored on the second word since "ok/okay" alone is too common in
+    ordinary speech to be a reliable signal.
+    """
     text = _normalize(transcript)
-    if "sebas" in text:
+    if "nabu" in text or "naboo" in text:
         return True
     words = [w.strip(".,;:!?¡¿\"'") for w in text.split()]
     return any(
-        difflib.SequenceMatcher(None, w, "sebastian").ratio() >= 0.72
+        difflib.SequenceMatcher(None, w, "nabu").ratio() >= 0.72
         for w in words
-        if len(w) >= 5
+        if len(w) >= 3
     )
 
 
@@ -131,7 +137,7 @@ async def _transcribe(buf: io.BytesIO) -> str:
                 model=ASR_MODEL,
                 file=buf,
                 # Bias toward hearing the name — errs toward PASS (fail-open).
-                prompt="Sebastián",
+                prompt="Okay Nabu",
             ),
             timeout=ASR_TIMEOUT_S,
         )
