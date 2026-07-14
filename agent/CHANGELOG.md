@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.8](https://github.com/Zetesis-Labs/Sebastian/compare/agent-v0.1.7...agent-v0.1.8) (2026-07-14)
+
+
+### Features
+
+* **agent:** wake-verify busca "Okay Nabu" en vez de "Sebastián" ([9800936](https://github.com/Zetesis-Labs/Sebastian/commit/98009366959d32fa7721a296b16fc8fb30c26b33))
+* wake word "Sebastián" → "Okay Nabu" ([2424a0f](https://github.com/Zetesis-Labs/Sebastian/commit/2424a0f2b4e796a49cb53edf12198117082c1e0f))
+
 ## [0.1.7](https://github.com/Zetesis-Labs/Sebastian/compare/agent-v0.1.6...agent-v0.1.7) (2026-07-13)
 
 
