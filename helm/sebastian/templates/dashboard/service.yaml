@@ -1,0 +1,21 @@
+{{- if .Values.dashboard.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "sebastian.fullname" . }}-dashboard
+  labels:
+    {{- include "sebastian.labels" . | nindent 4 }}
+    {{- include "sebastian.selectorLabels" (dict "ctx" . "component" "dashboard") | nindent 4 }}
+  {{- with .Values.dashboard.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ .Values.dashboard.service.port }}
+      targetPort: http
+  selector:
+    {{- include "sebastian.selectorLabels" (dict "ctx" . "component" "dashboard") | nindent 4 }}
+{{- end }}

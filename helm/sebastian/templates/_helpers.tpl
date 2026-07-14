@@ -29,7 +29,7 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/part-of: sebastian
 {{- end }}
 
-{{/* Per-component selector labels: {{ include "sebastian.selectorLabels" (dict "ctx" . "component" "token-server") }} */}}
+{{/* Per-component selector labels: {{ include "sebastian.selectorLabels" (dict "ctx" . "component" "server") }} */}}
 {{- define "sebastian.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "sebastian.name" .ctx }}
 app.kubernetes.io/instance: {{ .ctx.Release.Name }}

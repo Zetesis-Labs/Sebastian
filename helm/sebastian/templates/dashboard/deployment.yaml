@@ -1,0 +1,61 @@
+{{- if .Values.dashboard.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "sebastian.fullname" . }}-dashboard
+  labels:
+    {{- include "sebastian.labels" . | nindent 4 }}
+    {{- include "sebastian.selectorLabels" (dict "ctx" . "component" "dashboard") | nindent 4 }}
+spec:
+  replicas: {{ .Values.dashboard.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "sebastian.selectorLabels" (dict "ctx" . "component" "dashboard") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "sebastian.labels" . | nindent 8 }}
+        {{- include "sebastian.selectorLabels" (dict "ctx" . "component" "dashboard") | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- include "sebastian.appSecurityContext" . | nindent 8 }}
+      containers:
+        - name: dashboard
+          image: "{{ .Values.dashboard.image.repository }}:{{ .Values.dashboard.image.tag }}"
+          imagePullPolicy: {{ .Values.dashboard.image.pullPolicy }}
+          securityContext:
+            {{- include "sebastian.containerSecurityContext" . | nindent 12 }}
+          env:
+            - name: PORT
+              value: {{ .Values.dashboard.service.targetPort | quote }}
+            - name: HOST
+              value: "0.0.0.0"
+            - name: SEBASTIAN_API_URL
+              value: "http://{{ include "sebastian.fullname" . }}-server:{{ .Values.server.service.port }}"
+            - name: SEBASTIAN_ADMIN_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "dashboard.existingSecret or server.existingSecret must be set" (default .Values.server.existingSecret .Values.dashboard.existingSecret) }}
+                  key: SEBASTIAN_ADMIN_SECRET
+          ports:
+            - name: http
+              containerPort: {{ .Values.dashboard.service.targetPort }}
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.dashboard.resources | nindent 12 }}
+{{- end }}

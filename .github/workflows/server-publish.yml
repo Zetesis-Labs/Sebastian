@@ -1,0 +1,42 @@
+name: Publish Sebastian Server Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (semver, no leading v)"
+        required: true
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+    secrets:
+      HARBOR_USERNAME:
+        required: true
+      HARBOR_PASSWORD:
+        required: true
+
+env:
+  REGISTRY: gauss.nexolabs.dev
+  IMAGE: sebastian/server
+
+jobs:
+  build:
+    runs-on: herschel-runners
+    steps:
+      - uses: actions/checkout@v6
+      - name: Log into registry
+        env:
+          HARBOR_USER: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASS: ${{ secrets.HARBOR_PASSWORD }}
+        run: echo "${HARBOR_PASS}" | docker login "${REGISTRY}" -u "${HARBOR_USER}" --password-stdin
+      - name: Build and push server
+        run: |
+          VERSION="v${{ inputs.version }}"
+          docker build \
+            -t "${REGISTRY}/${IMAGE}:${VERSION}" \
+            -t "${REGISTRY}/${IMAGE}:latest" \
+            server
+          docker push "${REGISTRY}/${IMAGE}:${VERSION}"
+          docker push "${REGISTRY}/${IMAGE}:latest"

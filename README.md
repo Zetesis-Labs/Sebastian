@@ -1,7 +1,7 @@
 # Sebastian
 
 **Bi-directional conversational** voice speaker over **Seeed ReSpeaker XVF3800
-+ XIAO ESP32-S3**, connected to **LiveKit Cloud**. The user speaks, the
++ XIAO ESP32-S3**, connected to **LiveKit**. The user speaks, the
 device captures and cleans the voice via hardware (4-microphone array with
 beamforming + AEC + noise suppression in the XMOS XVF3800), publishes it in a
 LiveKit room, and a **Python agent (OpenAI Realtime)** responds through the
@@ -52,7 +52,12 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for full details.
   room logic).
 - **Agent in Python**: this is how LiveKit agents are built (`agents` framework
   with batteries included: VAD, turn-detection, BVC noise cancellation).
-- **LiveKit Cloud + sandbox token**: no custom token backend.
+- **Go control plane**: a contract-first OpenAPI service authenticates devices,
+  creates explicit LiveKit dispatches and records domain/outbox events in PostgreSQL.
+- **NATS JetStream**: a separate outbox worker publishes durable CloudEvents for
+  downstream functions and the administration panel.
+- **LiveKit credentials are short-lived** and issued per session; the firmware
+  carries no API secret or static JWT.
 
 > ⚠️ This is a **bleeding edge** project: first LiveKit-on-ESP32 in Zig (Espressif
 > `0.16-xtensa` fork, LLVM Xtensa backend).
@@ -76,6 +81,8 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for full details.
 |---|---|
 | [`firmware/`](firmware/) | ESP32-S3 firmware. App in **Zig** on ESP-IDF + LiveKit C SDK. |
 | [`agent/`](agent/) | Voice agent in **Python** (`livekit-agents` + OpenAI Realtime). |
+| [`server/`](server/) | Control plane in **Go** (OpenAPI, PostgreSQL, LiveKit, outbox and JetStream). |
+| [`dashboard/`](dashboard/) | Administration panel in **React + TanStack Start**. |
 | [`docs/`](docs/) | Documentation (see table above). |
 
 ## Quick start
@@ -83,8 +90,10 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for full details.
 See [docs/BUILD_AND_RUN.md](docs/BUILD_AND_RUN.md) for the full guide. In short:
 
 1. **Firmware**: `source ~/esp/esp-idf/export.sh && cd firmware && idf.py build && idf.py -p /dev/cu.usbmodem101 flash monitor`
-2. **Agent** (exactly one): `cd agent && uv sync && uv run agent.py dev`
-3. **Dispatch** to a fresh room: `lk room delete sebastian` and reset the board.
+2. **Server**: `make server-migrate && make server-run` inside the devcontainer.
+3. **Dashboard**: `make dashboard-dev` and open `http://localhost:3001`.
+4. **Agent** (exactly one): `cd agent && uv sync && uv run agent.py dev`
+5. Reset the board; the server creates a fresh room and explicit dispatch.
 
 Secrets (WiFi, LiveKit token, OpenAI key) go in gitignored files;
 they are never committed.

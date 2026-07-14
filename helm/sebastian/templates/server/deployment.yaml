@@ -1,0 +1,124 @@
+{{- if .Values.server.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "sebastian.fullname" . }}-server
+  labels:
+    {{- include "sebastian.labels" . | nindent 4 }}
+    {{- include "sebastian.selectorLabels" (dict "ctx" . "component" "server") | nindent 4 }}
+spec:
+  replicas: {{ .Values.server.replicaCount }}
+  {{- if .Values.server.hostPort }}
+  # A surge pod cannot bind the same node hostPort during a rollout.
+  strategy:
+    type: Recreate
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "sebastian.selectorLabels" (dict "ctx" . "component" "server") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "sebastian.labels" . | nindent 8 }}
+        {{- include "sebastian.selectorLabels" (dict "ctx" . "component" "server") | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- include "sebastian.appSecurityContext" . | nindent 8 }}
+      initContainers:
+        - name: migrate
+          image: "{{ .Values.server.image.repository }}:{{ .Values.server.image.tag }}"
+          imagePullPolicy: {{ .Values.server.image.pullPolicy }}
+          command: ["/usr/local/bin/sebastian-migrate"]
+          securityContext:
+            {{- include "sebastian.containerSecurityContext" . | nindent 12 }}
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "server.existingSecret must be set" .Values.server.existingSecret }}
+                  key: DATABASE_URL
+      containers:
+        - name: server
+          image: "{{ .Values.server.image.repository }}:{{ .Values.server.image.tag }}"
+          imagePullPolicy: {{ .Values.server.image.pullPolicy }}
+          securityContext:
+            {{- include "sebastian.containerSecurityContext" . | nindent 12 }}
+          env:
+            {{- include "sebastian.livekitEnv" .Values.server | nindent 12 }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.server.existingSecret }}
+                  key: DATABASE_URL
+            - name: SEBASTIAN_SERVER_ADDRESS
+              value: ":{{ .Values.server.service.targetPort }}"
+            - name: SEBASTIAN_LEGACY_TOKEN_ENABLED
+              value: {{ .Values.server.legacyTokenEnabled | quote }}
+            - name: SEBASTIAN_ADMIN_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.server.existingSecret }}
+                  key: SEBASTIAN_ADMIN_SECRET
+          ports:
+            - name: http
+              containerPort: {{ .Values.server.service.targetPort }}
+              protocol: TCP
+              {{- if .Values.server.hostPort }}
+              hostPort: {{ .Values.server.hostPort }}
+              {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.server.resources | nindent 12 }}
+        {{- if .Values.server.outbox.enabled }}
+        - name: outbox
+          image: "{{ .Values.server.image.repository }}:{{ .Values.server.image.tag }}"
+          imagePullPolicy: {{ .Values.server.image.pullPolicy }}
+          command: ["/usr/local/bin/sebastian-outbox"]
+          securityContext:
+            {{- include "sebastian.containerSecurityContext" . | nindent 12 }}
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.server.existingSecret }}
+                  key: DATABASE_URL
+            - name: NATS_URL
+              {{- if .Values.server.outbox.natsURL }}
+              value: {{ .Values.server.outbox.natsURL | quote }}
+              {{- else if .Values.nats.enabled }}
+              value: "nats://{{ include "sebastian.fullname" . }}-nats:4222"
+              {{- else }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.server.existingSecret }}
+                  key: NATS_URL
+              {{- end }}
+            - name: SEBASTIAN_NATS_STREAM
+              value: {{ .Values.server.outbox.stream | quote }}
+            - name: SEBASTIAN_NATS_SUBJECTS
+              value: {{ .Values.server.outbox.subjects | quote }}
+            - name: SEBASTIAN_OUTBOX_BATCH_SIZE
+              value: {{ .Values.server.outbox.batchSize | quote }}
+            - name: SEBASTIAN_OUTBOX_POLL_INTERVAL
+              value: {{ .Values.server.outbox.pollInterval | quote }}
+            - name: SEBASTIAN_OUTBOX_PUBLISH_TIMEOUT
+              value: {{ .Values.server.outbox.publishTimeout | quote }}
+          resources:
+            {{- toYaml .Values.server.outbox.resources | nindent 12 }}
+        {{- end }}
+{{- end }}

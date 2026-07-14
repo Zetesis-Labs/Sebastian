@@ -1,0 +1,81 @@
+name: Sebastian Server CI
+
+on:
+  pull_request:
+    paths:
+      - "server/**"
+      - ".github/workflows/server-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "server/**"
+      - ".github/workflows/server-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: sebastian
+          POSTGRES_USER: sebastian
+          POSTGRES_PASSWORD: sebastian
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sebastian -d sebastian"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgres://sebastian:sebastian@localhost:5432/sebastian?sslmode=disable
+      ATLAS_DEV_DATABASE_URL: postgres://sebastian:sebastian@localhost:5432/sebastian?sslmode=disable
+      NATS_URL: nats://localhost:4222
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.x"
+          cache-dependency-path: server/go.sum
+      - uses: ariga/setup-atlas@v0
+      - run: go mod download
+      - name: Verify generated OpenAPI bindings
+        run: |
+          make generate
+          git diff --exit-code -- internal/api/openapi.gen.go
+      - name: Validate migration history
+        run: make migration-validate
+      - name: Verify formatting
+        run: make fmt-check
+      - name: Apply migrations twice
+        run: go run ./cmd/migrate && go run ./cmd/migrate
+      - name: Start NATS JetStream
+        run: |
+          docker run --detach --name nats --publish 4222:4222 --publish 8222:8222 \
+            nats:2.14.1-alpine3.22 --jetstream --http_port 8222
+          for attempt in {1..20}; do
+            if curl --fail --silent http://127.0.0.1:8222/healthz >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs nats
+          exit 1
+      - name: Test with race detector
+        run: make test
+      - name: Integration tests
+        run: make integration
+      - name: Static analysis
+        run: make vet
+      - name: Build
+        run: make build
+      - name: Vulnerability scan
+        run: make vuln

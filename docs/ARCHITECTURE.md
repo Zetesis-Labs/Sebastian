@@ -3,7 +3,8 @@
 Sebastian is a **conversational voice speaker**. The user speaks, the device captures and cleans the voice via hardware, transports it in real-time to the cloud, an agent understands it and responds with voice, and that response is played back through the speaker. The entire loop is voice-to-voice.
 
 - **Hardware:** 4-microphone array Seeed ReSpeaker XVF3800 + XIAO ESP32-S3.
-- **Backend:** LiveKit Cloud + a Python agent that uses OpenAI Realtime (speech-to-speech).
+- **Backend:** Go/OpenAPI control plane + PostgreSQL, NATS JetStream, LiveKit and
+  a Python voice agent.
 - **Firmware (application layer):** Zig on ESP-IDF v5.4 + the LiveKit C SDK (`client-sdk-esp32`).
 - **Repository:** `github.com/Zetesis-Labs/Sebastian`
 
