@@ -33,6 +33,12 @@ why the file warns "Keep in sync".
 
 ## Modules (`main/*.zig`)
 
+> Note: this list predates several modules. The firmware also includes `wakeword.zig`
+> (+ the `components/mww/` C/C++ engine) for on-device wake detection, `main/core/` (pure,
+> host-tested logic: `session_reducer.zig`, `mic_gate.zig`, …), `provisioning.c` (NVS WiFi/
+> token/mode provisioning over serial), `token.zig` (per-session token fetch) and a syslog
+> telemetry sink. See the source for the current set.
+
 ### `app.zig` — entry point
 
 Contains `app_main` and orchestrates the boot sequence in this order:
@@ -97,9 +103,10 @@ buffer**, so there is no drift between the XVF's clock and the consumer's. A
 previous version with a freewheeling ring buffer drifted and produced a
 periodic "helicopter"/warble.
 
-Takes the **RIGHT slot** of the I2S (the *raw ASR beam* of the XVF), converts from 32-bit to
-16-bit with a **fixed right shift** (`SHIFT`, currently **13**,
-calibrated so the voice falls around **-18 dBFS** without clipping), and publishes
+Takes the **LEFT slot** of the I2S (the *comms beam* of the XVF: on-chip NS + residual-echo
+suppression, path B since 2026-07-08), converts from 32-bit to 16-bit with a **fixed right
+shift** (`SHIFT`, comptime-selected per channel in `xvf_pcm.zig`, calibrated so the voice
+falls around **-18 dBFS** without clipping), and publishes
 the source as **48 kHz** (LiveKit resamples). In the **first `read_frame()`** it does
 a disable+enable of the RX channel to lock onto the XVF's already running clock (the
 board enabled the channel before the XVF was clocking).
@@ -141,7 +148,7 @@ main/
   app.zig      ← app_main; media (capturer/renderer), WiFi/SNTP, join room
   board.zig    ← I2C, AIC3104, dual port slave I2S, esp_codec_dev (no-op codec_if)
   csdk.zig     ← hand-written extern bindings (IDF + codec_dev + capture/render + livekit)
-  mic_src.zig  ← custom esp_capture source (reads i2s_rx directly, right slot)
+  mic_src.zig  ← custom esp_capture source (reads i2s_rx directly, left/comms slot)
   xvf_dfu.zig  ← XVF3800 DFU via I2C + embedded firmware (@embedFile)
   log.zig      ← std.log → esp_log_write bridge
   placeholder.c← empty (keeps the IDF component non-empty)
@@ -154,16 +161,18 @@ Requires ESP-IDF v5.4+ exported (`. ~/esp/esp-idf/export.sh`).
 ```bash
 cd firmware
 idf.py set-target esp32s3
-idf.py menuconfig          # Sebastian/LiveKit → Sandbox ID; example_utils → WiFi
 idf.py build
 idf.py -p /dev/cu.usbmodem101 flash monitor
 ```
 
-Credentials (WiFi, Sandbox ID / token) remain in `sdkconfig` and `secrets.zig`
-(gitignored), never in `sdkconfig.defaults`.
+WiFi and the token-server URL are **provisioned over serial into NVS** (see `provisioning.c`
+and `token.zig`), not compiled in. `secrets.zig` holds only a fallback default and is
+gitignored; nothing sensitive goes in `sdkconfig.defaults`.
 
 ## Backend / agent
 
-The device joins a LiveKit Cloud room using a **sandbox token**
-(token server hosted by LiveKit, without setting up a custom backend). The
-[Python agent](../agent/) joins the same room and provides STT/LLM/TTS.
+The device opens a session on a **self-hosted LiveKit SFU** (no longer LiveKit Cloud): it
+fetches a **per-session token** from its own **token/session server** (URL provisioned into
+NVS, see above), and the [Python agent](../agent/) joins the same room to provide STT/LLM/TTS
+with server-side wake verification. The Go server, admin dashboard, agent and control plane
+run on the `cortes` cluster (`server/`, `dashboard/`, `helm/sebastian/`).

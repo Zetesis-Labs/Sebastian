@@ -75,9 +75,11 @@ else()
     set(ZIG_CPU "${_idf_model}")
 endif()
 
-# --- Toolchain libc headers (newlib) for translate-c -------------------------
-# Zig has no libc for xtensa-freestanding, so translate-c needs the ESP
-# toolchain's newlib + gcc headers (stdlib.h, stddef.h, …).
+# --- Toolchain libc headers (newlib) — Zig build include path ----------------
+# Passed to the Zig build as `-isystem` paths. NOTE: translate-c / `@cImport` is NOT
+# used — csdk.zig hand-declares the C ABI as `extern` (see docs/FIRMWARE.md), so Zig
+# never parses these headers. They are harvested from the abandoned translate-c
+# approach and are currently inert for the compile (no `@cImport` consumes them).
 get_filename_component(_tc_bin "${CMAKE_C_COMPILER}" DIRECTORY)
 get_filename_component(_tc_root "${_tc_bin}" DIRECTORY)
 set(_tc_newlib "${_tc_root}/xtensa-esp-elf/include")
@@ -96,7 +98,7 @@ set(_sys_inc_expr "${_tc_newlib}|${_tc_gcc_inc}")
 
 idf_build_get_property(_defs COMPILE_DEFINITIONS)
 string(JOIN "|" _defs_joined ${_defs})
-# Xtensa little-endian + arch macros translate-c needs (newlib ieeefp.h etc.).
+# Xtensa little-endian + arch macros the Zig build's C ABI context needs (newlib ieeefp.h etc.).
 set(_defs_joined "${_defs_joined}|__XTENSA__|__XTENSA_EL__|__xtensa__")
 
 # --- Build the Zig object and link it ----------------------------------------

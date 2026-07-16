@@ -104,8 +104,8 @@ is the wake word training (Apple MPS).
 
 ## What DOES NOT go in the container
 
-- **Wake word training** — out of scope on purpose: the trained
-  model (`firmware/main/sebastian.tflite`) is committed in the repo and the
+- **Wake word training** — out of scope on purpose: the embedded
+  model (`firmware/main/okay_nabu.tflite`, a stock "Okay Nabu" model) is committed in the repo and the
   environment works with it out of the box. Whoever wants another word trains it
   with the `wakeword/` scripts (host flow with GPU/MPS; the ~40GB trainer
   is gitignored).

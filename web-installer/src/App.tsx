@@ -341,9 +341,6 @@ function Advanced({ installReady }: { installReady: boolean }) {
       </summary>
       <div className="border-t border-line px-6 pb-6 pt-5 text-sm text-fg-muted">
         <p>
-          If there is no published image, paste the URL of a <code className="text-fg-soft">manifest.json</code>
-          or a <code className="text-fg-soft">.bin</code> merged (offset 0) in the URL with
-          <code className="text-fg-soft"> ?manifest=</code> or <code className="text-fg-soft">?bin=</code>.
           The factory binary is built by CI in <code className="text-fg-soft">docs/installer/firmware/</code>.
         </p>
       </div>

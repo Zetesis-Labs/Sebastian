@@ -35,7 +35,7 @@ The XVF3800 (with "inthost" firmware) is the **I2S MASTER**: it generates the cl
 | I2C SDA | 5 |
 | I2C SCL | 6 |
 
-I2S format: **48 kHz**, 32-bit per slot, stereo. **Left** slot = processed voice with noise suppression (communication); **right** slot = raw ASR beam (no NS) — this project uses the **right** one (see [ARCHITECTURE.md](ARCHITECTURE.md) and [XVF3800.md](XVF3800.md)).
+I2S format: **48 kHz**, 32-bit per slot, stereo. **Left** slot = processed voice with noise suppression (communication); **right** slot = raw ASR beam (no NS) — this project uses the **left** one since 2026-07-08 (path B: the self-hosted SFU has no cloud BVC, so the comms beam supplies the on-chip NS + residual-echo suppression full-duplex needs — see `firmware/main/config.zig` and [MIC_CHANNEL_TUNING.md](MIC_CHANNEL_TUNING.md)).
 
 ## I2C Addresses
 

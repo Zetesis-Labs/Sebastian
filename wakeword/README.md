@@ -1,4 +1,10 @@
-# Wake word "Sebastián"
+# Wake word
+
+> ⚠️ **The currently embedded model is `okay_nabu.tflite`** (stock English "Okay Nabu",
+> Kevin Ahrendt / ESPHome), swapped in to cut false positives. Board threshold: moving
+> average of 5 > **0.95** (`firmware/main/wakeword.zig`). The Spanish **"Sebastián"** model
+> documented below is the roadmap target; its trained artifacts are **not currently in the
+> repo** (`sebastian.tflite`/`.json` were removed when the stock model landed).
 
 Wake word artifacts and scripts. Firmware integration is documented
 in [`docs/WAKE_WORD.md`](../docs/WAKE_WORD.md).
@@ -7,8 +13,9 @@ in [`docs/WAKE_WORD.md`](../docs/WAKE_WORD.md).
 
 | File | What it is |
 |---|---|
-| `sebastian.tflite` | Final model (62 KB, int8, streaming). Embedded copy in `firmware/main/`. |
-| `sebastian.json` | Model metadata (cutoff 0.62, window 4, step 10 ms, arena). |
+| `okay_nabu.tflite` | **Currently embedded** model (stock "Okay Nabu", ~59 KB, int8, streaming, English). Embedded copy in `firmware/main/`. |
+| `okay_nabu.json` | Model metadata (cutoff 0.97, window 5, step 10 ms, arena 26 080 B). |
+| `sebastian.tflite` / `.json` | Spanish model (roadmap target) — **not currently in the repo**; retrain with the flow below. |
 | `download_es_voices.py` | Downloads the 9 Spanish Piper voices (AR/ES/MX) from HuggingFace to `trainer/piper-sample-generator/voices/`. |
 | `split_wakeword.py` | Chops a recording session (long WAV with many repetitions) into individual 16 kHz mono clips for `personal_samples/`. |
 | `trainer/` | (gitignored, ~40 GB) Clone of microWakeWord-Trainer-AppleSilicon + datasets + venv. |

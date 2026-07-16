@@ -1,10 +1,17 @@
 # Mic Channel Tuning (LEFT vs RIGHT) and Level
 
+> ⚠️ **Superseded (2026-07-08).** This unit now ships with **`.left` (comms)**, not RIGHT.
+> Under path B (self-hosted SFU, no cloud BVC) the raw ASR beam reached the model with no
+> noise/echo suppression, so full-duplex fed the agent its own voice ("se acopla") and noisy
+> rooms degraded transcription. The comms beam supplies on-chip NS + residual-echo suppression
+> as the single NS pass by design. The RIGHT-vs-STT analysis below is the rationale from the
+> cloud-BVC era; source of truth is `firmware/main/config.zig` (`mic_channel`).
+
 Conclusions from A/B testing the two output channels of the XVF3800, done by recording the voice published to LiveKit at 48 kHz and evaluating it by metrics + listening.
 
 ## TL;DR
 
-- **Default channel: `RIGHT` (ASR).** This is the choice for STT.
+- **Default channel: `LEFT` (comms) since 2026-07-08** (see banner). `RIGHT` was the choice for a *cloud-BVC* STT path; path B needs LEFT's on-chip NS.
 - **Gain per channel:** `SHIFT = 14` on RIGHT, `SHIFT = 15` on LEFT.
 - **Soft-clip limiter** in `mic_src.zig` to tame peaks without hard clipping.
 - The channel is chosen at install time in `firmware/main/config.zig` (`mic_channel`).
@@ -68,7 +75,7 @@ Below the knee (24000) the sample passes linearly; above, peaks are softly compr
 `firmware/main/config.zig`:
 
 ```zig
-pub const mic_channel: MicChannel = .right; // or .left
+pub const mic_channel: MicChannel = .left; // or .right
 ```
 
 It is resolved at comptime (zero cost) and sets the I2S slot **and** the `SHIFT` per channel. Change the line and reflash to install a unit with the other channel.

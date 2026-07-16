@@ -1,5 +1,14 @@
 # Project Status (2026-07-03)
 
+> ⚠️ **Historical snapshot — superseded.** Since this was written the system changed
+> substantially: the wake word is now **"Okay Nabu"** (`okay_nabu.tflite`); the mic uses the
+> **`.left`/comms** channel (path B, 2026-07-08) and **full-duplex works** (fixed beam + AEC
+> converged), not the half-duplex mute-while-speaking described below; and the backend moved
+> from **LiveKit Cloud sandbox** to a **self-hosted SFU + Go token/session server + admin
+> dashboard + agent + control plane** on the `cortes` cluster (see `server/`, `dashboard/`,
+> `helm/sebastian/`). Treat everything below as a 2026-07-03 snapshot; the source of truth is
+> the code and `ROADMAP.md`.
+
 **Wake word "Sebastián" WORKING on-device and validated on
 hardware.** The device listens locally with a 62 KB TFLite-Micro model
 (zero cost at rest) and only opens the LiveKit session when it hears its name; it closes it

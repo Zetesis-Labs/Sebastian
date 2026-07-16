@@ -125,11 +125,11 @@ The ESP uses **TWO independent I2S peripherals**, both as slave, sharing BCLK/WS
 Capture lives in `firmware/main/mic_src.zig`, a **custom `esp_capture` audio source**.
 
 ```
-XVF3800 (raw ASR beam, RIGHT slot)
+XVF3800 (comms beam, LEFT slot — on-chip NS + residual-echo suppression)
    │  I2S RX (48 kHz, 32-bit, stereo) on I2S_NUM_1
    ▼
 mic_src.zig · read_frame()   ← reads i2s_rx DIRECTLY, paced by the consumer
-   │   · extracts RIGHT slot
+   │   · extracts LEFT slot
    │   · converts 32-bit → 16-bit (right bit-shift)
    ▼
 esp_capture source  →  Opus 48 kHz mono
@@ -141,7 +141,7 @@ LiveKit (publishes; resamples downstream)
 Design characteristics:
 
 - **Direct reading paced by the consumer:** `read_frame()` reads `i2s_rx` directly. The pipeline requests a frame and the code blocks reading exactly that amount of I2S samples. **There is no ring buffer**, so there is no drift between the XVF's clock domain and the consumer's: the XVF's 48 kHz clock and the LiveKit consumer are the same loop. This eliminates the periodic warble/"helicopter" sound produced by a free-running ring buffer.
-- **Channel selection:** extracts the **RIGHT slot** (the raw ASR beam, see §5).
+- **Channel selection:** extracts the **LEFT slot** (the comms beam, path B since 2026-07-08 — see §5).
 - **Format conversion:** each 32-bit sample is converted to 16 bits via a right bit-shift before publishing.
 - **Publishing:** the source publishes Opus at **48 kHz mono**; LiveKit resamples downstream.
 - **Clock resynchronization:** on the first `read_frame()`, a `disable` + `enable` of the RX channel is performed to lock onto the already running XVF clock (the board enabled the channel before the XVF was generating a clock).
@@ -199,14 +199,19 @@ On the ReSpeaker board's I2S:
 
 ### 5.3 What this project does and why
 
-This project uses the **RIGHT slot (raw ASR beam, no NS)**, decided **empirically**:
+> ⚠️ **Updated 2026-07-08 (path B).** This project now uses the **LEFT slot (comms beam:
+> on-chip NS + residual-echo suppression)**. The RIGHT-slot reasoning below held while a cloud
+> **BVC** did the single NS pass; on the self-hosted SFU there is no BVC, so the raw ASR beam
+> reached the model with no NS/echo cleanup — full-duplex fed the agent its own voice and noisy
+> rooms degraded transcription. The comms beam is now the single NS pass. Source of truth:
+> `firmware/main/config.zig` (`mic_channel = .left`).
+
+Historical rationale (cloud-BVC era) — why RIGHT was chosen then:
 
 - Using the LEFT slot (with on-chip NS) stacked that noise suppression with the agent's own BVC noise cancellation. Two NS passes in series produced a "double NS" artifact with a **tin-can** sound.
-- Feeding the raw beam (right) and letting the **agent's BVC do a single NS pass** sounds clean.
+- Feeding the raw beam (right) and letting the **agent's BVC do a single NS pass** sounded clean.
 
-In summary: **a single noise suppression** pass in the entire chain, executed by the agent. The firmware delivers the raw beam to avoid duplicating it.
-
-> Code consistency note: some comment in `app.zig`/`buildCapturer` mentions the LEFT slot; the actual implementation in `mic_src.zig` takes the **RIGHT** slot (`read_buf[i*2 + 1]`), which is the current and correct behavior according to this decision.
+With BVC gone under path B the double-NS concern no longer applies, so LEFT — which also brings the residual-echo suppression full-duplex needs — became the single NS pass.
 
 ---
 
@@ -260,5 +265,5 @@ uv run agent.py start    # production worker
 | Consumer-paced capture, no ring buffer | Avoids clock domain drift (warble/"helicopter" sound). |
 | Render at 32 bits | Aligns with the XVF's 32-bit slots; 16 bits resulted in noisy output. |
 | Moderate speaker volume (35/100) | Avoids acoustic feedback in the microphone. |
-| RIGHT slot (raw ASR beam) + agent BVC | A single NS pass; avoids the "tin-can" of double NS. |
+| LEFT slot (comms beam) since path B (2026-07-08) | On-chip NS + residual-echo suppression; the single NS pass now that there is no cloud BVC (§5.3). |
 | Single agent process, fresh room | Duplicates cause it to "talk to itself". |

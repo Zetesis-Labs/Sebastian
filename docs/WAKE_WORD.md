@@ -1,5 +1,12 @@
 # Wake word: "Sebastián"
 
+> ⚠️ **The embedded model is now `okay_nabu.tflite`** (stock English "Okay Nabu"), swapped in
+> to cut false positives. Current firmware facts: input **`[1, 3, 40]`** (3 frames/Invoke, 30 ms
+> stride), detection = moving average of **5** > **0.95**, arena **40 KB** internal SRAM
+> (`firmware/main/wakeword.zig`, `components/mww/mww.cpp`). The **"Sebastián"** model and the
+> metrics/training below describe the trained-in-Spanish roadmap target, whose artifacts are
+> not currently in the repo — read them as the training plan, not the shipping model.
+
 **On-device** wake word detection with [microWakeWord](https://github.com/kahrendt/microWakeWord)
 (streaming CNN over TFLite-Micro). The device listens locally with a
 62 KB model and **only opens the LiveKit session (and therefore the paid Realtime session)
@@ -29,9 +36,9 @@ Responds to its name, **"Sebastián"** (es), trained on the model.
     `pymicro-features`, which was used in training).
 - **`firmware/main/wakeword.zig`** — detection FreeRTOS task:
   - Reads direct I2S RX (48 kHz stereo 32-bit), takes the slot configured in
-    `config.zig` (RIGHT/ASR by default), decimates 3:1 → 16 kHz mono int16 with the
+    `config.zig` (`.left`/comms since 2026-07-08), decimates 3:1 → 16 kHz mono int16 with the
     same `softClip` as `mic_src.zig`.
-  - Embeds the model with `@embedFile("sebastian.tflite")`.
+  - Embeds the model with `@embedFile("okay_nabu.tflite")`.
   - `detected` is an atomic that `app_main` polls; `stop()` does the clean hand-off
     of the I2S channel (disable/enable) to `mic_src`.
 - **`firmware/main/app.zig`** — main loop:
@@ -41,7 +48,7 @@ Responds to its name, **"Sebastián"** (es), trained on the model.
 
 | Property | Value |
 |---|---|
-| File | `wakeword/sebastian.tflite` (copied to `firmware/main/` to embed) |
+| File | `wakeword/okay_nabu.tflite` (copied to `firmware/main/` to embed). The Spanish `sebastian.tflite` in this table is the roadmap target, **not in the repo** |
 | Size | 62 KB (int8) |
 | Input | `[1, 2, 40]` int8 — 2 10 ms features frames per Invoke (20 ms stride) |
 | Output | `[1, 1]` uint8 — probability (1/256 scale) |
