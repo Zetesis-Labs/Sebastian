@@ -1,0 +1,41 @@
+name: Sebastian Dashboard CI
+
+on:
+  pull_request:
+    paths:
+      - "dashboard/**"
+      - "server/api/openapi.yaml"
+      - ".github/workflows/dashboard-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "dashboard/**"
+      - "server/api/openapi.yaml"
+      - ".github/workflows/dashboard-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24.18.0"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - run: npm ci
+      - name: Verify generated OpenAPI types
+        run: |
+          npm run generate:api
+          git diff --exit-code -- src/lib/api-schema.ts
+      - run: npm run typecheck
+      - run: npm run test
+      - run: npm run build
+      - run: npm audit --audit-level=high

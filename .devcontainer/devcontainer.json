@@ -3,7 +3,7 @@
   "dockerComposeFile": "docker-compose.yml",
   "service": "dev",
   "workspaceFolder": "/workspace",
-  "onCreateCommand": "cd agent && uv sync",
+  "onCreateCommand": "cd agent && uv sync && cd ../server && go mod download && if [ -f ../dashboard/package-lock.json ]; then cd ../dashboard && npm ci; fi",
   "postStartCommand": "GRAFANA_URL=http://lgtm:3000 tools/telemetry/provision.sh || true",
   "waitFor": "onCreateCommand",
   "customizations": {
@@ -11,7 +11,9 @@
       "extensions": [
         "ziglang.vscode-zig",
         "ms-python.python",
-        "charliermarsh.ruff"
+        "charliermarsh.ruff",
+        "golang.go",
+        "dbaeumer.vscode-eslint"
       ],
       "settings": {
         "zig.path": "/workspace/tools/zig.sh",

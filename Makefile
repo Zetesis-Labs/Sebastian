@@ -3,7 +3,7 @@
 # DENTRO del devcontainer (build + servicios):
 #   make fw-build     compila el firmware (ESP-IDF + Zig, todo en el contenedor)
 #   make agent        agente LiveKit en dev (hot-reload)
-#   make token        token server (:8787, publicado a la LAN)
+#   make token        token server Python legado (:8787, publicado a la LAN)
 #   make provision    (re)carga el dashboard de Grafana
 #
 # En el HOST macOS (lo único que necesita el USB):
@@ -15,9 +15,30 @@
 #   make fw-flash                                  flashea vía rfc2217
 #   SEBASTIAN_SERIAL_URL=rfc2217://$IP:4000 make bridge
 
-.PHONY: check fw-test fw-build fw-flash agent token provision flash bridge serial-share
+.PHONY: check dashboard-check dashboard-dev fw-test fw-build fw-flash agent token provision flash bridge serial-share server-check server-generate server-migrate server-outbox server-run
 
 check: fw-test
+
+dashboard-check:
+	cd dashboard && npm run check
+
+dashboard-dev:
+	cd dashboard && npm run dev
+
+server-check:
+	$(MAKE) -C server check
+
+server-generate:
+	$(MAKE) -C server generate
+
+server-migrate:
+	$(MAKE) -C server migrate
+
+server-outbox:
+	$(MAKE) -C server outbox
+
+server-run:
+	$(MAKE) -C server run
 
 fw-test:
 	cd firmware && ../tools/zig.sh test core_test.zig
@@ -47,7 +68,7 @@ serial-share:
 agent:
 	cd agent && uv run agent.py dev
 
-token:
+token: # Compatibilidad temporal; el servicio activo es `make server-run`.
 	cd agent && uv run token_server.py
 
 # Control plane (§9): announce(text) + future modes. Bind to the Mac LAN IP so

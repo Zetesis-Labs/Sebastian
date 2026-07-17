@@ -4,10 +4,12 @@ Practical operator guide for the **Sebastian** project: a voice speaker based
 on **ReSpeaker XVF3800 + XIAO ESP32-S3** that joins a LiveKit room, plus a
 **Python agent** that converses with it using OpenAI Realtime.
 
-The system has two halves:
+The system has three runtime parts:
 
 - **`firmware/`** — ESP32-S3 firmware (ESP-IDF v5.4 + Zig), joins the LiveKit room.
 - **`agent/`** — Python agent (LiveKit Agents + OpenAI Realtime) that joins the same room.
+- **`server/`** — Go/OpenAPI control plane that authenticates devices, dispatches
+  the agent and issues short-lived LiveKit credentials.
 
 Both meet in the **same LiveKit room** and converse there.
 
@@ -34,7 +36,7 @@ None of these files are in git. They must be created locally.
 
 ### `firmware/main/secrets.zig`
 
-A single const: the URL of the **token server** (`agent/token_server.py`) on the device's LAN.
+A single const: the compatibility route of **Sebastian Server** on the device's LAN.
 The firmware no longer carries a static JWT — it requests a fresh one (with the
 embedded agent dispatch) in each session. Format:
 
@@ -42,9 +44,36 @@ embedded agent dispatch) in each session. Format:
 pub const token_server_url = "http://<lan-ip-of-server>:8787/token";
 ```
 
-Start the token server with `uv run token_server.py` from `agent/` (it uses the same
-`.env` as the agent). LiveKit's `server_url` is no longer placed here: it is returned
-by the token server in the response.
+Inside the devcontainer, initialize and start it with:
+
+```bash
+make server-migrate
+make server-run
+```
+
+In a second devcontainer terminal, run the durable event publisher:
+
+```bash
+make server-outbox
+```
+
+The devcontainer provides NATS JetStream at `nats://nats:4222`; API requests
+remain available if NATS is temporarily down because events first commit to the
+PostgreSQL outbox.
+
+Start the administration panel in another terminal:
+
+```bash
+make dashboard-dev
+```
+
+Open `http://localhost:3001`. Its TanStack Start server calls the Go API using
+the devcontainer's shared administration secret; that value is never sent to
+the browser.
+
+`LIVEKIT_URL` is no longer placed in the firmware: Sebastian Server returns it
+with the short-lived JWT. The old Python token server remains only during the
+migration and must not run on the same port.
 
 ### `firmware/sdkconfig`
 

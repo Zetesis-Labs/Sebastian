@@ -9,26 +9,89 @@ services:
       # calvario de Pylance de esta sesión). El volumen sombrea esta ruta dentro
       # del contenedor y lo mantiene íntegro e independiente del host.
       - agent_venv:/workspace/agent/.venv
+      - go_mod_cache:/go/pkg/mod
+      - go_build_cache:/root/.cache/go-build
     working_dir: /workspace
     command: sleep infinity
     environment:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4318
+      DATABASE_URL: postgres://sebastian:sebastian@postgres:5432/sebastian?sslmode=disable
+      ATLAS_DEV_DATABASE_URL: postgres://sebastian:sebastian@postgres-schema:5432/sebastian_schema?sslmode=disable
+      NATS_URL: nats://nats:4222
+      LIVEKIT_URL: ws://${LIVEKIT_NODE_IP:?define LIVEKIT_NODE_IP en .devcontainer/.env}:7880
+      LIVEKIT_API_KEY: devkey
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?define LIVEKIT_API_SECRET en .devcontainer/.env}
+      SEBASTIAN_LEGACY_TOKEN_ENABLED: "true"
+      SEBASTIAN_ADMIN_SECRET: dev-admin-secret-change-me
+      SEBASTIAN_API_URL: http://127.0.0.1:8787
     ports:
-      - "8787:8787" # token server — el device lo busca en la IP del Mac en la LAN
+      - "8787:8787" # Sebastian Server — el device lo busca en la IP del Mac en la LAN
+      - "3001:3001" # TanStack Start administration panel
     # Host LINUX: descomenta para pasar el USB directo al contenedor
     # (en macOS/Windows no aplica — el device pertenece a otro kernel).
     # devices:
     #   - /dev/ttyACM0:/dev/ttyACM0
     depends_on:
-      - lgtm
+      lgtm:
+        condition: service_started
+      livekit:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      postgres-schema:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: sebastian
+      POSTGRES_USER: sebastian
+      POSTGRES_PASSWORD: sebastian
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sebastian -d sebastian"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - postgres_data:/var/lib/postgresql
+
+  # Disposable clean database used only by Atlas to normalize and diff the Ent
+  # schema. It is intentionally separate from the developer data database.
+  postgres-schema:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: sebastian_schema
+      POSTGRES_USER: sebastian
+      POSTGRES_PASSWORD: sebastian
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sebastian -d sebastian_schema"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  nats:
+    image: nats:2.14.1-alpine3.22
+    command: ["--jetstream", "--store_dir", "/data", "--http_port", "8222"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8222/healthz >/dev/null"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    volumes:
+      - nats_data:/data
 
   livekit:
     # SFU local (self-host de desarrollo, ROADMAP §2/§6): el device, el agente y
-    # el token server dejan de depender de LiveKit Cloud. Config y racional del
+    # Sebastian Server dejan de depender de LiveKit Cloud. Config y racional del
     # UDP-mux/node-ip en livekit.yaml. Requiere .devcontainer/.env con:
     #   LIVEKIT_NODE_IP=<IP LAN del Mac>   (cambia al cambiar de red/sitio)
     #   LIVEKIT_API_SECRET=<32+ chars>     (openssl rand -hex 32; NO commitear)
-    # El token server/agente usan LIVEKIT_URL=ws://$LIVEKIT_NODE_IP:7880 con
+    # Sebastian Server/agente usan LIVEKIT_URL=ws://$LIVEKIT_NODE_IP:7880 con
     # key "devkey" y ese mismo secreto (agent/.env).
     image: livekit/livekit-server:latest
     command: --config /etc/livekit.yaml --node-ip ${LIVEKIT_NODE_IP:?define LIVEKIT_NODE_IP en .devcontainer/.env (IP LAN del Mac)}
@@ -68,3 +131,7 @@ services:
 
 volumes:
   agent_venv: # venv del agente, local al contenedor (ver comentario en dev)
+  postgres_data:
+  nats_data:
+  go_mod_cache:
+  go_build_cache:
