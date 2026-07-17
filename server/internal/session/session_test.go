@@ -11,9 +11,10 @@ import (
 )
 
 type fakeStore struct {
-	device Device
-	record Record
-	err    error
+	device    Device
+	record    Record
+	err       error
+	recordErr error
 }
 
 func (f *fakeStore) FindDevice(context.Context, string) (Device, error) {
@@ -22,13 +23,14 @@ func (f *fakeStore) FindDevice(context.Context, string) (Device, error) {
 
 func (f *fakeStore) RecordSession(_ context.Context, record Record) error {
 	f.record = record
-	return f.err
+	return f.recordErr
 }
 
 type fakeLiveKit struct {
 	dispatched bool
 	metadata   []byte
 	err        error
+	mintErr    error
 }
 
 func (f *fakeLiveKit) Dispatch(_ context.Context, _, _ string, metadata []byte) error {
@@ -38,7 +40,7 @@ func (f *fakeLiveKit) Dispatch(_ context.Context, _, _ string, metadata []byte) 
 }
 
 func (f *fakeLiveKit) MintToken(_, _ string, _ time.Duration) (string, error) {
-	return "jwt", f.err
+	return "jwt", f.mintErr
 }
 
 func TestCreateDispatchesAndRecordsOutboxEvent(t *testing.T) {
@@ -81,5 +83,44 @@ func TestCreateRejectsInvalidSecretBeforeDispatch(t *testing.T) {
 	}
 	if livekit.dispatched {
 		t.Fatal("agent dispatched for invalid credentials")
+	}
+}
+
+func TestCreateDoesNotDispatchWhenRecordFails(t *testing.T) {
+	store := &fakeStore{
+		device: Device{
+			ID: "esp32-respeaker", Identity: "esp32-respeaker",
+			CredentialDigest: DigestSecret("correct"), ProfileID: uuid.New(),
+			AgentName: "sebastian",
+		},
+		recordErr: errors.New("db down"),
+	}
+	livekit := &fakeLiveKit{}
+	service := NewService(store, livekit, "ws://livekit:7880", "sebastian", time.Hour, "esp32-respeaker")
+
+	_, err := service.Create(context.Background(), Credentials{DeviceID: "esp32-respeaker", Secret: "correct"})
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("Create() error = %v, want ErrUnavailable", err)
+	}
+	if livekit.dispatched {
+		t.Fatal("agent dispatched although session was not recorded")
+	}
+}
+
+func TestCreateDoesNotDispatchWhenMintFails(t *testing.T) {
+	store := &fakeStore{device: Device{
+		ID: "esp32-respeaker", Identity: "esp32-respeaker",
+		CredentialDigest: DigestSecret("correct"), ProfileID: uuid.New(),
+		AgentName: "sebastian",
+	}}
+	livekit := &fakeLiveKit{mintErr: errors.New("bad signing key")}
+	service := NewService(store, livekit, "ws://livekit:7880", "sebastian", time.Hour, "esp32-respeaker")
+
+	_, err := service.Create(context.Background(), Credentials{DeviceID: "esp32-respeaker", Secret: "correct"})
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("Create() error = %v, want ErrUnavailable", err)
+	}
+	if livekit.dispatched {
+		t.Fatal("agent dispatched although token mint failed")
 	}
 }

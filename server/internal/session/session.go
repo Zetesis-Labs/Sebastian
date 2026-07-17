@@ -109,24 +109,11 @@ func (s *Service) Create(ctx context.Context, credentials Credentials) (Created,
 		return Created{}, fmt.Errorf("generate event id: %w", ErrUnavailable)
 	}
 	room := fmt.Sprintf("%s-%s", s.roomPrefix, sessionID.String()[:8])
-	metadata, err := json.Marshal(struct {
-		DeviceID  string          `json:"device_id"`
-		ProfileID uuid.UUID       `json:"profile_id"`
-		Config    json.RawMessage `json:"config"`
-	}{DeviceID: device.ID, ProfileID: device.ProfileID, Config: device.AgentConfig})
-	if err != nil {
-		return Created{}, fmt.Errorf("encode dispatch metadata: %w", ErrUnavailable)
-	}
-	if err := s.livekit.Dispatch(ctx, room, device.AgentName, metadata); err != nil {
-		return Created{}, fmt.Errorf("dispatch agent: %w", ErrUnavailable)
-	}
-	token, err := s.livekit.MintToken(room, device.Identity, s.tokenTTL)
-	if err != nil {
-		return Created{}, fmt.Errorf("mint token: %w", ErrUnavailable)
-	}
-
 	now := s.now().UTC()
 	expiresAt := now.Add(s.tokenTTL)
+	// Persist the session BEFORE any LiveKit side effect. If the record fails we
+	// return here having dispatched nothing — the alternative (record last) leaves
+	// a dispatched agent with no session row: a zombie in the room.
 	if err := s.store.RecordSession(ctx, Record{
 		SessionID:  sessionID,
 		DeviceID:   device.ID,
@@ -137,6 +124,26 @@ func (s *Service) Create(ctx context.Context, credentials Credentials) (Created,
 		OccurredAt: now,
 	}); err != nil {
 		return Created{}, fmt.Errorf("record session: %w", ErrUnavailable)
+	}
+
+	metadata, err := json.Marshal(struct {
+		DeviceID  string          `json:"device_id"`
+		ProfileID uuid.UUID       `json:"profile_id"`
+		Config    json.RawMessage `json:"config"`
+	}{DeviceID: device.ID, ProfileID: device.ProfileID, Config: device.AgentConfig})
+	if err != nil {
+		return Created{}, fmt.Errorf("encode dispatch metadata: %w", ErrUnavailable)
+	}
+	// Mint before dispatch, and dispatch LAST: minting is a local, near-infallible
+	// op; dispatch is the irreversible side effect. Doing it last means a failure in
+	// record/marshal/mint leaves no agent in the room — closing the residual zombie
+	// window that record-first alone leaves open (mint failing after dispatch).
+	token, err := s.livekit.MintToken(room, device.Identity, s.tokenTTL)
+	if err != nil {
+		return Created{}, fmt.Errorf("mint token: %w", ErrUnavailable)
+	}
+	if err := s.livekit.Dispatch(ctx, room, device.AgentName, metadata); err != nil {
+		return Created{}, fmt.Errorf("dispatch agent: %w", ErrUnavailable)
 	}
 
 	return Created{ID: sessionID, Room: room, ServerURL: s.serverURL, Token: token, ExpiresAt: expiresAt}, nil
