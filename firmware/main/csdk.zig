@@ -428,6 +428,28 @@ pub const esp_capture_audio_src_iface_t = extern struct {
     close: ?*const fn (*esp_capture_audio_src_iface_t) callconv(.c) c_int = null,
 };
 
+// --- USB Audio Class device (espressif__usb_device_uac, USB-mic mode) --------
+// input_cb runs on the component's usb_mic_task and may block on I2S: the
+// task's vTaskDelayUntil pacing absorbs the wait, so the capture stays
+// consumer-paced exactly like mic_src under esp_capture.
+pub const uac_input_cb_t = ?*const fn ([*]u8, usize, *usize, ?*anyopaque) callconv(.c) esp_err_t;
+pub const uac_output_cb_t = ?*const fn ([*]u8, usize, ?*anyopaque) callconv(.c) esp_err_t;
+pub const uac_set_mute_cb_t = ?*const fn (u32, ?*anyopaque) callconv(.c) void;
+pub const uac_set_volume_cb_t = ?*const fn (u32, ?*anyopaque) callconv(.c) void;
+
+// Layout assumes CONFIG_USB_DEVICE_UAC_AS_PART=n (two extra c_int fields when
+// set — abi_check.c would catch the drift).
+pub const uac_device_config_t = extern struct {
+    skip_tinyusb_init: bool = false,
+    output_cb: uac_output_cb_t = null,
+    input_cb: uac_input_cb_t = null,
+    set_mute_cb: uac_set_mute_cb_t = null,
+    set_volume_cb: uac_set_volume_cb_t = null,
+    cb_ctx: ?*anyopaque = null,
+};
+
+pub extern fn uac_device_init(config: *uac_device_config_t) esp_err_t;
+
 // =============================================================================
 // ABI layout guards
 // =============================================================================
@@ -626,4 +648,13 @@ comptime {
     std.debug.assert(@sizeOf(esp_capture_audio_src_iface_t) == 32);
     std.debug.assert(@offsetOf(esp_capture_audio_src_iface_t, "open") == 0);
     std.debug.assert(@offsetOf(esp_capture_audio_src_iface_t, "close") == 28);
+
+    // --- espressif__usb_device_uac ---
+    std.debug.assert(@sizeOf(uac_device_config_t) == 24);
+    std.debug.assert(@offsetOf(uac_device_config_t, "skip_tinyusb_init") == 0);
+    std.debug.assert(@offsetOf(uac_device_config_t, "output_cb") == 4);
+    std.debug.assert(@offsetOf(uac_device_config_t, "input_cb") == 8);
+    std.debug.assert(@offsetOf(uac_device_config_t, "set_mute_cb") == 12);
+    std.debug.assert(@offsetOf(uac_device_config_t, "set_volume_cb") == 16);
+    std.debug.assert(@offsetOf(uac_device_config_t, "cb_ctx") == 20);
 }

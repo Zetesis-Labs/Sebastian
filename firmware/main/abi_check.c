@@ -28,6 +28,7 @@
 #include "av_render_default.h"
 
 #include "livekit.h"
+#include "usb_device_uac.h"
 #include "livekit_data_stream.h"
 
 #include "esp_capture.h"
@@ -258,3 +259,14 @@ CHECK_VAL(MALLOC_CAP_8BIT, 1 << 2);
 CHECK_VAL(MALLOC_CAP_SPIRAM, 1 << 10);
 CHECK_VAL(MALLOC_CAP_INTERNAL, 1 << 11);
 CHECK_VAL(WIFI_PS_NONE, 0);
+
+// --- espressif__usb_device_uac (USB-mic mode) ---
+// Layout depends on CONFIG_USB_DEVICE_UAC_AS_PART staying off (two extra int
+// interface-number fields appear when set).
+CHECK_SIZE(uac_device_config_t, 24);
+CHECK_OFF(uac_device_config_t, skip_tinyusb_init, 0);
+CHECK_OFF(uac_device_config_t, output_cb, 4);
+CHECK_OFF(uac_device_config_t, input_cb, 8);
+CHECK_OFF(uac_device_config_t, set_mute_cb, 12);
+CHECK_OFF(uac_device_config_t, set_volume_cb, 16);
+CHECK_OFF(uac_device_config_t, cb_ctx, 20);

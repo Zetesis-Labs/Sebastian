@@ -1,5 +1,16 @@
 menu "Sebastian / LiveKit"
 
+    config SEBASTIAN_USB_MIC
+        bool "USB microphone firmware (plug-and-play UAC mic)"
+        default n
+        help
+            Build the alternate app root (main/usb_app.zig): the XVF3800 comms
+            beam is exposed to the host as a standard USB Audio Class
+            microphone (48 kHz mono 16-bit) instead of joining a LiveKit room.
+            No WiFi, no wake word. TinyUSB claims the S3 USB PHY, so the
+            USB-Serial-JTAG console/flasher disappears while this firmware
+            runs — reflash via the BOOT-button download mode (docs/USB_MIC.md).
+
     config LK_EXAMPLE_SANDBOX_ID
         string "LiveKit sandbox token-server ID"
         default ""

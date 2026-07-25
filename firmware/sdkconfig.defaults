@@ -31,6 +31,19 @@ CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
 CONFIG_ESP32S3_DATA_CACHE_64KB=y
 CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y
 
+# --- USB microphone mode (this branch's product: plug-and-play UAC mic) ---
+# Sebastian enumerates as "Sebastian Mic": 48 kHz mono 16-bit from the XVF
+# comms beam. Speaker interface disabled (0 channels = compiled out).
+# UAC_SUPPORT_MACOS only affects the speaker feedback-EP format — harmless
+# here, kept on because this unit's host is a Mac.
+CONFIG_SEBASTIAN_USB_MIC=y
+CONFIG_UAC_SPEAKER_CHANNEL_NUM=0
+CONFIG_UAC_MIC_CHANNEL_NUM=1
+CONFIG_UAC_SAMPLE_RATE=48000
+CONFIG_UAC_SUPPORT_MACOS=y
+CONFIG_UAC_TUSB_MANUFACTURER="Zetesis"
+CONFIG_UAC_TUSB_PRODUCT="Sebastian Mic"
+
 # Handshake WS: el 101 de LiveKit llega coalescido con el primer frame
 # (JoinResponse ~1KB) y el parser de transport_ws declara error si la
 # lectura llena el buffer aunque el terminador esté dentro (bug IDF).

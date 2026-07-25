@@ -99,6 +99,15 @@ string(JOIN "|" _defs_joined ${_defs})
 # Xtensa little-endian + arch macros translate-c needs (newlib ieeefp.h etc.).
 set(_defs_joined "${_defs_joined}|__XTENSA__|__XTENSA_EL__|__xtensa__")
 
+# --- App root: LiveKit agent (default) or USB microphone ---------------------
+# CONFIG_SEBASTIAN_USB_MIC swaps the Zig root module; everything else (board,
+# XVF, mic path) is shared between the two firmwares.
+if(CONFIG_SEBASTIAN_USB_MIC)
+    set(ZIG_ROOT_FILE "main/usb_app.zig")
+else()
+    set(ZIG_ROOT_FILE "main/app.zig")
+endif()
+
 # --- Build the Zig object and link it ----------------------------------------
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     set(ZIG_OPT "Debug")
@@ -112,6 +121,7 @@ add_custom_target(zig_build
         -Doptimize=${ZIG_OPT}
         -Dtarget=${ZIG_TARGET}
         -Dcpu=${ZIG_CPU}
+        "-Droot=${ZIG_ROOT_FILE}"
         "-Dincludes=${_inc_expr}"
         "-Dsystem_includes=${_sys_inc_expr}"
         "-Ddefines=${_defs_joined}"

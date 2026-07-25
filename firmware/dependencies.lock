@@ -30,7 +30,7 @@ dependencies:
       type: service
     version: 1.6.0
   espressif/esp-nn:
-    component_hash: e98a7dd3dfde460b1b4ca982e2ebae0b4831719a8e4659d19c145943deaf682b
+    component_hash: ae8501c099ab2ae1527a23c6170e0c0cb3d914df3293710e033809c79b20f22f
     dependencies:
     - name: idf
       require: private
@@ -38,7 +38,7 @@ dependencies:
     source:
       registry_url: https://components.espressif.com
       type: service
-    version: 1.2.3
+    version: 1.2.4
   espressif/esp-sr:
     component_hash: 12733d9b4aef5d5e295f35c4671835d605992d00583fcd2f8d21166f62c6b071
     dependencies:
@@ -391,6 +391,42 @@ dependencies:
       registry_url: https://components.espressif.com
       type: service
     version: 0.7.1
+  espressif/tinyusb:
+    component_hash: 7f73a4159dc95325ceaa4ade5e88734c4e1f5124746a3765cf61dc6157d78798
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    targets:
+    - esp32s2
+    - esp32s3
+    - esp32p4
+    version: 0.17.0~2
+  espressif/usb_device_uac:
+    component_hash: 82945e531acffb895e886d4b417d250ce8c0d331204b2a5518e21a7f727e6340
+    dependencies:
+    - name: espressif/cmake_utilities
+      registry_url: https://components.espressif.com
+      require: private
+      version: '*'
+    - name: espressif/tinyusb
+      registry_url: https://components.espressif.com
+      require: private
+      version: ^0.17.0~2
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    targets:
+    - esp32s2
+    - esp32s3
+    - esp32p4
+    version: 1.2.3
   espressif/usb_host_uvc:
     component_hash: f20c4e4dea50536e2e29daaf589b5f5984402284c155867daef27d6b64869f78
     dependencies:
@@ -417,7 +453,7 @@ dependencies:
   idf:
     source:
       type: idf
-    version: 5.4.4
+    version: 5.4.0
   livekit/example_utils:
     component_hash: ff95b8f3425c8cb4aa9d3dacf9560679b0f7fc61af880f1648647468af1c3796
     dependencies:
@@ -462,7 +498,7 @@ dependencies:
     - name: tempotian/media_lib_sal
       version: ~0.9.1
     source:
-      path: ../components/livekit
+      path: /Users/ruben/Developer/_worktrees/sebastian-usb-mic/firmware/components/livekit
       type: local
     targets:
     - esp32s3
@@ -525,6 +561,7 @@ direct_dependencies:
 - espressif/esp_codec_dev
 - espressif/esp_peer
 - espressif/esp_websocket_client
+- espressif/usb_device_uac
 - idf
 - livekit/example_utils
 - livekit/khash
@@ -533,6 +570,6 @@ direct_dependencies:
 - livekit/sandbox_token
 - tempotian/av_render
 - tempotian/media_lib_sal
-manifest_hash: 1d8ca37101e4fc1c8c407fa8cecc0460d7a2501af0eb1e8278dfcefbc9f576b0
+manifest_hash: ef2a48836cc0dc0dbc9699dbc51eaa7262ca31455e98516f77ca56c0a93c9011
 target: esp32s3
 version: 2.0.0

@@ -9,3 +9,6 @@ dependencies:
   livekit/sandbox_token: "~0.1.0"
   livekit/example_utils: "~0.2.0"
   espressif/esp_codec_dev: "~1.4"
+  # USB-mic mode (CONFIG_SEBASTIAN_USB_MIC): TinyUSB UAC2 device — the XVF comms
+  # beam exposed to the host as a plug-and-play USB microphone.
+  espressif/usb_device_uac: "~1.2"

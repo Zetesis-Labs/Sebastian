@@ -7,12 +7,13 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const root = b.option([]const u8, "root", "app root source file (LiveKit agent or USB mic)") orelse "main/app.zig";
     const includes = b.option([]const u8, "includes", "'|'-separated include dirs (-I)") orelse "";
     const system_includes = b.option([]const u8, "system_includes", "'|'-separated system include dirs (-isystem, e.g. toolchain libc)") orelse "";
     const defines = b.option([]const u8, "defines", "'|'-separated C macros (NAME or NAME=value)") orelse "";
 
     const mod = b.createModule(.{
-        .root_source_file = b.path("main/app.zig"),
+        .root_source_file = b.path(root),
         .target = target,
         .optimize = optimize,
         .link_libc = true,
