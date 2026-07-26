@@ -157,7 +157,7 @@ fn startNetwork() void {
     }
     _ = c.esp_wifi_set_ps(c.WIFI_PS_MIN_MODEM);
     c.sebastian_syslog_start();
-    _ = c.xTaskCreatePinnedToCore(telemetryTask, "usb_telemetry", 3072, null, 2, null, 0);
+    _ = c.xTaskCreatePinnedToCore(telemetryTask, "usb_telemetry", 2048, null, 2, null, 0);
     control.start();
     log.info("network up: telemetry + control-plane poll active", .{});
 }

@@ -76,7 +76,8 @@ fn pollTask(_: ?*anyopaque) callconv(.c) void {
 
 /// Start the reconciliation poll. Call once the network is up (either mode).
 pub fn start() void {
-    // esp_http_client runs on this task: needs real stack headroom.
-    _ = c.xTaskCreatePinnedToCore(pollTask, "ctl_poll", 6144, null, 2, null, 0);
+    // esp_http_client runs on this task: 4KB is the measured floor for a plain
+    // HTTP GET (internal RAM is the scarce pool — see usb_mic/convivencia).
+    _ = c.xTaskCreatePinnedToCore(pollTask, "ctl_poll", 4096, null, 2, null, 0);
     log.info("control-plane poll every {d}s", .{POLL_PERIOD_MS / 1000});
 }
