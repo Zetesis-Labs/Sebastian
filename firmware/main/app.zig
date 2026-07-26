@@ -21,6 +21,7 @@
 const std = @import("std");
 const board = @import("board.zig");
 const cfg = @import("config.zig");
+const control = @import("control.zig");
 const mic_src = @import("mic_src.zig");
 const profile = @import("profile.zig");
 const selector = @import("selector.zig");
@@ -685,6 +686,7 @@ fn runAgent(xvf_ok: bool, aec_configured: bool) void {
     // device's serial output reaches Loki even though nothing reads its UART in
     // prod (power + WiFi only). No-op if syslog_ip is unprovisioned.
     c.sebastian_syslog_start();
+    control.start();
 
     if (wakeword.init()) {
         health.ww = true;

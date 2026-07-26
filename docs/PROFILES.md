@@ -22,6 +22,17 @@ With no provisioned profiles the firmware ships two built-ins:
 
 ## Switching profiles
 
+**Network (dashboard / API — the primary UX)** — in BOTH modes the device
+polls the Sebastian server every 30 s
+(`GET /v1/devices/{mac}/desired-profile?current=<active>`; usb_mic mode brings
+WiFi up with modem sleep on, audio never rides the network). Devices
+auto-register on their first poll and appear in the dashboard's
+**Dispositivos** view; picking a profile there (or
+`PUT /v1/admin/devices/{id}/desired-profile {"name":"agente"}` with the admin
+secret) makes the device persist it and reboot into the new personality on its
+next poll — no replug, no button, works with the unit plugged into anything.
+A profile with `wifi: false` opts out and stays a fully offline mic.
+
 **Boot selector (on-device)** — when the ring lights up dim white shortly
 after plugging in (~2-3 s, once the XVF is up), double-tap the mute button.
 The ring splits into one colored arc per profile: each further press advances

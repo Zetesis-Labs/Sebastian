@@ -16,6 +16,7 @@
 
 const std = @import("std");
 const board = @import("board.zig");
+const control = @import("control.zig");
 const mic_src = @import("mic_src.zig");
 const profile = @import("profile.zig");
 const xvf_ui = @import("xvf_ui.zig");
@@ -80,6 +81,39 @@ fn setVolumeCb(volume: u32, _: ?*anyopaque) callconv(.c) void {
     log.info("host volume: {d}", .{volume});
 }
 
+// ── Network side (F3/F4) ─────────────────────────────────────────────────────
+// Audio rides USB; WiFi here is telemetry + control plane only. The agent's
+// hard rule (WIFI_PS_NONE for real-time audio) does not apply — modem sleep
+// stays on. The capture-health counters that the agent drains per session
+// window land in Grafana on a fixed tick instead, so a degraded desk mic is
+// visible from the sofa.
+
+const TELEMETRY_PERIOD_MS: u32 = 60_000;
+
+fn telemetryTask(_: ?*anyopaque) callconv(.c) void {
+    while (true) {
+        c.vTaskDelay(TELEMETRY_PERIOD_MS);
+        const rs = mic_src.takeReadStats();
+        log.info("usb mic health: level={d} short_reads={d} pad_samples={d} timeouts={d} heals={d} heap_int={d}", .{
+            mic_src.level(),                rs.short_reads,
+            rs.pad_samples,                 rs.timeouts,
+            rs.heals,                       c.heap_caps_get_free_size(c.MALLOC_CAP_INTERNAL),
+        });
+    }
+}
+
+fn startNetwork() void {
+    if (!c.sebastian_net_connect()) {
+        log.warn("wifi unavailable — mic keeps working offline, control plane off", .{});
+        return;
+    }
+    _ = c.esp_wifi_set_ps(c.WIFI_PS_MIN_MODEM);
+    c.sebastian_syslog_start();
+    _ = c.xTaskCreatePinnedToCore(telemetryTask, "usb_telemetry", 3072, null, 2, null, 0);
+    control.start();
+    log.info("network up: telemetry + control-plane poll active", .{});
+}
+
 /// Bring up the UAC device over the already-initialized board/XVF. Returns
 /// after init — the UAC component's tasks own the runtime from here.
 pub fn run(xvf_ok: bool) void {
@@ -116,4 +150,8 @@ pub fn run(xvf_ok: bool) void {
     } else {
         log.err("BOOT DEGRADED — XVF config incomplete, capture may be silent", .{});
     }
+
+    // After the mic is live: audio never waits on the network. A profile with
+    // `wifi: false` stays a fully offline dumb mic.
+    if (profile.wifiEnabled()) startNetwork();
 }

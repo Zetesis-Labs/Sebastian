@@ -1421,3 +1421,17 @@ test "selector absolute timeout confirms even while the button keeps toggling" {
         try std.testing.expect(ticks <= selector.SELECTOR_TIMEOUT_MS / selector.TICK_MS);
     }
 }
+
+// ── Control-plane URL derivation ──────────────────────────────────────────────
+
+const url_core = @import("main/core/url_core.zig");
+
+test "url origin strips the path keeping scheme, host and port" {
+    try std.testing.expectEqualStrings("http://10.0.0.5:8080", url_core.origin("http://10.0.0.5:8080/token"));
+    try std.testing.expectEqualStrings("https://sebastian.zetesis.xyz", url_core.origin("https://sebastian.zetesis.xyz/api/token?room=x"));
+}
+
+test "url origin passes through inputs without scheme or path" {
+    try std.testing.expectEqualStrings("http://host:9000", url_core.origin("http://host:9000"));
+    try std.testing.expectEqualStrings("host/no-scheme", url_core.origin("host/no-scheme"));
+}

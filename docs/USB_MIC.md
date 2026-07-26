@@ -3,8 +3,11 @@
 Boot mode that turns Sebastian into a **plug-and-play USB microphone**:
 the XVF3800 comms beam (adaptive beamforming + NS + de-reverb + limiter)
 exposed to the host as a standard **USB Audio Class** device — 48 kHz mono
-16-bit. No WiFi, no wake word, no LiveKit; plug it into any computer and it
-shows up as **"Sebastian Mic" (Zetesis)**.
+16-bit. No wake word, no LiveKit; plug it into any computer and it shows up as
+**"Sebastian Mic" (Zetesis)**. WiFi stays up in the background (modem sleep
+on — audio rides USB, never the network) for telemetry and the desired-profile
+poll, so the unit remains visible in Grafana and switchable from the
+dashboard; provision `wifi: false` in the profile for a fully offline mic.
 
 Which mode boots is a **provisioning decision**, not a build flag: one binary
 carries both the LiveKit agent and this mode, selected by the active NVS
