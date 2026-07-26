@@ -68,6 +68,27 @@ func (e RecordingKind) Valid() bool {
 	}
 }
 
+// DesiredProfile defines model for DesiredProfile.
+type DesiredProfile struct {
+	// Name Firmware profile name. Empty or absent clears the desired state.
+	Name *string `json:"name,omitempty"`
+}
+
+// Device defines model for Device.
+type Device struct {
+	DesiredProfile    *string    `json:"desiredProfile,omitempty"`
+	DisplayName       string     `json:"displayName"`
+	Enabled           bool       `json:"enabled"`
+	Id                string     `json:"id"`
+	ProfileReportedAt *time.Time `json:"profileReportedAt,omitempty"`
+	ReportedProfile   *string    `json:"reportedProfile,omitempty"`
+}
+
+// DeviceList defines model for DeviceList.
+type DeviceList struct {
+	Items []Device `json:"items"`
+}
+
 // Health defines model for Health.
 type Health struct {
 	Status HealthStatus `json:"status"`
@@ -156,11 +177,19 @@ type ListRecordingsParams struct {
 	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// GetDesiredProfileParams defines parameters for GetDesiredProfile.
+type GetDesiredProfileParams struct {
+	Current *string `form:"current,omitempty" json:"current,omitempty"`
+}
+
 // CreateSessionParams defines parameters for CreateSession.
 type CreateSessionParams struct {
 	XDeviceId     string `json:"X-Device-Id"`
 	XDeviceSecret string `json:"X-Device-Secret"`
 }
+
+// SetDesiredProfileJSONRequestBody defines body for SetDesiredProfile for application/json ContentType.
+type SetDesiredProfileJSONRequestBody = DesiredProfile
 
 // RegisterRecordingJSONRequestBody defines body for RegisterRecording for application/json ContentType.
 type RegisterRecordingJSONRequestBody = RecordingRegistration
@@ -176,6 +205,12 @@ type ServerInterface interface {
 	// Firmware-compatible two-line LiveKit connection response
 	// (GET /token)
 	GetLegacyToken(w http.ResponseWriter, r *http.Request)
+	// List known devices with profile state
+	// (GET /v1/admin/devices)
+	ListDevices(w http.ResponseWriter, r *http.Request)
+	// Set (or clear) the desired device profile
+	// (PUT /v1/admin/devices/{deviceId}/desired-profile)
+	SetDesiredProfile(w http.ResponseWriter, r *http.Request, deviceId string)
 	// List recent voice recordings
 	// (GET /v1/admin/recordings)
 	ListRecordings(w http.ResponseWriter, r *http.Request, params ListRecordingsParams)
@@ -188,6 +223,9 @@ type ServerInterface interface {
 	// Get one voice recording
 	// (GET /v1/admin/recordings/{recordingId})
 	GetRecording(w http.ResponseWriter, r *http.Request, recordingId openapi_types.UUID)
+	// Desired device profile for reconciliation polls
+	// (GET /v1/devices/{deviceId}/desired-profile)
+	GetDesiredProfile(w http.ResponseWriter, r *http.Request, deviceId string, params GetDesiredProfileParams)
 	// Create a device session and dispatch its assigned agent
 	// (POST /v1/sessions)
 	CreateSession(w http.ResponseWriter, r *http.Request, params CreateSessionParams)
@@ -235,6 +273,58 @@ func (siw *ServerInterfaceWrapper) GetLegacyToken(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetLegacyToken(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListDevices operation middleware
+func (siw *ServerInterfaceWrapper) ListDevices(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, AdminSecretScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListDevices(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetDesiredProfile operation middleware
+func (siw *ServerInterfaceWrapper) SetDesiredProfile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "deviceId" -------------
+	var deviceId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "deviceId", r.PathValue("deviceId"), &deviceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "deviceId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, AdminSecretScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetDesiredProfile(w, r, deviceId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -346,6 +436,48 @@ func (siw *ServerInterfaceWrapper) GetRecording(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetRecording(w, r, recordingId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetDesiredProfile operation middleware
+func (siw *ServerInterfaceWrapper) GetDesiredProfile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "deviceId" -------------
+	var deviceId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "deviceId", r.PathValue("deviceId"), &deviceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "deviceId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetDesiredProfileParams
+
+	// ------------- Optional query parameter "current" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "current", r.URL.Query(), &params.Current, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "current"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "current", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetDesiredProfile(w, r, deviceId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -552,10 +684,13 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/healthz", wrapper.GetLiveness)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/readyz", wrapper.GetReadiness)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/token", wrapper.GetLegacyToken)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/admin/devices", wrapper.ListDevices)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/admin/devices/{deviceId}/desired-profile", wrapper.SetDesiredProfile)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/admin/recordings", wrapper.ListRecordings)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/admin/recordings", wrapper.RegisterRecording)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/admin/recordings/summary", wrapper.GetRecordingsSummary)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/admin/recordings/{recordingId}", wrapper.GetRecording)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/devices/{deviceId}/desired-profile", wrapper.GetDesiredProfile)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/sessions", wrapper.CreateSession)
 
 	return m
@@ -656,6 +791,122 @@ func (response GetLegacyToken404ApplicationProblemPlusJSONResponse) VisitGetLega
 type GetLegacyToken503ApplicationProblemPlusJSONResponse Problem
 
 func (response GetLegacyToken503ApplicationProblemPlusJSONResponse) VisitGetLegacyTokenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListDevicesRequestObject struct {
+}
+
+type ListDevicesResponseObject interface {
+	VisitListDevicesResponse(w http.ResponseWriter) error
+}
+
+type ListDevices200JSONResponse DeviceList
+
+func (response ListDevices200JSONResponse) VisitListDevicesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListDevices401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ListDevices401ApplicationProblemPlusJSONResponse) VisitListDevicesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListDevices503ApplicationProblemPlusJSONResponse struct {
+	UnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response ListDevices503ApplicationProblemPlusJSONResponse) VisitListDevicesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetDesiredProfileRequestObject struct {
+	DeviceId string `json:"deviceId"`
+	Body     *SetDesiredProfileJSONRequestBody
+}
+
+type SetDesiredProfileResponseObject interface {
+	VisitSetDesiredProfileResponse(w http.ResponseWriter) error
+}
+
+type SetDesiredProfile204Response struct {
+}
+
+func (response SetDesiredProfile204Response) VisitSetDesiredProfileResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type SetDesiredProfile401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response SetDesiredProfile401ApplicationProblemPlusJSONResponse) VisitSetDesiredProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetDesiredProfile404ApplicationProblemPlusJSONResponse Problem
+
+func (response SetDesiredProfile404ApplicationProblemPlusJSONResponse) VisitSetDesiredProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetDesiredProfile503ApplicationProblemPlusJSONResponse struct {
+	UnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response SetDesiredProfile503ApplicationProblemPlusJSONResponse) VisitSetDesiredProfileResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -924,6 +1175,40 @@ func (response GetRecording503ApplicationProblemPlusJSONResponse) VisitGetRecord
 	return err
 }
 
+type GetDesiredProfileRequestObject struct {
+	DeviceId string `json:"deviceId"`
+	Params   GetDesiredProfileParams
+}
+
+type GetDesiredProfileResponseObject interface {
+	VisitGetDesiredProfileResponse(w http.ResponseWriter) error
+}
+
+type GetDesiredProfile200TextResponse string
+
+func (response GetDesiredProfile200TextResponse) VisitGetDesiredProfileResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(200)
+
+	_, err := w.Write([]byte(response))
+	return err
+}
+
+type GetDesiredProfile503ApplicationProblemPlusJSONResponse Problem
+
+func (response GetDesiredProfile503ApplicationProblemPlusJSONResponse) VisitGetDesiredProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type CreateSessionRequestObject struct {
 	Params CreateSessionParams
 }
@@ -985,6 +1270,12 @@ type StrictServerInterface interface {
 	// Firmware-compatible two-line LiveKit connection response
 	// (GET /token)
 	GetLegacyToken(ctx context.Context, request GetLegacyTokenRequestObject) (GetLegacyTokenResponseObject, error)
+	// List known devices with profile state
+	// (GET /v1/admin/devices)
+	ListDevices(ctx context.Context, request ListDevicesRequestObject) (ListDevicesResponseObject, error)
+	// Set (or clear) the desired device profile
+	// (PUT /v1/admin/devices/{deviceId}/desired-profile)
+	SetDesiredProfile(ctx context.Context, request SetDesiredProfileRequestObject) (SetDesiredProfileResponseObject, error)
 	// List recent voice recordings
 	// (GET /v1/admin/recordings)
 	ListRecordings(ctx context.Context, request ListRecordingsRequestObject) (ListRecordingsResponseObject, error)
@@ -997,6 +1288,9 @@ type StrictServerInterface interface {
 	// Get one voice recording
 	// (GET /v1/admin/recordings/{recordingId})
 	GetRecording(ctx context.Context, request GetRecordingRequestObject) (GetRecordingResponseObject, error)
+	// Desired device profile for reconciliation polls
+	// (GET /v1/devices/{deviceId}/desired-profile)
+	GetDesiredProfile(ctx context.Context, request GetDesiredProfileRequestObject) (GetDesiredProfileResponseObject, error)
 	// Create a device session and dispatch its assigned agent
 	// (POST /v1/sessions)
 	CreateSession(ctx context.Context, request CreateSessionRequestObject) (CreateSessionResponseObject, error)
@@ -1096,6 +1390,63 @@ func (sh *strictHandler) GetLegacyToken(w http.ResponseWriter, r *http.Request) 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetLegacyTokenResponseObject); ok {
 		if err := validResponse.VisitGetLegacyTokenResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListDevices operation middleware
+func (sh *strictHandler) ListDevices(w http.ResponseWriter, r *http.Request) {
+	var request ListDevicesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListDevices(ctx, request.(ListDevicesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListDevices")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListDevicesResponseObject); ok {
+		if err := validResponse.VisitListDevicesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetDesiredProfile operation middleware
+func (sh *strictHandler) SetDesiredProfile(w http.ResponseWriter, r *http.Request, deviceId string) {
+	var request SetDesiredProfileRequestObject
+
+	request.DeviceId = deviceId
+
+	var body SetDesiredProfileJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetDesiredProfile(ctx, request.(SetDesiredProfileRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetDesiredProfile")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetDesiredProfileResponseObject); ok {
+		if err := validResponse.VisitSetDesiredProfileResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -1210,6 +1561,33 @@ func (sh *strictHandler) GetRecording(w http.ResponseWriter, r *http.Request, re
 	}
 }
 
+// GetDesiredProfile operation middleware
+func (sh *strictHandler) GetDesiredProfile(w http.ResponseWriter, r *http.Request, deviceId string, params GetDesiredProfileParams) {
+	var request GetDesiredProfileRequestObject
+
+	request.DeviceId = deviceId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetDesiredProfile(ctx, request.(GetDesiredProfileRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetDesiredProfile")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetDesiredProfileResponseObject); ok {
+		if err := validResponse.VisitGetDesiredProfileResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // CreateSession operation middleware
 func (sh *strictHandler) CreateSession(w http.ResponseWriter, r *http.Request, params CreateSessionParams) {
 	var request CreateSessionRequestObject
@@ -1241,34 +1619,43 @@ func (sh *strictHandler) CreateSession(w http.ResponseWriter, r *http.Request, p
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
+	"rksrxyic5lM+5uub9f8CAAD//w==",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

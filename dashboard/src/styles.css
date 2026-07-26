@@ -90,3 +90,24 @@ h1, h2, h3, p { margin-top: 0; }
 @media (max-width: 560px) {
   .page-shell { width: min(100% - 30px, 1400px); }.site-header { padding: 0 16px; }.system-state { font-size: 0; }.metrics { grid-template-columns: 1fr; }.metric-card { border-right: 0; padding-left: 0; min-height: 135px; }.section-heading { align-items: baseline; }.section-heading h2 { font-size: 36px; }.recording-row { grid-template-columns: minmax(0, 1fr) 24px; gap: 12px; }.row-index, .recording-duration, .kind-dot { display: none; }.detail-grid { grid-template-columns: 1fr; }.player-card { padding: 20px; }.detail-kind { display: none; }
 }
+
+/* --- Dispositivos (estado deseado) --- */
+.site-nav { display: flex; gap: 1.1rem; margin-left: 2rem; margin-right: auto; }
+.site-nav a { color: var(--muted); text-decoration: none; font-size: 0.85rem; letter-spacing: 0.04em; }
+.site-nav a.active, .site-nav a:hover { color: var(--ink); }
+.device-list { display: grid; gap: 0.75rem; }
+.device-row {
+  display: flex; justify-content: space-between; align-items: center; gap: 1rem;
+  padding: 1rem 1.25rem; background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+}
+.device-meta { color: var(--muted); font-size: 0.85rem; margin-top: 0.3rem; }
+.device-meta strong { color: var(--lime); font-weight: 600; }
+.device-actions { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; justify-content: flex-end; }
+.device-pending { color: var(--orange); font-size: 0.8rem; font-style: italic; }
+.chip-button {
+  font: inherit; font-size: 0.82rem; color: var(--ink); background: transparent;
+  border: 1px solid var(--line); border-radius: 999px; padding: 0.35rem 0.9rem; cursor: pointer;
+}
+.chip-button:hover:not(:disabled) { border-color: var(--lime); color: var(--lime); }
+.chip-button:disabled { opacity: 0.45; cursor: default; }
+@media (max-width: 560px) { .device-row { flex-direction: column; align-items: flex-start; } }

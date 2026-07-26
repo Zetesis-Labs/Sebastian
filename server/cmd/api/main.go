@@ -12,6 +12,7 @@ import (
 	apihttp "github.com/zetesis-labs/sebastian/server/internal/api"
 	"github.com/zetesis-labs/sebastian/server/internal/config"
 	"github.com/zetesis-labs/sebastian/server/internal/database"
+	"github.com/zetesis-labs/sebastian/server/internal/device"
 	"github.com/zetesis-labs/sebastian/server/internal/httpserver"
 	livekitgateway "github.com/zetesis-labs/sebastian/server/internal/livekit"
 	postgresstore "github.com/zetesis-labs/sebastian/server/internal/postgres"
@@ -49,7 +50,8 @@ func run(logger *slog.Logger) error {
 	livekit := livekitgateway.NewGateway(cfg.LiveKitURL, cfg.LiveKitAPIKey, cfg.LiveKitAPISecret)
 	sessions := session.NewService(store, livekit, cfg.LiveKitURL, cfg.RoomPrefix, cfg.TokenTTL, cfg.LegacyDeviceID)
 	recordings := recording.NewService(store)
-	handler := apihttp.NewHandler(sessions, recordings, store, logger, cfg.LegacyTokenEnabled, cfg.DatabasePingTimeout)
+	devices := device.NewService(store)
+	handler := apihttp.NewHandler(sessions, recordings, devices, store, logger, cfg.LegacyTokenEnabled, cfg.DatabasePingTimeout)
 	server, err := httpserver.New(cfg.Address, handler, logger, cfg.AdminSecret)
 	if err != nil {
 		return err

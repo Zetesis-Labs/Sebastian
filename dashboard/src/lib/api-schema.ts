@@ -55,6 +55,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/devices/{deviceId}/desired-profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Desired device profile for reconciliation polls
+         * @description Device-facing. The firmware polls this endpoint, reporting its running profile via `current`, and receives the desired profile name (empty body when none is set). Unknown devices are auto-registered so new units appear in the admin inventory on first contact. Same exposure posture as /token: keep it off the public internet until device credentials land.
+         */
+        get: operations["getDesiredProfile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List known devices with profile state */
+        get: operations["listDevices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/devices/{deviceId}/desired-profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set (or clear) the desired device profile */
+        put: operations["setDesiredProfile"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/recordings": {
         parameters: {
             query?: never;
@@ -196,6 +250,22 @@ export interface components {
         RecordingList: {
             items: components["schemas"]["Recording"][];
         };
+        Device: {
+            id: string;
+            displayName: string;
+            enabled: boolean;
+            desiredProfile?: string;
+            reportedProfile?: string;
+            /** Format: date-time */
+            profileReportedAt?: string;
+        };
+        DeviceList: {
+            items: components["schemas"]["Device"][];
+        };
+        DesiredProfile: {
+            /** @description Firmware profile name. Empty or absent clears the desired state. */
+            name?: string;
+        };
         RecordingSummary: {
             /** Format: int64 */
             count: number;
@@ -322,6 +392,96 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+        };
+    };
+    getDesiredProfile: {
+        parameters: {
+            query?: {
+                current?: string;
+            };
+            header?: never;
+            path: {
+                deviceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Desired profile name; empty when none is set. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+            /** @description Persistence is unavailable. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listDevices: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Devices ordered by id. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    setDesiredProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deviceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DesiredProfile"];
+            };
+        };
+        responses: {
+            /** @description Desired profile stored; the device applies it on its next poll. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description Device not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            503: components["responses"]["Unavailable"];
         };
     };
     listRecordings: {
