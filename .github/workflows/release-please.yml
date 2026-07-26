@@ -6,7 +6,9 @@ name: Release Please
 # pipeline as ZetesisPortal.
 #
 # Components:
-#   - agent (agent/)          → drives ALL THREE image tags (one uv package)
+#   - agent (agent/)          → drives the Python agent/control-plane images
+#   - server (server/)        → drives the Go server image
+#   - dashboard (dashboard/)  → drives the TanStack Start dashboard image
 #   - helm  (helm/sebastian/) → the chart
 
 on:
@@ -27,6 +29,10 @@ jobs:
       releases_created: ${{ steps.release.outputs.releases_created }}
       agent_released: ${{ steps.release.outputs['agent--release_created'] }}
       agent_version: ${{ steps.release.outputs['agent--version'] }}
+      server_released: ${{ steps.release.outputs['server--release_created'] }}
+      server_version: ${{ steps.release.outputs['server--version'] }}
+      dashboard_released: ${{ steps.release.outputs['dashboard--release_created'] }}
+      dashboard_version: ${{ steps.release.outputs['dashboard--version'] }}
       helm_released: ${{ steps.release.outputs['helm/sebastian--release_created'] }}
       helm_version: ${{ steps.release.outputs['helm/sebastian--version'] }}
     steps:
@@ -37,7 +43,7 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-  # One agent release → all three images at the same version.
+  # One agent release → the Python images at the same version.
   publish-images:
     needs: release-please
     if: needs.release-please.outputs.agent_released == 'true'
@@ -46,6 +52,30 @@ jobs:
     uses: ./.github/workflows/docker-publish.yml
     with:
       version: ${{ needs.release-please.outputs.agent_version }}
+    secrets:
+      HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+      HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+
+  publish-server:
+    needs: release-please
+    if: needs.release-please.outputs.server_released == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/server-publish.yml
+    with:
+      version: ${{ needs.release-please.outputs.server_version }}
+    secrets:
+      HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+      HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+
+  publish-dashboard:
+    needs: release-please
+    if: needs.release-please.outputs.dashboard_released == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/dashboard-publish.yml
+    with:
+      version: ${{ needs.release-please.outputs.dashboard_version }}
     secrets:
       HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
       HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
@@ -63,11 +93,13 @@ jobs:
       HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
 
   bump-mileto:
-    needs: [release-please, publish-images, publish-helm]
+    needs: [release-please, publish-images, publish-server, publish-dashboard, publish-helm]
     if: |
       always() &&
       needs.release-please.outputs.releases_created == 'true' &&
       needs.publish-images.result != 'failure' &&
+      needs.publish-server.result != 'failure' &&
+      needs.publish-dashboard.result != 'failure' &&
       needs.publish-helm.result != 'failure'
     runs-on: herschel-runners
     steps:
@@ -82,6 +114,10 @@ jobs:
           AGENT_RELEASED: ${{ needs.release-please.outputs.agent_released }}
           HELM_RELEASED: ${{ needs.release-please.outputs.helm_released }}
           AGENT_VERSION: ${{ needs.release-please.outputs.agent_version }}
+          SERVER_RELEASED: ${{ needs.release-please.outputs.server_released }}
+          SERVER_VERSION: ${{ needs.release-please.outputs.server_version }}
+          DASHBOARD_RELEASED: ${{ needs.release-please.outputs.dashboard_released }}
+          DASHBOARD_VERSION: ${{ needs.release-please.outputs.dashboard_version }}
           HELM_VERSION: ${{ needs.release-please.outputs.helm_version }}
         run: |
           set -euo pipefail
@@ -90,9 +126,13 @@ jobs:
           tmp=$(mktemp)
           jq \
             --arg agent_released "$AGENT_RELEASED" --arg agent "v$AGENT_VERSION" \
+            --arg server_released "$SERVER_RELEASED" --arg server "v$SERVER_VERSION" \
+            --arg dashboard_released "$DASHBOARD_RELEASED" --arg dashboard "v$DASHBOARD_VERSION" \
             --arg helm_released "$HELM_RELEASED"  --arg helm "$HELM_VERSION" \
             '
-            (if $agent_released == "true" then .tokenServerImageTag = $agent | .agentImageTag = $agent | .controlPlaneImageTag = $agent else . end) |
+            (if $agent_released == "true" then .agentImageTag = $agent | .controlPlaneImageTag = $agent else . end) |
+            (if $server_released == "true" then .serverImageTag = $server else . end) |
+            (if $dashboard_released == "true" then .dashboardImageTag = $dashboard else . end) |
             (if $helm_released  == "true" then .chartVersion        = $helm  else . end)
             ' "$ENV_FILE" > "$tmp"
           mv "$tmp" "$ENV_FILE"
@@ -114,7 +154,7 @@ jobs:
           git add px-platon/cortes/sebastian/envs/prod/env.json
           git commit -m "chore(prod): bump Sebastian images and chart" \
             -m "Auto-generated from Zetesis-Labs/Sebastian release ${{ github.sha }}." \
-            -m "Released: agent=${{ needs.release-please.outputs.agent_released }} v${{ needs.release-please.outputs.agent_version }}, helm=${{ needs.release-please.outputs.helm_released }} v${{ needs.release-please.outputs.helm_version }}."
+            -m "Released: agent=${{ needs.release-please.outputs.agent_released }} v${{ needs.release-please.outputs.agent_version }}, server=${{ needs.release-please.outputs.server_released }} v${{ needs.release-please.outputs.server_version }}, dashboard=${{ needs.release-please.outputs.dashboard_released }} v${{ needs.release-please.outputs.dashboard_version }}, helm=${{ needs.release-please.outputs.helm_released }} v${{ needs.release-please.outputs.helm_version }}."
           git push origin "$BRANCH"
           gh pr create \
             --repo Zetesis-Labs/Mileto-Infra-GitOps \

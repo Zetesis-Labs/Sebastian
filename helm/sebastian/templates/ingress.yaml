@@ -1,8 +1,8 @@
 {{- if .Values.ingress.enabled }}
-{{- range $svc := list "tokenServer" "controlPlane" }}
+{{- range $svc := list "server" "dashboard" "controlPlane" }}
 {{- $cfg := index $.Values $svc }}
 {{- if and $cfg.enabled $cfg.ingress.enabled $cfg.ingress.host }}
-{{- $component := ternary "token-server" "control-plane" (eq $svc "tokenServer") }}
+{{- $component := ternary "control-plane" $svc (eq $svc "controlPlane") }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

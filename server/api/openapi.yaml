@@ -1,0 +1,386 @@
+openapi: 3.0.3
+info:
+  title: Sebastian API
+  version: 0.1.0
+  description: Control plane for Sebastian devices and LiveKit agent sessions.
+servers:
+  - url: /
+paths:
+  /healthz:
+    get:
+      operationId: getLiveness
+      summary: Process liveness
+      tags: [system]
+      responses:
+        "200":
+          description: The process is alive.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+  /readyz:
+    get:
+      operationId: getReadiness
+      summary: Dependency readiness
+      tags: [system]
+      responses:
+        "200":
+          description: The service can accept traffic.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+        "503":
+          description: A required dependency is unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /v1/sessions:
+    post:
+      operationId: createSession
+      summary: Create a device session and dispatch its assigned agent
+      tags: [sessions]
+      security:
+        - DeviceSecret: []
+      parameters:
+        - name: X-Device-Id
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+        - name: X-Device-Secret
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 32
+            maxLength: 256
+      responses:
+        "201":
+          description: Session created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "401":
+          description: Invalid device credentials.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "503":
+          description: LiveKit or persistence is unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /v1/admin/recordings:
+    get:
+      operationId: listRecordings
+      summary: List recent voice recordings
+      tags: [administration, recordings]
+      security:
+        - AdminSecret: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: Recent recordings ordered by capture time.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecordingList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    post:
+      operationId: registerRecording
+      summary: Register a recording already stored in object storage
+      tags: [administration, recordings]
+      security:
+        - AdminSecret: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordingRegistration"
+      responses:
+        "201":
+          description: Recording registered.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Recording"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: The associated session does not exist.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "409":
+          description: The object URL is already registered.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/admin/recordings/summary:
+    get:
+      operationId: getRecordingsSummary
+      summary: Aggregate recording storage and duration metrics
+      tags: [administration, recordings]
+      security:
+        - AdminSecret: []
+      responses:
+        "200":
+          description: Recording summary.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecordingSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/admin/recordings/{recordingId}:
+    get:
+      operationId: getRecording
+      summary: Get one voice recording
+      tags: [administration, recordings]
+      security:
+        - AdminSecret: []
+      parameters:
+        - name: recordingId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Recording details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Recording"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Recording not found.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /token:
+    get:
+      operationId: getLegacyToken
+      summary: Firmware-compatible two-line LiveKit connection response
+      description: Transitional endpoint. It must be explicitly enabled and should not be exposed publicly.
+      deprecated: true
+      tags: [compatibility]
+      responses:
+        "200":
+          description: LiveKit URL followed by the JWT, separated by a newline.
+          content:
+            text/plain:
+              schema:
+                type: string
+        "404":
+          description: The compatibility endpoint is disabled.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "503":
+          description: LiveKit or persistence is unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+components:
+  securitySchemes:
+    DeviceSecret:
+      type: apiKey
+      in: header
+      name: X-Device-Secret
+    AdminSecret:
+      type: apiKey
+      in: header
+      name: X-Admin-Secret
+  responses:
+    Unauthorized:
+      description: The administration secret is invalid.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Unavailable:
+      description: A required dependency is unavailable.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+  schemas:
+    Health:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+    Session:
+      type: object
+      additionalProperties: false
+      required: [id, room, serverUrl, token, expiresAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        room:
+          type: string
+        serverUrl:
+          type: string
+          format: uri
+        token:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+    Problem:
+      type: object
+      additionalProperties: false
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+          format: uri-reference
+        title:
+          type: string
+        status:
+          type: integer
+          minimum: 100
+          maximum: 599
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri-reference
+    RecordingKind:
+      type: string
+      enum: [model, microphone, agent, composite]
+    Recording:
+      type: object
+      additionalProperties: false
+      required: [id, sessionId, room, kind, fileName, objectUrl, contentType, byteSize, durationMs, capturedAt, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        sessionId:
+          type: string
+          format: uuid
+        room:
+          type: string
+        kind:
+          $ref: "#/components/schemas/RecordingKind"
+        fileName:
+          type: string
+        objectUrl:
+          type: string
+          format: uri
+        contentType:
+          type: string
+        byteSize:
+          type: integer
+          format: int64
+          minimum: 0
+        durationMs:
+          type: integer
+          format: int64
+          minimum: 0
+        capturedAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        transcript:
+          type: string
+    RecordingRegistration:
+      type: object
+      additionalProperties: false
+      required: [room, kind, fileName, objectUrl, contentType, byteSize, durationMs, capturedAt]
+      properties:
+        room:
+          type: string
+          minLength: 1
+        kind:
+          $ref: "#/components/schemas/RecordingKind"
+        fileName:
+          type: string
+          minLength: 1
+        objectUrl:
+          type: string
+          format: uri
+        contentType:
+          type: string
+          minLength: 1
+        byteSize:
+          type: integer
+          format: int64
+          minimum: 0
+        durationMs:
+          type: integer
+          format: int64
+          minimum: 0
+        capturedAt:
+          type: string
+          format: date-time
+        transcript:
+          type: string
+    RecordingList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Recording"
+    RecordingSummary:
+      type: object
+      additionalProperties: false
+      required: [count, totalBytes, totalDurationMs]
+      properties:
+        count:
+          type: integer
+          format: int64
+          minimum: 0
+        totalBytes:
+          type: integer
+          format: int64
+          minimum: 0
+        totalDurationMs:
+          type: integer
+          format: int64
+          minimum: 0
+        lastCapturedAt:
+          type: string
+          format: date-time

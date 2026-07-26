@@ -13,6 +13,18 @@
       "release-type": "python",
       "changelog-path": "CHANGELOG.md"
     },
+    "server": {
+      "package-name": "sebastian-server",
+      "component": "server",
+      "release-type": "simple",
+      "changelog-path": "CHANGELOG.md"
+    },
+    "dashboard": {
+      "package-name": "sebastian-dashboard",
+      "component": "dashboard",
+      "release-type": "node",
+      "changelog-path": "CHANGELOG.md"
+    },
     "helm/sebastian": {
       "package-name": "sebastian-chart",
       "component": "helm",

@@ -4,8 +4,8 @@ Workloads:
 {{- if .Values.livekit.enabled }}
   • livekit       self-hosted SFU (hostNetwork) — signalling :{{ .Values.livekit.ports.signal }}, media UDP :{{ .Values.livekit.ports.udpMux }} on the node IP
 {{- end }}
-{{- if .Values.tokenServer.enabled }}
-  • token-server  :{{ .Values.tokenServer.service.targetPort }}{{ if .Values.tokenServer.ingress.host }} → https://{{ .Values.tokenServer.ingress.host }}{{ end }}
+{{- if .Values.server.enabled }}
+  • server        :{{ .Values.server.service.targetPort }}{{ if .Values.server.ingress.host }} → https://{{ .Values.server.ingress.host }}{{ end }}
 {{- end }}
 {{- if .Values.controlPlane.enabled }}
   • control-plane :{{ .Values.controlPlane.service.targetPort }}{{ if .Values.controlPlane.ingress.host }} → https://{{ .Values.controlPlane.ingress.host }}{{ end }}
@@ -15,7 +15,7 @@ Workloads:
 {{- end }}
 
 Device wiring (same LAN as the cluster node):
-  - Provision the ESP32 tokenServerUrl at the token-server ingress host (or the
+  - Provision the ESP32 tokenServerUrl at the server ingress host (or the
     node IP + NodePort).
-  - The token server must return LIVEKIT_URL = ws://<node-ip>:{{ .Values.livekit.ports.signal }} so the
+  - The server must return LIVEKIT_URL = ws://<node-ip>:{{ .Values.livekit.ports.signal }} so the
     device reaches the SFU and its UDP media on the LAN.

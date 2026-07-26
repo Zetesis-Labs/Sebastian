@@ -48,6 +48,8 @@ web-installer/public/firmware/*.bin
 web-installer/public/*.local.json
 web-installer/node_modules/
 web-installer/dist/
+dashboard/node_modules/
+dashboard/.output/
 .devcontainer/.env
 agent/recordings/
 agent/phantoms/
