@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/zetesis-labs/sebastian/server/internal/device"
 	"github.com/zetesis-labs/sebastian/server/internal/recording"
 	"github.com/zetesis-labs/sebastian/server/internal/session"
 )
@@ -27,9 +28,16 @@ type RecordingService interface {
 	Summary(context.Context) (recording.Summary, error)
 }
 
+type DeviceService interface {
+	Reconcile(ctx context.Context, id, reported string) (string, error)
+	List(context.Context) ([]device.Device, error)
+	SetDesired(ctx context.Context, id, name string) error
+}
+
 type Server struct {
 	sessions         SessionService
 	recordings       RecordingService
+	devices          DeviceService
 	readiness        ReadinessChecker
 	logger           *slog.Logger
 	legacyEnabled    bool
@@ -39,6 +47,7 @@ type Server struct {
 func NewHandler(
 	sessions SessionService,
 	recordings RecordingService,
+	devices DeviceService,
 	readiness ReadinessChecker,
 	logger *slog.Logger,
 	legacyEnabled bool,
@@ -47,11 +56,80 @@ func NewHandler(
 	return &Server{
 		sessions:         sessions,
 		recordings:       recordings,
+		devices:          devices,
 		readiness:        readiness,
 		logger:           logger,
 		legacyEnabled:    legacyEnabled,
 		readinessTimeout: readinessTimeout,
 	}
+}
+
+func (h *Server) GetDesiredProfile(ctx context.Context, request GetDesiredProfileRequestObject) (GetDesiredProfileResponseObject, error) {
+	reported := ""
+	if request.Params.Current != nil {
+		reported = *request.Params.Current
+	}
+	desired, err := h.devices.Reconcile(ctx, request.DeviceId, reported)
+	if err != nil {
+		h.logger.ErrorContext(ctx, "device reconcile failed", "device_id", request.DeviceId, "error", err)
+		return GetDesiredProfile503ApplicationProblemPlusJSONResponse(problem(
+			503, "Devices unavailable", "The device state could not be read.",
+		)), nil
+	}
+	return GetDesiredProfile200TextResponse(desired), nil
+}
+
+func (h *Server) ListDevices(ctx context.Context, _ ListDevicesRequestObject) (ListDevicesResponseObject, error) {
+	items, err := h.devices.List(ctx)
+	if err != nil {
+		h.logger.ErrorContext(ctx, "list devices failed", "error", err)
+		return ListDevices503ApplicationProblemPlusJSONResponse{
+			UnavailableApplicationProblemPlusJSONResponse: UnavailableApplicationProblemPlusJSONResponse(problem(
+				503, "Devices unavailable", "The device inventory could not be read.",
+			)),
+		}, nil
+	}
+	response := make([]Device, 0, len(items))
+	for _, item := range items {
+		response = append(response, deviceResponse(item))
+	}
+	return ListDevices200JSONResponse{Items: response}, nil
+}
+
+func (h *Server) SetDesiredProfile(ctx context.Context, request SetDesiredProfileRequestObject) (SetDesiredProfileResponseObject, error) {
+	name := ""
+	if request.Body != nil && request.Body.Name != nil {
+		name = *request.Body.Name
+	}
+	err := h.devices.SetDesired(ctx, request.DeviceId, name)
+	if errors.Is(err, device.ErrNotFound) {
+		return SetDesiredProfile404ApplicationProblemPlusJSONResponse(problem(
+			404, "Device not found", "The device has never contacted this server.",
+		)), nil
+	}
+	if err != nil {
+		h.logger.ErrorContext(ctx, "set desired profile failed", "device_id", request.DeviceId, "error", err)
+		return SetDesiredProfile503ApplicationProblemPlusJSONResponse{
+			UnavailableApplicationProblemPlusJSONResponse: UnavailableApplicationProblemPlusJSONResponse(problem(
+				503, "Devices unavailable", "The desired profile could not be stored.",
+			)),
+		}, nil
+	}
+	return SetDesiredProfile204Response{}, nil
+}
+
+func deviceResponse(item device.Device) Device {
+	response := Device{Id: item.ID, DisplayName: item.DisplayName, Enabled: item.Enabled}
+	if item.DesiredProfile != "" {
+		response.DesiredProfile = &item.DesiredProfile
+	}
+	if item.ReportedProfile != "" {
+		response.ReportedProfile = &item.ReportedProfile
+	}
+	if !item.ProfileReportedAt.IsZero() {
+		response.ProfileReportedAt = &item.ProfileReportedAt
+	}
+	return response
 }
 
 func (h *Server) ListRecordings(ctx context.Context, request ListRecordingsRequestObject) (ListRecordingsResponseObject, error) {

@@ -77,6 +77,96 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/Problem"
+  /v1/devices/{deviceId}/desired-profile:
+    get:
+      operationId: getDesiredProfile
+      summary: Desired device profile for reconciliation polls
+      description: >-
+        Device-facing. The firmware polls this endpoint, reporting its running
+        profile via `current`, and receives the desired profile name (empty
+        body when none is set). Unknown devices are auto-registered so new
+        units appear in the admin inventory on first contact. Same exposure
+        posture as /token: keep it off the public internet until device
+        credentials land.
+      tags: [devices]
+      parameters:
+        - name: deviceId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+        - name: current
+          in: query
+          schema:
+            type: string
+            maxLength: 63
+      responses:
+        "200":
+          description: Desired profile name; empty when none is set.
+          content:
+            text/plain:
+              schema:
+                type: string
+        "503":
+          description: Persistence is unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /v1/admin/devices:
+    get:
+      operationId: listDevices
+      summary: List known devices with profile state
+      tags: [administration, devices]
+      security:
+        - AdminSecret: []
+      responses:
+        "200":
+          description: Devices ordered by id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/admin/devices/{deviceId}/desired-profile:
+    put:
+      operationId: setDesiredProfile
+      summary: Set (or clear) the desired device profile
+      tags: [administration, devices]
+      security:
+        - AdminSecret: []
+      parameters:
+        - name: deviceId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DesiredProfile"
+      responses:
+        "204":
+          description: Desired profile stored; the device applies it on its next poll.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Device not found.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/admin/recordings:
     get:
       operationId: listRecordings
@@ -364,6 +454,41 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Recording"
+    Device:
+      type: object
+      additionalProperties: false
+      required: [id, displayName, enabled]
+      properties:
+        id:
+          type: string
+        displayName:
+          type: string
+        enabled:
+          type: boolean
+        desiredProfile:
+          type: string
+        reportedProfile:
+          type: string
+        profileReportedAt:
+          type: string
+          format: date-time
+    DeviceList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Device"
+    DesiredProfile:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          maxLength: 63
+          description: Firmware profile name. Empty or absent clears the desired state.
     RecordingSummary:
       type: object
       additionalProperties: false

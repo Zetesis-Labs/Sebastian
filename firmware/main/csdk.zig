@@ -381,7 +381,13 @@ pub extern fn esp_capture_new_audio_dev_src(cfg: *esp_capture_audio_dev_src_cfg_
 
 // --- WiFi power save (off, for real-time audio stability) --------------------
 pub const WIFI_PS_NONE: c_int = 0;
+// usb_mic mode: audio rides USB, WiFi is telemetry/control only — modem sleep on.
+pub const WIFI_PS_MIN_MODEM: c_int = 1;
 pub extern fn esp_wifi_set_ps(ps_type: c_int) esp_err_t;
+
+// --- Device identity (control-plane device id) --------------------------------
+pub const ESP_MAC_WIFI_STA: c_int = 0;
+pub extern fn esp_read_mac(mac: [*]u8, mac_type: c_int) esp_err_t;
 
 // --- mic diagnostics (per-channel peak) ---
 pub extern fn esp_codec_dev_open(dev: esp_codec_dev_handle_t, fs: *esp_codec_dev_sample_info_t) c_int;

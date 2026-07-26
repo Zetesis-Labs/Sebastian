@@ -18,6 +18,7 @@
 #include "driver/i2s_common.h"
 #include "driver/i2s_std.h"
 #include "esp_heap_caps.h"
+#include "esp_mac.h"
 #include "esp_wifi.h"
 
 #include "esp_codec_dev.h"
@@ -261,6 +262,8 @@ CHECK_VAL(MALLOC_CAP_8BIT, 1 << 2);
 CHECK_VAL(MALLOC_CAP_SPIRAM, 1 << 10);
 CHECK_VAL(MALLOC_CAP_INTERNAL, 1 << 11);
 CHECK_VAL(WIFI_PS_NONE, 0);
+CHECK_VAL(WIFI_PS_MIN_MODEM, 1);
+CHECK_VAL(ESP_MAC_WIFI_STA, 0);
 
 // --- profiles.c (self-owned struct; profile.zig mirrors it) ---
 CHECK_SIZE(sebastian_profile_t, 36);

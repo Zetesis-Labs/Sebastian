@@ -21,6 +21,7 @@
 const std = @import("std");
 const board = @import("board.zig");
 const cfg = @import("config.zig");
+const control = @import("control.zig");
 const mic_src = @import("mic_src.zig");
 const profile = @import("profile.zig");
 const selector = @import("selector.zig");
@@ -30,6 +31,7 @@ const xvf_ui = @import("xvf_ui.zig");
 const wakeword = @import("wakeword.zig");
 const xvf_aec = @import("xvf_aec.zig");
 const pre_roll = @import("pre_roll.zig");
+const arbiter_core = @import("core/arbiter_core.zig");
 const session_core = @import("core/session_core.zig");
 const reducer = @import("core/session_reducer.zig");
 const token = @import("token.zig");
@@ -409,10 +411,34 @@ fn startWakeDetection() void {
     wakeword.start();
 }
 
+fn grantUsbFromIdle() void {
+    wakeword.stop(); // releases I2S (+ resync) for the incoming consumer
+    usb_mic.grant();
+    xvf_ui.setState(.usb); // ring: amber DoA beam — the PC has the mic
+}
+
+fn revokeUsbToIdle() void {
+    usb_mic.revoke();
+    wakeword.start();
+    xvf_ui.setState(.idle);
+}
+
 fn waitForWakeWord() void {
+    // Convivencia: while idling for the wake word, the USB host can borrow
+    // the mic — usage-driven, zero config (core/arbiter_core hysteresis).
+    // Ownership changes execute HERE, on the single agent task, so they can
+    // never race the wake/session hand-offs.
+    var arb = arbiter_core.Arbiter{};
     while (!wakeword.detected.load(.acquire)) {
-        c.vTaskDelay(50);
+        if (arb.feed(usb_mic.hostCapturing())) |transition| switch (transition) {
+            .grant_usb => grantUsbFromIdle(),
+            .revoke_usb => revokeUsbToIdle(),
+        };
+        c.vTaskDelay(arbiter_core.TICK_MS);
     }
+    // Rare race: detection latched in the same tick the mic went to USB.
+    // Restore the agent's ownership so the session hand-off starts clean.
+    if (arb.owner == .usb) revokeUsbToIdle();
     xvf_ui.setState(.waking); // ring: orbiting pixel — heard you, connecting
     log.info("wake word confirmed — fetching token", .{});
 }
@@ -557,6 +583,7 @@ fn logSessionClose(st: *const reducer.State, reason: reducer.CloseReason, raw_st
 fn runActiveSession(wake_id: u32) void {
     var st = reducer.State{};
     var raw_state: c_int = c.LIVEKIT_CONNECTION_STATE_DISCONNECTED;
+    var usb_capture_ticks: u32 = 0;
     while (true) {
         var event: reducer.Event = undefined;
         // The queue wait doubles as the tick clock: a discrete event wakes the
@@ -566,6 +593,15 @@ fn runActiveSession(wake_id: u32) void {
             event = sampleTick(&raw_state);
         }
         applyActions(&st, st.step(event), wake_id);
+        // Convivencia: sustained USB capture mid-session means the user is at
+        // the PC deliberately using the mic — close cleanly; the idle loop
+        // grants ownership right after teardown.
+        usb_capture_ticks = if (usb_mic.hostCapturing()) usb_capture_ticks + 1 else 0;
+        if (usb_capture_ticks * SESSION_TICK_MS >= arbiter_core.RESUME_AFTER_MS) {
+            usb_capture_ticks = 0;
+            log.info("USB capture takeover — closing session", .{});
+            pushEvent(.{ .agent_state = .close });
+        }
         switch (st.phase) {
             .done => |reason| return logSessionClose(&st, reason, raw_state),
             else => {},
@@ -600,6 +636,13 @@ fn runWakeCycle(audio: AudioPipeline) void {
     teardownActiveSession();
 }
 
+// USB-serial provisioning window: TinyUSB claims the S3's only USB PHY at
+// initUac(), so these boot seconds are the only serial the device ever has —
+// in BOTH modes now (convivencia keeps the UAC device up alongside the
+// agent). Overlapped with the XVF bring-up, so the real added latency is
+// window minus bring-up time.
+const USB_PROVISION_WINDOW_MS: u32 = 5000;
+
 export fn app_main() callconv(.c) void {
     // Boot-failure guard: incremented now, cleared once the selected mode is
     // up. Three straight failures ⇒ fall back to an agent profile below (the
@@ -610,6 +653,11 @@ export fn app_main() callconv(.c) void {
         log.err("board init failed: {s} — halting", .{@errorName(err)});
         return;
     };
+
+    // Serial provisioning receiver, first thing: the window below is the only
+    // moment sebastian.config.v1 / sebastian.profile.set can arrive over USB.
+    c.sebastian_provisioning_start();
+    const boot_us = c.esp_timer_get_time();
 
     // Config layering: legacy NVS keys / compiled defaults first (cfg.load),
     // then the active profile's set fields overlay them (applyActive, after
@@ -638,9 +686,28 @@ export fn app_main() callconv(.c) void {
     if (cfg.probe_dual_channel_on_boot) xvf_aec.probeDualChannel();
     if (cfg.probe_output_gain_on_boot) xvf_aec.probeOutputGain();
 
+    // Let the USB-serial window elapse, then hand the PHY to TinyUSB. The mic
+    // interface exists in BOTH modes (convivencia); plugged into a charger it
+    // simply never enumerates.
+    const elapsed: u32 = @intCast(@min(
+        @as(i64, USB_PROVISION_WINDOW_MS),
+        @divTrunc(c.esp_timer_get_time() - boot_us, 1000),
+    ));
+    if (elapsed < USB_PROVISION_WINDOW_MS) c.vTaskDelay(USB_PROVISION_WINDOW_MS - elapsed);
+    _ = usb_mic.initUac();
+    if (mic_src.create(board.recordHandle())) |src| usb_mic.bindMicSource(src);
+    logHeap("post-uac");
+
     switch (profile.activeMode()) {
         .usb_mic => usb_mic.run(xvf_ok),
-        .agent => runAgent(xvf_ok, aec_configured),
+        .agent => {
+            runAgent(xvf_ok, aec_configured);
+            // runAgent only returns when a boot stage failed. A degraded
+            // agent is still a microphone: the USB host keeps the mic.
+            usb_mic.grant();
+            xvf_ui.setState(.usb);
+            log.err("agent halted — USB mic keeps serving", .{});
+        },
     }
 }
 
@@ -653,9 +720,6 @@ fn runAgent(xvf_ok: bool, aec_configured: bool) void {
         return;
     };
 
-    // Serial provisioning receiver: listening even if WiFi never comes up
-    // (bad/absent creds) so the web installer can fix it.
-    c.sebastian_provisioning_start();
     configureFullDuplex(aec_configured);
 
     registerAudioCodecs() catch |err| {
@@ -685,6 +749,7 @@ fn runAgent(xvf_ok: bool, aec_configured: bool) void {
     // device's serial output reaches Loki even though nothing reads its UART in
     // prod (power + WiFi only). No-op if syslog_ip is unprovisioned.
     c.sebastian_syslog_start();
+    control.start();
 
     if (wakeword.init()) {
         health.ww = true;
