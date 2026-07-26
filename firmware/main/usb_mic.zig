@@ -1,28 +1,27 @@
-//! Sebastian as a plug-and-play USB microphone (UAC).
+//! USB-microphone mode (profile mode = usb_mic).
 //!
-//! Alternate app root (CONFIG_SEBASTIAN_USB_MIC, selected in cmake/zig.cmake):
-//! instead of joining a LiveKit room, the XVF3800 comms beam is exposed to the
-//! host as a standard USB Audio Class microphone — 48 kHz mono 16-bit, no WiFi,
-//! no wake word, no agent. TinyUSB claims the S3's USB PHY, so the
-//! USB-Serial-JTAG console/flasher disappears while this firmware runs;
-//! reflashing needs the BOOT-button download mode (docs/USB_MIC.md).
+//! The XVF3800 comms beam exposed to the host as a standard USB Audio Class
+//! microphone — 48 kHz mono 16-bit, no WiFi, no wake word, no agent. TinyUSB
+//! claims the S3's USB PHY, so the USB-Serial-JTAG console/flasher disappears
+//! while this mode runs; switch profiles with the boot selector (double-tap
+//! mute after plugging) or reflash via BOOT-button download mode
+//! (docs/USB_MIC.md).
 //!
 //! The capture path IS the production mic path: mic_src's vtable is driven by
 //! the UAC mic task instead of esp_capture, so slot selection, gain shift, soft
 //! limiter, clock resync, channel self-heal and the physical mute button (via
-//! xvf_ui) behave exactly like an agent session. With no speaker there is no
-//! echo to cancel, so the beamformer stays ADAPTIVE and tracks the talker.
+//! xvf_ui) behave exactly like an agent session. The usb_mic built-in profile
+//! keeps the beamformer ADAPTIVE (no speaker → no echo → nothing needs AEC
+//! convergence) so it tracks the talker.
 
 const std = @import("std");
 const board = @import("board.zig");
-const cfg = @import("config.zig");
 const mic_src = @import("mic_src.zig");
-const xvf_dfu = @import("xvf_dfu.zig");
+const profile = @import("profile.zig");
 const xvf_ui = @import("xvf_ui.zig");
-const xvf_aec = @import("xvf_aec.zig");
 const c = @import("csdk.zig");
 
-const log = std.log.scoped(.sebastian_usb);
+const log = std.log.scoped(.usb_mic);
 
 const UNITY_GAIN: u32 = 32768; // Q15
 
@@ -73,32 +72,9 @@ fn setVolumeCb(volume: u32, _: ?*anyopaque) callconv(.c) void {
     log.info("host volume: {d}", .{volume});
 }
 
-fn logStageError(comptime stage: []const u8, err: anyerror) void {
-    log.err("{s} failed: {s}", .{ stage, @errorName(err) });
-}
-
-export fn app_main() callconv(.c) void {
-    board.init() catch |err| {
-        log.err("board init failed: {s} — halting", .{@errorName(err)});
-        return;
-    };
-
-    // No speaker output in USB-mic mode → no echo → the AEC never needs to
-    // converge. An adaptive beam that tracks the talker beats a fixed one here.
-    cfg.fixed_beam = false;
-
-    var xvf_ok = true;
-    xvf_dfu.ensureMaster(board.i2cBus()) catch |err| {
-        logStageError("XVF master firmware confirmation", err);
-        xvf_ok = false;
-    };
-    xvf_dfu.unmute() catch |err| {
-        logStageError("XVF unmute", err);
-        xvf_ok = false;
-    };
-    xvf_ui.start(); // physical mute button → software gate + LED ring
-    if (!xvf_aec.applyConfig()) xvf_ok = false;
-
+/// Bring up the UAC device over the already-initialized board/XVF. Returns
+/// after init — the UAC component's tasks own the runtime from here.
+pub fn run(xvf_ok: bool) void {
     const src = mic_src.create(board.recordHandle()) orelse {
         log.err("mic source create failed — halting", .{});
         return;
@@ -108,7 +84,7 @@ export fn app_main() callconv(.c) void {
         log.err("mic source start failed — halting", .{});
         return;
     }
-    mic_src.setLive(true); // no wake task here: the UAC mic task owns I2S
+    mic_src.setLive(true); // no wake task in this mode: the UAC mic task owns I2S
     xvf_ui.setState(.active); // ring shows the DoA beam — "I'm listening"
 
     var uac = std.mem.zeroes(c.uac_device_config_t);
@@ -119,21 +95,11 @@ export fn app_main() callconv(.c) void {
         log.err("UAC device init failed — halting", .{});
         return;
     }
+    profile.bootNoteOk();
 
     if (xvf_ok) {
-        log.info("BOOT OK — USB mic: 48 kHz mono, comms beam, adaptive tracking", .{});
+        log.info("BOOT OK — USB mic: 48 kHz mono, comms beam", .{});
     } else {
         log.err("BOOT DEGRADED — XVF config incomplete, capture may be silent", .{});
     }
 }
-
-fn panicFn(msg: []const u8, _: ?usize) noreturn {
-    log.err("PANIC: {s}", .{msg});
-    c.abort();
-}
-
-pub const std_options: std.Options = .{
-    .log_level = .info,
-    .logFn = @import("log.zig").espLogFn,
-};
-pub const panic = std.debug.FullPanic(panicFn);

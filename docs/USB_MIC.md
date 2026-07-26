@@ -1,20 +1,25 @@
-# USB microphone mode (`CONFIG_SEBASTIAN_USB_MIC`)
+# USB microphone mode (profile `mode: usb_mic`)
 
-Alternate firmware that turns Sebastian into a **plug-and-play USB microphone**:
-the XVF3800 comms beam (AEC + adaptive beamforming + NS + de-reverb + limiter)
+Boot mode that turns Sebastian into a **plug-and-play USB microphone**:
+the XVF3800 comms beam (adaptive beamforming + NS + de-reverb + limiter)
 exposed to the host as a standard **USB Audio Class** device — 48 kHz mono
 16-bit. No WiFi, no wake word, no LiveKit; plug it into any computer and it
 shows up as **"Sebastian Mic" (Zetesis)**.
+
+Which mode boots is a **provisioning decision**, not a build flag: one binary
+carries both the LiveKit agent and this mode, selected by the active NVS
+profile (see `PROFILES.md` — boot selector on the ring, or
+`sebastian.profile.set` over serial).
 
 Validated on macOS (2026-07-25): enumerates over the XIAO's USB-C, CoreAudio
 registers a 1-channel 48 kHz USB input, clean capture with no micro-cuts.
 
 ## How it works
 
-- `main/usb_app.zig` is an **alternate Zig app root**, selected by
-  `CONFIG_SEBASTIAN_USB_MIC` in `cmake/zig.cmake` (`-Droot`). Everything else —
-  board bring-up, XVF DFU/unmute, AEC/gain config, mic capture — is the same
-  code the LiveKit agent firmware runs.
+- `main/usb_mic.zig` is the mode's entry point, dispatched from `app.zig` when
+  the active profile has `mode: usb_mic`. Everything else — board bring-up,
+  XVF DFU/unmute, AEC/gain config, mic capture — is the same code the LiveKit
+  agent mode runs.
 - USB side is [`espressif/usb_device_uac`](https://components.espressif.com/components/espressif/usb_device_uac)
   (TinyUSB UAC2 on the S3's USB-OTG PHY). Its mic task calls our `input_cb`
   every 10 ms; the callback drives **`mic_src`'s vtable directly** (no
@@ -25,10 +30,11 @@ registers a 1-channel 48 kHz USB input, clean capture with no micro-cuts.
   the requested samples, and the UAC task's `vTaskDelayUntil` absorbs the wait.
   Residual host-vs-XVF clock drift is soaked by the UAC FIFO (worst case an
   occasional dropped or short packet over hours — inaudible in practice).
-- **Beam stays ADAPTIVE** (`cfg.fixed_beam = false` before `applyConfig`):
-  with no speaker there is no echo to cancel, so nothing needs the AEC to
-  converge and the beam is free to track the talker across the room (path B —
-  the comms channel's processing does not depend on a fixed beam).
+- **Beam stays ADAPTIVE** (the built-in `micro-usb` profile sets
+  `fixedBeam: false`): with no speaker there is no echo to cancel, so nothing
+  needs the AEC to converge and the beam is free to track the talker across
+  the room (path B — the comms channel's processing does not depend on a
+  fixed beam).
 - **Physical mute button** works: `xvf_ui`'s task reads the XVF mute GPIO and
   gates the capture in software (the ring goes dark). **Host mute/volume**
   (macOS input slider) arrive via UAC feature-unit callbacks and are applied
@@ -38,19 +44,17 @@ registers a 1-channel 48 kHz USB input, clean capture with no micro-cuts.
 
 ## Build & flash
 
-On this branch `sdkconfig.defaults` already enables the mode:
-
 ```bash
 cd firmware
 . ~/esp/esp-idf/export.sh
-idf.py build                      # sdkconfig regenerated from defaults → USB mic
+idf.py build
 idf.py -p /dev/cu.usbmodemXXX flash
 ```
 
-To build the LiveKit agent firmware from this branch, set
-`CONFIG_SEBASTIAN_USB_MIC=n` (menuconfig) and rebuild.
+The binary carries both modes; a fresh unit boots the `agente` profile.
+Switch with the boot selector or `sebastian.profile.set` (see `PROFILES.md`).
 
-## Reflashing a unit that runs the USB-mic firmware
+## Reflashing a unit that runs in USB-mic mode
 
 TinyUSB owns the S3's only USB PHY, so the **USB-Serial-JTAG console/flasher
 does not exist** while this firmware runs (that's also why there are no logs

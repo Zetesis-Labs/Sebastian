@@ -22,6 +22,9 @@ const std = @import("std");
 const board = @import("board.zig");
 const cfg = @import("config.zig");
 const mic_src = @import("mic_src.zig");
+const profile = @import("profile.zig");
+const selector = @import("selector.zig");
+const usb_mic = @import("usb_mic.zig");
 const xvf_dfu = @import("xvf_dfu.zig");
 const xvf_ui = @import("xvf_ui.zig");
 const wakeword = @import("wakeword.zig");
@@ -598,40 +601,62 @@ fn runWakeCycle(audio: AudioPipeline) void {
 }
 
 export fn app_main() callconv(.c) void {
-    var health = BootHealth{};
-
-    initLiveKitSystem() catch |err| {
-        logStageError("livekit system init", err);
-        return;
-    };
+    // Boot-failure guard: incremented now, cleared once the selected mode is
+    // up. Three straight failures ⇒ fall back to an agent profile below (the
+    // mode that is always administrable) instead of boot-looping.
+    const boot_failures = profile.bootNoteStart();
 
     board.init() catch |err| {
         log.err("board init failed: {s} — halting", .{@errorName(err)});
         return;
     };
 
-    // Start the serial provisioning receiver early: it must be listening even if
-    // WiFi never comes up (bad/absent creds) so the web installer can fix it.
-    c.sebastian_provisioning_start();
-    // Pull mode/audio config from NVS (defaults from config.zig) before it is
-    // read: the XVF/AEC apply below and the boot self-tests depend on it.
+    // Config layering: legacy NVS keys / compiled defaults first (cfg.load),
+    // then the active profile's set fields overlay them (applyActive, after
+    // the selector had its chance to change the active profile).
     cfg.load();
+    profile.load();
+    if (boot_failures >= 3) profile.forceAgentFallback();
 
     const xvf_master = confirmXvfMaster();
     const xvf_unmuted = unmuteXvf();
-    xvf_ui.start();
+    // Double-tap the mute button in the first 2 s → on-ring profile selector.
+    // Before xvf_ui.start() so the ring and the button are exclusively ours.
+    if (xvf_master and xvf_unmuted) selector.maybeRun();
+    profile.applyActive();
+
     // applyConfig writes the gains + fixes the beam, all readback-verified; it
     // returns false if any of that didn't take (e.g. the beam is not actually
     // fixed → the AEC can't converge).
     const aec_configured = xvf_aec.applyConfig();
-    health.xvf = xvf_master and xvf_unmuted and aec_configured;
-    configureFullDuplex(aec_configured);
+    xvf_ui.start();
+    const xvf_ok = xvf_master and xvf_unmuted and aec_configured;
     xvf_aec.logConfig(); // reference-chain snapshot (AEC diagnostics)
     // AEC convergence self-test (config.probe_aec_on_boot): plays a session-level
     // tone and reports converged — tests the REF_GAIN fix with no session/human.
     if (cfg.probe_aec_on_boot) xvf_aec.probeReference();
     if (cfg.probe_dual_channel_on_boot) xvf_aec.probeDualChannel();
     if (cfg.probe_output_gain_on_boot) xvf_aec.probeOutputGain();
+
+    switch (profile.activeMode()) {
+        .usb_mic => usb_mic.run(xvf_ok),
+        .agent => runAgent(xvf_ok, aec_configured),
+    }
+}
+
+fn runAgent(xvf_ok: bool, aec_configured: bool) void {
+    var health = BootHealth{};
+    health.xvf = xvf_ok;
+
+    initLiveKitSystem() catch |err| {
+        logStageError("livekit system init", err);
+        return;
+    };
+
+    // Serial provisioning receiver: listening even if WiFi never comes up
+    // (bad/absent creds) so the web installer can fix it.
+    c.sebastian_provisioning_start();
+    configureFullDuplex(aec_configured);
 
     registerAudioCodecs() catch |err| {
         logStageError("audio codec registration", err);
@@ -644,6 +669,12 @@ export fn app_main() callconv(.c) void {
         return;
     };
     health.audio = true;
+
+    // Boot counts as good from here: provisioning is listening and the audio
+    // stack is sane — the device is administrable. Deliberately BEFORE
+    // connectNetwork: a WiFi outage is not a broken boot, and counting it as
+    // one made the safe-boot fallback hijack the profile in the field.
+    profile.bootNoteOk();
 
     connectNetwork() catch |err| {
         logStageError("network", err);

@@ -25,11 +25,14 @@
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
 
+#include "profiles.h"
+
 static const char *TAG = "provisioning";
 
 #define NVS_NS "sebastian"
 #define PROV_PREFIX "sebastian.config.v1 "
 #define PROV_SCHEMA "sebastian.config.v1"
+#define PROFILE_PREFIX "sebastian.profile.set "
 
 #define NET_CONNECTED (1 << 0)
 #define NET_FAILED (1 << 1)
@@ -227,6 +230,18 @@ static bool store_wifi(cJSON *root) {
             nvs_set_i32(h, "beam_az", (int32_t)(d < 0 ? d - 0.5 : d + 0.5));
         }
     }
+    // Profiles: named capability bundles (profiles.c reads these at boot). The
+    // array is stored as its raw JSON; activeProfile selects one by name.
+    cJSON *profs = cJSON_GetObjectItem(root, "profiles");
+    if (ok && cJSON_IsArray(profs)) {
+        char *s = cJSON_PrintUnformatted(profs);
+        if (s) {
+            nvs_set_str(h, "profiles", s);
+            cJSON_free(s);
+        }
+    }
+    cJSON *ap = cJSON_GetObjectItem(root, "activeProfile");
+    if (ok && cJSON_IsString(ap)) nvs_set_str(h, "active_prof", ap->valuestring);
     esp_err_t ce = nvs_commit(h);
     if (ok) ok = ce == ESP_OK;
     nvs_close(h);
@@ -234,7 +249,28 @@ static bool store_wifi(cJSON *root) {
     return ok;
 }
 
+// Lightweight profile switch — no WiFi payload required, so an already
+// provisioned unit can change personality with one serial line:
+//   sebastian.profile.set {"name":"micro-usb"}
+static void handle_profile_set(const char *json) {
+    cJSON *root = cJSON_Parse(json);
+    const cJSON *name = root ? cJSON_GetObjectItem(root, "name") : NULL;
+    bool ok = cJSON_IsString(name) && sebastian_profiles_set_active(name->valuestring);
+    cJSON_Delete(root);
+    if (!ok) {
+        reply("sebastian.profile.err");
+        return;
+    }
+    reply("sebastian.profile.ok");
+    vTaskDelay(pdMS_TO_TICKS(300)); // let the reply drain before the reset
+    esp_restart();
+}
+
 static void handle_line(const char *line) {
+    if (strncmp(line, PROFILE_PREFIX, strlen(PROFILE_PREFIX)) == 0) {
+        handle_profile_set(line + strlen(PROFILE_PREFIX));
+        return;
+    }
     if (strncmp(line, PROV_PREFIX, strlen(PROV_PREFIX)) != 0) return;
     cJSON *root = cJSON_Parse(line + strlen(PROV_PREFIX));
     if (!root) { reply("sebastian.config.err json_parse"); return; }

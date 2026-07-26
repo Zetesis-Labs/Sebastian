@@ -31,12 +31,13 @@ CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
 CONFIG_ESP32S3_DATA_CACHE_64KB=y
 CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y
 
-# --- USB microphone mode (this branch's product: plug-and-play UAC mic) ---
-# Sebastian enumerates as "Sebastian Mic": 48 kHz mono 16-bit from the XVF
-# comms beam. Speaker interface disabled (0 channels = compiled out).
+# --- USB microphone mode (NVS profile "micro-usb" / mode=usb_mic) ---
+# Which mode boots is a PROVISIONING decision (profiles.c + boot selector),
+# not a build flag: one binary carries both apps. These defaults shape the
+# UAC device when that mode runs: "Sebastian Mic", 48 kHz mono 16-bit from
+# the XVF comms beam. Speaker interface disabled (0 channels = compiled out).
 # UAC_SUPPORT_MACOS only affects the speaker feedback-EP format — harmless
 # here, kept on because this unit's host is a Mac.
-CONFIG_SEBASTIAN_USB_MIC=y
 CONFIG_UAC_SPEAKER_CHANNEL_NUM=0
 CONFIG_UAC_MIC_CHANNEL_NUM=1
 CONFIG_UAC_SAMPLE_RATE=48000
