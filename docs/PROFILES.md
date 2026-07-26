@@ -22,15 +22,17 @@ With no provisioned profiles the firmware ships two built-ins:
 
 ## Switching profiles
 
-**Boot selector (on-device)** — double-tap the mute button within ~2 s of
-plugging in (once the XVF is up; keep tapping until the ring changes). The ring
-splits into one colored arc per profile: each further press advances the
-highlighted arc, leaving the button alone for 5 s confirms. The choice persists
-and boot continues straight into the chosen profile. A unit that merely boots
-muted never triggers the selector (zero button *changes*).
+**Boot selector (on-device)** — when the ring lights up dim white shortly
+after plugging in (~2-3 s, once the XVF is up), double-tap the mute button.
+The ring splits into one colored arc per profile: each further press advances
+the highlighted arc, leaving the button alone for 5 s confirms. The choice
+persists and boot continues straight into the chosen profile. A unit that
+merely boots muted never triggers the selector (zero button *changes*).
 
-**Serial (installer / scripts)** — one line over USB-Serial-JTAG (agent mode
-only; in usb_mic mode TinyUSB owns the USB port):
+**Serial (installer / scripts)** — one line over USB-Serial-JTAG. In agent
+mode the port is always live; in usb_mic mode there is a **5 s provisioning
+window** at every boot (before TinyUSB claims the USB PHY) where the same
+commands work — after that the device is audio-only until the next plug:
 
 ```
 sebastian.profile.set {"name":"micro-usb"}

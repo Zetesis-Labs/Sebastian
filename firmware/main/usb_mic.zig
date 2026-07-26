@@ -25,6 +25,14 @@ const log = std.log.scoped(.usb_mic);
 
 const UNITY_GAIN: u32 = 32768; // Q15
 
+// USB-serial provisioning window at the start of every usb_mic boot. Once
+// TinyUSB claims the S3's only USB PHY the device has no serial at all, so
+// these are the only seconds it is administrable over USB
+// (sebastian.config.v1 / sebastian.profile.set — e.g. changing WiFi creds or
+// switching back to agent mode without the button). Costs enumeration
+// latency, buys gesture-free recovery on every plug.
+const PROVISION_WINDOW_MS: u32 = 5000;
+
 var mic_iface: *c.esp_capture_audio_src_iface_t = undefined;
 // Host-side controls (macOS input volume/mute), applied AFTER the capture so
 // the device keeps draining I2S while muted — same rule as the session gates.
@@ -75,6 +83,12 @@ fn setVolumeCb(volume: u32, _: ?*anyopaque) callconv(.c) void {
 /// Bring up the UAC device over the already-initialized board/XVF. Returns
 /// after init — the UAC component's tasks own the runtime from here.
 pub fn run(xvf_ok: bool) void {
+    c.sebastian_provisioning_start();
+    log.info("USB provisioning window: {d} ms", .{PROVISION_WINDOW_MS});
+    c.vTaskDelay(PROVISION_WINDOW_MS);
+    // The provisioning task keeps polling the (now detached) USB-Serial-JTAG
+    // driver after TinyUSB takes the PHY — reads just time out, benign.
+
     const src = mic_src.create(board.recordHandle()) orelse {
         log.err("mic source create failed — halting", .{});
         return;

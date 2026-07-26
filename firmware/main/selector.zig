@@ -61,11 +61,16 @@ fn confirmFlash(index: usize) void {
 
 /// Watch for the double tap during the trigger window; no-op without it.
 pub fn maybeRun() void {
+    // Cue: dim white ring = "you can tap now". Without it the window is
+    // invisible and the gesture is blind timing (field lesson: the first
+    // hardware attempt missed the window).
+    xvf.setLeds(.{rgb(14, 14, 14)} ** 12);
     var trig = core.Trigger{};
     while (!trig.expired()) {
         if (trig.feed(xvf.readMuted())) return runSelector();
         c.vTaskDelay(core.TICK_MS);
     }
+    xvf.setLeds(.{OFF} ** 12);
 }
 
 fn runSelector() void {
