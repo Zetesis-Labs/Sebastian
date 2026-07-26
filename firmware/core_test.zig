@@ -1435,3 +1435,61 @@ test "url origin passes through inputs without scheme or path" {
     try std.testing.expectEqualStrings("http://host:9000", url_core.origin("http://host:9000"));
     try std.testing.expectEqualStrings("host/no-scheme", url_core.origin("host/no-scheme"));
 }
+
+// ── USB↔agent mic arbitration (modo convivencia) ─────────────────────────────
+
+const arbiter_core = @import("main/core/arbiter_core.zig");
+
+fn feedArb(a: *arbiter_core.Arbiter, capturing: bool, ticks: u32) ?arbiter_core.Transition {
+    var last: ?arbiter_core.Transition = null;
+    for (0..ticks) |_| {
+        if (a.feed(capturing)) |t| last = t;
+    }
+    return last;
+}
+
+test "arbiter yields to USB only after sustained capture" {
+    var a = arbiter_core.Arbiter{};
+    // A single-tick blip (Sound Settings meter poking the stream) is ignored.
+    try std.testing.expectEqual(@as(?arbiter_core.Transition, null), a.feed(true));
+    try std.testing.expectEqual(@as(?arbiter_core.Transition, null), a.feed(false));
+    try std.testing.expectEqual(arbiter_core.Owner.agent, a.owner);
+
+    // Sustained capture crosses the yield threshold exactly once.
+    const t = feedArb(&a, true, arbiter_core.YIELD_AFTER_MS / arbiter_core.TICK_MS);
+    try std.testing.expectEqual(arbiter_core.Transition.grant_usb, t.?);
+    try std.testing.expectEqual(arbiter_core.Owner.usb, a.owner);
+    try std.testing.expectEqual(@as(?arbiter_core.Transition, null), a.feed(true));
+}
+
+test "arbiter returns to the agent only after a long capture silence" {
+    var a = arbiter_core.Arbiter{};
+    _ = feedArb(&a, true, arbiter_core.YIELD_AFTER_MS / arbiter_core.TICK_MS);
+
+    const resume_ticks = arbiter_core.RESUME_AFTER_MS / arbiter_core.TICK_MS;
+    // A short gap (call renegotiation) must not bounce ownership.
+    try std.testing.expectEqual(@as(?arbiter_core.Transition, null), feedArb(&a, false, resume_ticks - 1));
+    try std.testing.expectEqual(@as(?arbiter_core.Transition, null), a.feed(true));
+    try std.testing.expectEqual(arbiter_core.Owner.usb, a.owner);
+
+    // A full silence window hands the mic back.
+    const t = feedArb(&a, false, resume_ticks);
+    try std.testing.expectEqual(arbiter_core.Transition.revoke_usb, t.?);
+    try std.testing.expectEqual(arbiter_core.Owner.agent, a.owner);
+}
+
+test "arbiter survives pathological flapping without livelock" {
+    var a = arbiter_core.Arbiter{};
+    var grants: u32 = 0;
+    var revokes: u32 = 0;
+    var capturing = false;
+    for (0..10_000) |i| {
+        if (i % 2 == 0) capturing = !capturing; // toggle every other tick
+        switch (a.feed(capturing) orelse continue) {
+            .grant_usb => grants += 1,
+            .revoke_usb => revokes += 1,
+        }
+    }
+    // Flapping faster than both hysteresis windows must never transition.
+    try std.testing.expectEqual(@as(u32, 0), grants + revokes);
+}

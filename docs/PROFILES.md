@@ -20,6 +20,25 @@ With no provisioned profiles the firmware ships two built-ins:
 | 0 | `agente` | azul | LiveKit agent, config inherited |
 | 1 | `micro-usb` | ámbar | USB mic, adaptive beam |
 
+## Modo convivencia (agente + micro USB a la vez)
+
+Since the arbitration work, the `agent` mode ALSO exposes the USB mic — the
+personality switch for the everyday desk case is **implicit, usage-driven and
+zero-config**:
+
+- Plugged into a charger/TV: pure agent (nothing ever opens the USB stream).
+- Plugged into a computer: the agent runs normally AND "Sebastian Mic" is
+  available as an input source. The moment an app actually captures from it
+  (~300 ms sustained), the agent yields the mic — wake word off, ring beam
+  turns **amber** — and the host gets the echo-cancelled comms beam. When the
+  host stops capturing (~3 s of silence, hysteresis against flapping hosts),
+  the agent takes the mic back and the wake word rearms.
+- If it happens mid-conversation, the session closes cleanly first (the user
+  at the PC wins).
+
+The explicit `usb_mic` profile remains for a pure offline mic (`wifi: false`),
+and everything below still applies for fleet management.
+
 ## Switching profiles
 
 **Network (dashboard / API — the primary UX)** — in BOTH modes the device
@@ -40,10 +59,10 @@ the highlighted arc, leaving the button alone for 5 s confirms. The choice
 persists and boot continues straight into the chosen profile. A unit that
 merely boots muted never triggers the selector (zero button *changes*).
 
-**Serial (installer / scripts)** — one line over USB-Serial-JTAG. In agent
-mode the port is always live; in usb_mic mode there is a **5 s provisioning
-window** at every boot (before TinyUSB claims the USB PHY) where the same
-commands work — after that the device is audio-only until the next plug:
+**Serial (installer / scripts)** — one line over USB-Serial-JTAG during the
+**5 s provisioning window** at every boot, in BOTH modes (convivencia keeps
+TinyUSB up alongside the agent, so the PHY stops being serial right after the
+window; steady-state administration is the network path above):
 
 ```
 sebastian.profile.set {"name":"micro-usb"}
