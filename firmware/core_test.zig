@@ -6,6 +6,7 @@ const gate = @import("main/core/mic_gate.zig");
 const pcm = @import("main/xvf_pcm.zig");
 const pre_roll = @import("main/core/pre_roll_core.zig");
 const reducer = @import("main/core/session_reducer.zig");
+const selector = @import("main/core/selector_core.zig");
 const session = @import("main/core/session_core.zig");
 const token = @import("main/core/token_core.zig");
 
@@ -1349,4 +1350,74 @@ test "reducer aec diagnostics window fires on cadence and resets" {
     try std.testing.expectEqual(@as(u32, 2), logs);
     try std.testing.expectEqual(@as(u32, 500), first.?.render_peak_window);
     try std.testing.expect(!first.?.keepalive);
+}
+
+// ── Boot profile selector ─────────────────────────────────────────────────────
+// The mute button arrives as a LATCHED state (each press flips it), so a
+// "press" is a state CHANGE between samples. See selector_core.zig.
+
+fn feedSteady(t: *selector.Trigger, muted: bool, ticks: u32) bool {
+    for (0..ticks) |_| {
+        if (t.feed(muted)) return true;
+    }
+    return false;
+}
+
+test "selector trigger fires on a double tap inside the window" {
+    var t = selector.Trigger{};
+    try std.testing.expect(!feedSteady(&t, false, 5)); // settled unmuted
+    try std.testing.expect(!t.feed(true)); // press 1 (edge)
+    try std.testing.expect(!feedSteady(&t, true, 3));
+    try std.testing.expect(t.feed(false)); // press 2 (edge) → trigger
+}
+
+test "selector trigger ignores a single press and a constant state" {
+    var one = selector.Trigger{};
+    _ = one.feed(false);
+    try std.testing.expect(!one.feed(true)); // just one edge
+    try std.testing.expect(!feedSteady(&one, true, selector.TRIGGER_WINDOW_MS / selector.TICK_MS));
+    try std.testing.expect(one.expired());
+
+    // A unit that simply boots muted: zero edges, never triggers.
+    var muted_boot = selector.Trigger{};
+    try std.testing.expect(!feedSteady(&muted_boot, true, selector.TRIGGER_WINDOW_MS / selector.TICK_MS));
+    try std.testing.expect(muted_boot.expired());
+}
+
+test "selector presses rotate the selection with wraparound" {
+    var s = selector.Selector{ .selected = 0, .count = 3 };
+    var state = false;
+    try std.testing.expectEqual(@as(?usize, null), s.feed(state)); // settle
+    for ([_]usize{ 1, 2, 0, 1 }) |expected| {
+        state = !state; // one press
+        try std.testing.expectEqual(@as(?usize, null), s.feed(state));
+        try std.testing.expectEqual(expected, s.selected);
+    }
+}
+
+test "selector confirms after silence and a press resets the silence timer" {
+    var s = selector.Selector{ .selected = 0, .count = 2 };
+    _ = s.feed(false); // settle
+    _ = s.feed(true); // press → selected 1
+    const silence_ticks = selector.CONFIRM_SILENCE_MS / selector.TICK_MS;
+    for (0..silence_ticks - 2) |_| {
+        try std.testing.expectEqual(@as(?usize, null), s.feed(true));
+    }
+    _ = s.feed(false); // press near the deadline → selected 0, timer resets
+    for (0..silence_ticks - 1) |_| {
+        try std.testing.expectEqual(@as(?usize, null), s.feed(false));
+    }
+    try std.testing.expectEqual(@as(?usize, 0), s.feed(false)); // silence confirm
+}
+
+test "selector absolute timeout confirms even while the button keeps toggling" {
+    var s = selector.Selector{ .selected = 0, .count = 2 };
+    var state = false;
+    var confirmed: ?usize = null;
+    var ticks: u32 = 0;
+    while (confirmed == null) : (ticks += 1) {
+        state = !state; // pathological: a press every tick
+        confirmed = s.feed(state);
+        try std.testing.expect(ticks <= selector.SELECTOR_TIMEOUT_MS / selector.TICK_MS);
+    }
 }

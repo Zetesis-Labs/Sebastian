@@ -9,9 +9,9 @@
 # av_render's public av_render_default.h includes esp_lcd_panel_ops.h (esp_lcd is its
 # PRIV_REQUIRES upstream — a public header leaking a private dep); nothing else uses it.
 idf_component_register(
-    SRCS "placeholder.c" "token_http.c" "provisioning.c" "syslog_sink.c" "abi_check.c"
+    SRCS "placeholder.c" "token_http.c" "provisioning.c" "profiles.c" "syslog_sink.c" "abi_check.c"
     INCLUDE_DIRS "."
-    REQUIRES livekit__livekit livekit__sandbox_token livekit__example_utils espressif__esp_codec_dev espressif__esp_capture tempotian__av_render esp_lcd esp_driver_i2c esp_driver_i2s nvs_flash esp_netif esp_wifi esp_event esp_http_client json esp_driver_usb_serial_jtag mww lwip
+    REQUIRES livekit__livekit livekit__sandbox_token livekit__example_utils espressif__esp_codec_dev espressif__esp_capture tempotian__av_render esp_lcd esp_driver_i2c esp_driver_i2s nvs_flash esp_netif esp_wifi esp_event esp_http_client json esp_driver_usb_serial_jtag mww lwip espressif__usb_device_uac
 )
 
 include("${CMAKE_SOURCE_DIR}/cmake/zig.cmake")
