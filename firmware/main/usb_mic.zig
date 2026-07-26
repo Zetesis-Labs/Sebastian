@@ -143,9 +143,9 @@ fn telemetryTask(_: ?*anyopaque) callconv(.c) void {
         c.vTaskDelay(TELEMETRY_PERIOD_MS);
         const rs = mic_src.takeReadStats();
         log.info("usb mic health: level={d} short_reads={d} pad_samples={d} timeouts={d} heals={d} heap_int={d}", .{
-            mic_src.level(),                rs.short_reads,
-            rs.pad_samples,                 rs.timeouts,
-            rs.heals,                       c.heap_caps_get_free_size(c.MALLOC_CAP_INTERNAL),
+            mic_src.level(), rs.short_reads,
+            rs.pad_samples,  rs.timeouts,
+            rs.heals,        c.heap_caps_get_free_size(c.MALLOC_CAP_INTERNAL),
         });
     }
 }
