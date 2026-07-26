@@ -300,6 +300,33 @@ pub fn applyConfig() bool {
     }
     if (!writeI32Verified(RESID_AEC, AEC_FIXEDBEAMSONOFF, if (cfg.fixed_beam) 1 else 0, "FIXEDBEAMSONOFF")) return false;
 
+    // Cap the comms-channel AGC. Factory max gain is 32x, and after a silent
+    // room the AGC sits near the top: the FIRST words after the wake word
+    // arrive amplified and clip, then the AGC backs off (attack ~0.9s) and the
+    // rest of the conversation is clean. Measured on a real session: the
+    // pre-roll (the only recording that captures that onset) came out 8.6 dB
+    // hotter than the live audio and carried 93% of the clipped samples, while
+    // the LiveKit track — which starts after the hand-off — was clean.
+    // 8x keeps ~18 dB of distance normalisation for far-field talkers.
+    // Tuning knob: if the onset still clips, drop it further before touching
+    // xvf_pcm's SHIFT (which would cost level across the whole conversation).
+    // Not fail-closed on purpose: this is comfort tuning, not an AEC
+    // precondition, so a failed write must not disable full-duplex.
+    if (!writeF32Verified(RESID_PP, PP_AGCMAXGAIN, 8.0, "AGC_MAXGAIN")) {
+        log.warn("AGC max gain not applied — onset may clip", .{});
+    }
+
+    // AGC reaction time, factory 0.9s. That is slower than the wake word
+    // itself (~0.5s), so the FIRST utterance after silence still overshoots
+    // even with the gain capped: measured 0 clipped samples across a 34s
+    // conversation but ~300 inside the wake word burst. 0.25s bites within
+    // that burst. Do not go much lower: a fast-moving AGC pumps between
+    // syllables AND keeps changing the mic→echo transfer function, which is
+    // exactly what the fixed beam exists to avoid (AEC convergence).
+    if (!writeF32Verified(RESID_PP, PP_AGCTIME, 0.25, "AGC_TIME")) {
+        log.warn("AGC time not applied — onset may clip", .{});
+    }
+
     log.info("AEC config applied & verified: ref_gain=1.0 far_extgain=0.0 mic_gain=90.0 far_end_dsp=1 fixed_beam={}", .{cfg.fixed_beam});
     return true;
 }
