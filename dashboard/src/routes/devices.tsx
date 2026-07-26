@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createFileRoute, useRouter } from '@tanstack/react-router'
 import { getDevices, setDeviceProfile, type Device } from '../lib/api'
 import { formatDate } from '../lib/format'
@@ -23,6 +23,13 @@ function Devices() {
   const devices = Route.useLoaderData()
   const router = useRouter()
   const [saving, setSaving] = useState<string | null>(null)
+
+  // Reconciliation is device-paced (30 s polls): refetch so the pending badge
+  // resolves on screen by itself when the unit reports the new profile.
+  useEffect(() => {
+    const timer = setInterval(() => void router.invalidate(), 10_000)
+    return () => clearInterval(timer)
+  }, [router])
 
   async function apply(deviceId: string, name: string) {
     setSaving(deviceId)
