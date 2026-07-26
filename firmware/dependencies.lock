@@ -498,7 +498,7 @@ dependencies:
     - name: tempotian/media_lib_sal
       version: ~0.9.1
     source:
-      path: /Users/ruben/Developer/_worktrees/sebastian-usb-mic/firmware/components/livekit
+      path: ../components/livekit
       type: local
     targets:
     - esp32s3
