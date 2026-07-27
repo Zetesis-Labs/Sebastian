@@ -22,8 +22,10 @@ import logging
 import os
 import time
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
+from google.genai import types as genai_types
 from livekit import agents, rtc
 from livekit.agents import (
     Agent,
@@ -35,17 +37,21 @@ from livekit.agents import (
 )
 from livekit.agents.voice.agent_session import TurnHandlingOptions
 from livekit.agents.voice.room_io import RoomOptions
-from google.genai import types as genai_types
 from livekit.plugins import google, openai, silero
 from openai.types.beta.realtime.session import TurnDetection
 
 import telemetry
-from audio_input import SebastianAudioInput, setup_recorder, setup_output_recorder, RECORD, RECORD_TRACK
+from audio_input import (
+    RECORD,
+    RECORD_TRACK,
+    SebastianAudioInput,
+    setup_output_recorder,
+    setup_recorder,
+)
 from endpointing import AGENT_STATE_TOPIC, close_device_session, setup_endpointing
 from instrumentation import instrument_session
-from wake_verify import setup_wake_verify
 from tasks import spawn as _spawn
-from typing import Any
+from wake_verify import setup_wake_verify
 
 load_dotenv(Path(__file__).with_name(".env"))
 telemetry.setup()
@@ -206,22 +212,22 @@ def _build_gemini_realtime_model() -> google.realtime.RealtimeModel:
         GEMINI_VOICE,
         GEMINI_LANGUAGE or "<auto>",
     )
-    kwargs: dict[str, Any] = dict(
-        model=GEMINI_MODEL,
-        voice=GEMINI_VOICE,
-        proactivity=True,
-        enable_affective_dialog=True,
+    kwargs: dict[str, Any] = {
+        "model": GEMINI_MODEL,
+        "voice": GEMINI_VOICE,
+        "proactivity": True,
+        "enable_affective_dialog": True,
         # Less sensitive speech-start detection: with the TV in the room,
         # Gemini's default AAD committed noise blips as user turns ("Ma",
         # "sê. Dis waar.") that truncated replies within seconds of starting.
         # Real interruptions don't need this hair-trigger — the talk-over
         # detector (audio_input.py) covers the instant-cut path.
-        realtime_input_config=genai_types.RealtimeInputConfig(
+        "realtime_input_config": genai_types.RealtimeInputConfig(
             automatic_activity_detection=genai_types.AutomaticActivityDetection(
                 start_of_speech_sensitivity=genai_types.StartSensitivity.START_SENSITIVITY_LOW,
             ),
         ),
-    )
+    }
     if GEMINI_LANGUAGE:
         kwargs["language"] = GEMINI_LANGUAGE
     return google.realtime.RealtimeModel(**kwargs)
@@ -417,7 +423,7 @@ async def _run_attention(
                 # two-sentence announce.
                 await asyncio.wait_for(handle.wait_for_playout(), timeout=ANNOUNCE_PLAYOUT_TIMEOUT_S)
                 log.info("idle announce playout done")
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 log.warning("idle announce playout wait timed out — closing window anyway")
             except Exception as e:
                 log.warning("idle announce failed: %r", e)

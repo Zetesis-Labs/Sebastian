@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from livekit.agents import AgentSession, get_job_context
+
 import telemetry
 from endpointing import close_device_session
 from phantom import PhantomDetector

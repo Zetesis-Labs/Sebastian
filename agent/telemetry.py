@@ -11,7 +11,6 @@ background threads and the service keeps working. Disable with SEBASTIAN_OTEL=0.
 
 import logging
 import os
-
 from typing import Any
 
 _METER: Any = None

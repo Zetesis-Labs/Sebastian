@@ -9,6 +9,7 @@ from datetime import datetime
 from livekit import agents, rtc
 from livekit.agents import vad as agents_vad
 from livekit.plugins import noise_cancellation
+
 import preroll
 from tasks import spawn as _spawn
 
@@ -98,7 +99,7 @@ def setup_recorder(ctx: agents.JobContext) -> None:
     def _on_track(track: rtc.Track, publication: rtc.TrackPublication, participant: rtc.RemoteParticipant) -> None:
         if track.kind == rtc.TrackKind.KIND_AUDIO and "esp32" in participant.identity:
             os.makedirs(RECORD_DIR, exist_ok=True)
-            stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            stamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
             path = os.path.join(RECORD_DIR, f"{stamp}_{ctx.room.name}_mic.wav")
             _spawn(_record_track(track, path))
 
@@ -161,7 +162,7 @@ def setup_output_recorder(session: agents.AgentSession, room_name: str) -> Recor
         log.warning("[recorder] no audio output to record")
         return None
     os.makedirs(RECORD_DIR, exist_ok=True)
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    stamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
     tee = RecordingAudioOutput(cur, os.path.join(RECORD_DIR, f"{stamp}_{room_name}_agent.wav"))
     session.output.audio = tee
     return tee
@@ -261,7 +262,7 @@ class SebastianAudioInput(agents.io.AudioInput):
             return
         if self._model_wav is None:
             os.makedirs(RECORD_DIR, exist_ok=True)
-            stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            stamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
             path = os.path.join(RECORD_DIR, f"{stamp}_{self._room.name}_model.wav")
             self._model_wav = wave.open(path, "wb")
             self._model_wav.setnchannels(frame.num_channels)
@@ -432,7 +433,5 @@ class SebastianAudioInput(agents.io.AudioInput):
                             "[audio] dropped %s leading gate-silence frames", dropped
                         )
                 await self._queue.put(ev.frame)
-        except asyncio.CancelledError:
-            raise
         finally:
             log.info("[audio] live stream stopped from=%s", participant)

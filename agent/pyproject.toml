@@ -52,3 +52,19 @@ module = [
     "preroll",
 ]
 ignore_missing_imports = true
+
+[tool.ruff.lint]
+# Ruff's default rule set grew in 0.16 and turned a green tree red without a
+# single line changing (the CI ran `pipx run ruff`, unpinned — now pinned in
+# .github/workflows/lint.yml). Two families are DELIBERATELY off rather than
+# rewritten; everything else ruff flags was fixed.
+ignore = [
+    # Defensive catches around LiveKit/OpenAI SDK calls. This is an always-on
+    # voice agent: an unexpected exception inside a callback must degrade one
+    # feature, not kill the session the user is talking through. Every one of
+    # them logs — they are handlers, not silence.
+    "BLE001",
+    # wave writers opened in one callback and closed in another (per-session
+    # recorders). A `with` block cannot span that lifetime.
+    "SIM115",
+]

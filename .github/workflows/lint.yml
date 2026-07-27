@@ -21,4 +21,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Ruff check
-        run: pipx run ruff check agent
+        run: pipx run ruff==0.16.0 check agent  # pinned: an unpinned linter turns a green tree red on its own

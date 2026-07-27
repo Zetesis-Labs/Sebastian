@@ -114,7 +114,7 @@ def _tail_wav(pcm: bytes, sample_rate: int) -> io.BytesIO:
 
 def _save_phantom_clip(buf: io.BytesIO, room_name: str) -> None:
     os.makedirs(PHANTOM_DIR, exist_ok=True)
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    stamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
     path = os.path.join(PHANTOM_DIR, f"{stamp}_{room_name}.wav")
     with open(path, "wb") as f:
         f.write(buf.getbuffer())
@@ -159,7 +159,7 @@ def setup_wake_verify(ctx: JobContext, session: AgentSession, mic_input) -> None
     async def _verify() -> None:
         try:
             await asyncio.wait_for(mic_input.preroll_ready.wait(), PREROLL_WAIT_S)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             m_verify.add(1, {"verdict": "skipped"})  # greeting path (no wake fire)
             return
         pcm = getattr(mic_input, "preroll_pcm", b"")
@@ -199,8 +199,8 @@ def setup_wake_verify(ctx: JobContext, session: AgentSession, mic_input) -> None
         if ACTION == "kill":
             try:
                 session.interrupt()  # cut any reply already in flight
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug("[wake-verify] interrupt before close failed: %r", e)
             await close_device_session(ctx, reason="phantom")
         try:
             _save_phantom_clip(buf, ctx.room.name)

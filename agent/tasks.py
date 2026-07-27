@@ -6,7 +6,8 @@ task completes, then drops it.
 """
 
 import asyncio
-from typing import Any, Coroutine
+from collections.abc import Coroutine
+from typing import Any
 
 _bg_tasks: set[asyncio.Task[Any]] = set()
 
