@@ -1,4 +1,6 @@
 {
   "agent": "0.1.8",
-  "helm/sebastian": "0.1.5"
+  "helm/sebastian": "0.1.6",
+  "server": "1.0.0",
+  "dashboard": "1.0.0"
 }
