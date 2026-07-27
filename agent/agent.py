@@ -476,14 +476,12 @@ async def _endpoint_entrypoint(ctx: agents.JobContext) -> None:
 
     async def _delete_room_on_shutdown() -> None:
         # If this job dies (agent restart/redeploy), the room would linger with
-        # the device idling inside, agentless — its idle watcher only checks
-        # transport health. Deleting the room makes the device reconnect and get
-        # a fresh dispatch. (Device-side agent-presence watchdog: firmware TODO.)
-        try:
-            await ctx.api.room.delete_room(api.DeleteRoomRequest(room=ctx.room.name))
-            log.info("endpoint shutdown — room deleted so the device reconnects")
-        except Exception as e:
-            log.warning("endpoint shutdown room delete failed: %r", e)
+        # the device idling inside, agentless. The firmware now catches that
+        # itself (15 s unhealthy → recycle), but tearing the room down here
+        # makes the device reconnect immediately instead of waiting.
+        # Goes through the house close primitive, which publishes "close"
+        # before deleting and swallows the races of a dying job.
+        await close_device_session(ctx, reason="endpoint_shutdown")
 
     ctx.add_shutdown_callback(_delete_room_on_shutdown)
     ctx.room.on("data_received", _on_data)

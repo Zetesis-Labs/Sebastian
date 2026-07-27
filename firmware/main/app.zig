@@ -220,10 +220,17 @@ fn onStateChanged(state: c_int, _: ?*anyopaque) callconv(.c) void {
     log.info("room state: {s}", .{std.mem.span(c.livekit_connection_state_str(state))});
 }
 
+// Agent presence outside the session loop. The reducer learns it through the
+// event queue, but endpoint mode idles OUTSIDE that loop and still has to know
+// whether anyone is behind the persistent transport: an agent restart can leave
+// the room alive but agentless, and the device would idle deaf.
+var agent_present = std.atomic.Value(bool).init(false);
+
 fn onParticipantInfo(info: *const c.livekit_participant_info_t, _: ?*anyopaque) callconv(.c) void {
     if (info.kind != c.LIVEKIT_PARTICIPANT_KIND_AGENT) return;
 
     const active = info.state == c.LIVEKIT_PARTICIPANT_STATE_ACTIVE;
+    agent_present.store(active, .release);
     pushEvent(.{ .agent_active = active });
     if (info.identity) |identity| {
         log.info("agent participant: {s} state={d}", .{ std.mem.span(identity), info.state });
@@ -622,6 +629,150 @@ fn teardownActiveSession() void {
     c.vTaskDelay(1500);
 }
 
+// ── Always-connected / endpoint mode (ROADMAP §9) ────────────────────────────
+// One persistent session; wake opens ATTENTION (the mic gate), not a connection.
+// At idle mic_src.readFrame publishes gate silence without touching I2S (the
+// pre-handoff path, here lasting indefinitely — Opus DTX makes it ~free), the
+// wake task owns I2S and fills the pre-roll ring, and the speaker renders
+// whatever the server pushes: proactive announce, music. No voice leaves the
+// device before the wake word; what changes is that the SERVER can talk to it
+// anytime, and wake→response skips token+connect (~1-2 s faster).
+
+var wake_payload = [_]u8{ 'w', 'a', 'k', 'e' };
+var sleep_payload = [_]u8{ 's', 'l', 'e', 'e', 'p' };
+
+/// Attention signals over the data channel: the transport stays up, so the
+/// agent needs to know when to open and close its lazy LLM session.
+fn publishSessionSignal(payload: []u8, name: []const u8) void {
+    var p = c.livekit_data_payload_t{ .bytes = payload.ptr, .size = payload.len };
+    var opts = c.livekit_data_publish_options_t{ .payload = &p, .topic = "sebastian.session" };
+    if (c.livekit_room_publish_data(room, &opts) != c.LIVEKIT_ERR_NONE) {
+        log.warn("session signal '{s}' publish failed", .{name});
+    }
+}
+
+fn sessionEnded() bool {
+    return classifyConnection(c.livekit_room_get_state(room)) == .ended;
+}
+
+/// Connected AND with an agent behind it, reconnecting if needed. False = the
+/// caller retries on the next loop.
+fn ensurePersistentSession(audio: AudioPipeline) bool {
+    if (room != null) {
+        if (!sessionEnded()) return true;
+        log.warn("persistent session dead — reconnecting", .{});
+        closeSession();
+    }
+    const conn = token.fetch() catch |err| {
+        logStageError("token fetch (persistent)", err);
+        c.vTaskDelay(5000); // token server down: calm retry, nobody is waiting
+        return false;
+    };
+    render_peak.store(0, .monotonic);
+    agent_present.store(false, .release);
+    wdgArm(60);
+    openSession(audio, conn) catch |err| {
+        logStageError("persistent session open", err);
+        wdgDisarm();
+        c.vTaskDelay(5000);
+        return false;
+    };
+    var waited: u32 = 0;
+    while (waited < 20000) : (waited += 100) {
+        c.vTaskDelay(100);
+        if (sessionEnded()) break;
+        if (c.livekit_room_get_state(room) == c.LIVEKIT_CONNECTION_STATE_CONNECTED and
+            agent_present.load(.acquire))
+        {
+            wdgDisarm();
+            log.info("persistent session up — idle, mic gated", .{});
+            return true;
+        }
+    }
+    log.err("persistent session never became ready — closing for retry", .{});
+    closeSession();
+    wdgDisarm();
+    c.vTaskDelay(5000);
+    return false;
+}
+
+const IdleOutcome = enum { wake, recycle };
+
+/// Idle with the transport up: watch for the wake word, arbitrate the mic with
+/// the USB host, and watch SESSION HEALTH — not just hard death. Two field
+/// failures shaped the health rule: a server-side room delete leaves the SDK
+/// RECONNECTING forever (never re-establishes — the #186 family), and an agent
+/// restart can leave the room alive but agentless, so the device idles deaf.
+/// Healthy = CONNECTED with an agent present; anything else sustained 15 s
+/// recycles the whole session (fresh room + dispatch).
+fn idleUntilWakeOrUnhealthy() IdleOutcome {
+    var arb = arbiter_core.Arbiter{};
+    var unhealthy_ms: u32 = 0;
+    while (!wakeword.detected.load(.acquire)) {
+        // Convivencia: the PC may borrow the mic while idle. The TRANSPORT
+        // stays up either way — it needs no microphone, and a session that
+        // exists is not a session that listens.
+        if (arb.feed(usb_mic.hostCapturing())) |transition| switch (transition) {
+            .grant_usb => grantUsbFromIdle(),
+            .revoke_usb => revokeUsbToIdle(),
+        };
+
+        if (sessionEnded()) {
+            log.warn("room died while idle — reconnecting", .{});
+            if (arb.owner == .usb) revokeUsbToIdle() else wakeword.stop();
+            closeSession();
+            return .recycle;
+        }
+        const healthy = c.livekit_room_get_state(room) == c.LIVEKIT_CONNECTION_STATE_CONNECTED and
+            agent_present.load(.acquire);
+        if (healthy) {
+            unhealthy_ms = 0;
+        } else {
+            unhealthy_ms += arbiter_core.TICK_MS;
+            if (unhealthy_ms >= 15000) {
+                log.warn("idle session unhealthy 15s (agent_present={}) — recycling", .{agent_present.load(.acquire)});
+                if (arb.owner == .usb) revokeUsbToIdle() else wakeword.stop();
+                closeSession();
+                return .recycle;
+            }
+        }
+        c.vTaskDelay(arbiter_core.TICK_MS);
+    }
+    // Rare race: detection latched in the same tick the mic went to USB.
+    if (arb.owner == .usb) revokeUsbToIdle();
+    return .wake;
+}
+
+fn runAttentionCycle(audio: AudioPipeline) void {
+    if (!ensurePersistentSession(audio)) return;
+    startWakeDetection();
+    if (idleUntilWakeOrUnhealthy() == .recycle) return;
+
+    xvf_ui.setState(.waking);
+    const wake_id = nextWakeId();
+    log.info("wake (always-connected) wake_id={d} pre_roll_ms={d}", .{ wake_id, pre_roll.availableMs() });
+    // Session hygiene before the attention window, as openSessionForWake does
+    // for a fresh room: no event or speaker tail from the previous window.
+    _ = c.xQueueGenericReset(event_queue, 0);
+    render_peak.store(0, .monotonic);
+    wdgArm(@as(i32, SESSION_MAX_TICKS * SESSION_TICK_MS / 1000) + 45);
+    // Signal FIRST: the agent opens its lazy LLM session in parallel with the
+    // mic hand-off and the pre-roll burst, hiding the model's connect latency.
+    publishSessionSignal(&wake_payload, "wake");
+
+    runActiveSession(wake_id);
+
+    // Attention teardown: re-gate the mic, KEEP the transport.
+    wakeword.stop();
+    mic_src.setLive(false);
+    mic_src.setAgentSpeaking(false);
+    publishSessionSignal(&sleep_payload, "sleep"); // agent: close the LLM session
+    wdgDisarm();
+    xvf_aec.logState();
+    c.vTaskDelay(1500); // let the render tail drain before re-arming detection
+    if (sessionEnded()) closeSession(); // room deleted mid-session — fresh one next loop
+}
+
 fn runWakeCycle(audio: AudioPipeline) void {
     startWakeDetection();
     waitForWakeWord();
@@ -779,8 +930,9 @@ fn runAgent(xvf_ok: bool, aec_configured: bool) void {
     // the main task wedges inside a blocking LiveKit call.
     _ = c.xTaskCreatePinnedToCore(wdgTask, "session_wdg", 3072, null, 5, null, 1);
 
+    log.info("session model: {s}", .{if (cfg.always_connected) "endpoint (always-connected)" else "per-wake"});
     while (true) {
-        runWakeCycle(audio);
+        if (cfg.always_connected) runAttentionCycle(audio) else runWakeCycle(audio);
     }
 }
 
