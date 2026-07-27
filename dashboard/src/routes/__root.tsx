@@ -35,6 +35,14 @@ function RootComponent() {
             <small>Control room</small>
           </span>
         </Link>
+        <nav className="site-nav" aria-label="Secciones">
+          <Link to="/" activeOptions={{ exact: true }} activeProps={{ className: 'active' }}>
+            Grabaciones
+          </Link>
+          <Link to="/devices" activeProps={{ className: 'active' }}>
+            Dispositivos
+          </Link>
+        </nav>
         <div className="system-state"><span /> Sistema enlazado</div>
       </header>
       <Outlet />

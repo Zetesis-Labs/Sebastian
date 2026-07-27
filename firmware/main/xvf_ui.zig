@@ -17,7 +17,7 @@ const mic = @import("mic_src.zig");
 
 const log = std.log.scoped(.xvf_ui);
 
-pub const State = enum(u8) { idle, waking, active };
+pub const State = enum(u8) { idle, waking, active, usb };
 
 var ui_state = std.atomic.Value(u8).init(@intFromEnum(State.idle));
 
@@ -41,6 +41,9 @@ const OFF = [3]u8{ 0, 0, 0 };
 const BEAM = rgb(0, 90, 20); // ACTIVE: green LED pointing at the talker
 const HALO = rgb(0, 18, 4); // its two neighbours
 const HELD = rgb(0, 6, 2); // ACTIVE, nobody talking: dim held direction
+const USB_BEAM = rgb(90, 55, 0); // USB: same beam, amber — the PC has the mic
+const USB_HALO = rgb(18, 11, 0);
+const USB_HELD = rgb(6, 4, 0);
 
 const VOICE_ON: u32 = 6000; // start-of-utterance level (hysteresis)
 const VOICE_OFF: u32 = 3000; // end-of-utterance level
@@ -82,8 +85,9 @@ fn renderWaking(frame: u32) void {
     xvf.setLeds(pix);
 }
 
-/// ACTIVE: DoA beam. `last`/`speaking` persist across frames via the caller.
-fn renderActive(last: *u8, speaking: *bool) void {
+/// ACTIVE/USB: DoA beam (green = agent listening, amber = the PC has the
+/// mic). `last`/`speaking` persist across frames via the caller.
+fn renderActive(last: *u8, speaking: *bool, beam: [3]u8, halo: [3]u8, held: [3]u8) void {
     const lvl = mic.level();
     if (!speaking.* and lvl > VOICE_ON) {
         speaking.* = true;
@@ -92,9 +96,9 @@ fn renderActive(last: *u8, speaking: *bool) void {
         speaking.* = false;
     }
     if (speaking.*) {
-        ring(last.*, BEAM, HALO); // bright beam while you talk
+        ring(last.*, beam, halo); // bright beam while you talk
     } else {
-        ring(last.*, HELD, HELD); // dim, holding the last direction
+        ring(last.*, held, held); // dim, holding the last direction
     }
 }
 
@@ -125,7 +129,8 @@ fn uiTask(_: ?*anyopaque) callconv(.c) void {
                 renderWaking(frame);
                 speaking = false;
             },
-            .active => renderActive(&last, &speaking),
+            .active => renderActive(&last, &speaking, BEAM, HALO, HELD),
+            .usb => renderActive(&last, &speaking, USB_BEAM, USB_HALO, USB_HELD),
         }
         c.vTaskDelay(80);
     }

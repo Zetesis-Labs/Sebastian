@@ -17,7 +17,16 @@ CREATE TABLE devices (
   enabled boolean NOT NULL DEFAULT true,
   created_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL,
-  agent_profile_id uuid NOT NULL,
+  -- Nullable: devices auto-registered by the desired-profile poll have no
+  -- agent profile until an operator assigns one — without it FindDevice's
+  -- JOIN excludes them, so they simply cannot open LiveKit sessions yet.
+  agent_profile_id uuid,
+  -- Device-side personality reconciliation (firmware NVS profiles, a concept
+  -- DISTINCT from agent_profiles): the admin sets desired, the device reports
+  -- what it runs on every poll and reboots into desired when they differ.
+  desired_device_profile varchar,
+  reported_device_profile varchar,
+  profile_reported_at timestamptz,
   CONSTRAINT devices_agent_profiles_devices
     FOREIGN KEY (agent_profile_id) REFERENCES agent_profiles(id)
 );

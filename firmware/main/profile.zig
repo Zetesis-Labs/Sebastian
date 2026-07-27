@@ -70,6 +70,21 @@ pub fn activeMode() Mode {
     return @enumFromInt(list[active].mode);
 }
 
+pub fn indexOf(name: []const u8) ?usize {
+    for (0..count) |i| {
+        if (std.mem.eql(u8, nameOf(i), name)) return i;
+    }
+    return null;
+}
+
+/// WiFi capability of the active profile: on unless explicitly disabled
+/// (`wifi: false`). In usb_mic mode WiFi carries telemetry + the control-plane
+/// poll — the default is connected because an unreachable device is the
+/// failure mode we are eliminating.
+pub fn wifiEnabled() bool {
+    return list[active].wifi != 0;
+}
+
 /// Overlay the active profile's set fields onto the runtime config. Unset
 /// fields (-1 / INT32_MIN sentinels) keep whatever cfg.load() produced.
 pub fn applyActive() void {

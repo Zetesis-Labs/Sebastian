@@ -18,6 +18,7 @@
 #include <cmath>
 #include <cstring>
 
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 
 #include "tensorflow/lite/micro/micro_interpreter.h"
@@ -42,17 +43,24 @@ static constexpr int   kInZp     = -128;
 // Output quantization (scale=0.00390625 = 1/256, zero_point=0)
 static constexpr float kOutScale = 0.00390625f;
 
-// Tensor arena in internal SRAM. The model JSON says 30000, but resource
+// Tensor arena, allocated in PSRAM. The model JSON says 30000, but resource
 // variables (streaming state) also live here. Measured at runtime via
 // arena_used_bytes(): the model truly needs 36268 bytes. 40KB keeps a ~4.7KB
-// (13%) margin while returning 8KB of internal RAM vs the old round 48KB.
-// AllocateTensors() failure halts the device, so do not trim below the margin
-// without re-measuring (the "used=… of …" boot log reports the live figure).
+// (13%) margin. AllocateTensors() failure halts the device, so do not trim
+// below the margin without re-measuring (the "used=… of …" boot log reports
+// the live figure).
+//
+// PSRAM, not internal SRAM: as a static internal array these 40KB were the
+// single largest internal consumer, and with the USB stack now resident
+// (convivencia) the LiveKit session ran out of internal/DMA heap mid-connect
+// ("Not enough memory for agent"). The working set (~34KB) fits the S3's 64KB
+// data cache, so inference stays inside its 20ms budget — the boot log's
+// feed_max is the number to watch if that ever stops being true.
 static constexpr size_t kArenaBytes = 40 * 1024;
 
 // ── Static state ─────────────────────────────────────────────────────────────
 
-static uint8_t         tensor_arena[kArenaBytes] __attribute__((aligned(16)));
+static uint8_t        *tensor_arena = nullptr;
 static FrontendState   frontend_state;
 static tflite::MicroInterpreter *interpreter = nullptr;
 static tflite::MicroResourceVariables *resource_vars = nullptr;
@@ -128,6 +136,15 @@ bool mww_init(const uint8_t *model_data, size_t /*model_len*/,
     RegisterOps();
     auto *model = tflite::GetModel(model_data);
     if (model->version() != TFLITE_SCHEMA_VERSION) return false;
+
+    if (tensor_arena == nullptr) {
+        tensor_arena = (uint8_t *)heap_caps_aligned_alloc(
+            16, kArenaBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (tensor_arena == nullptr) {
+            ESP_LOGE("mww", "tensor arena: %u bytes of PSRAM unavailable", (unsigned)kArenaBytes);
+            return false;
+        }
+    }
 
     static tflite::MicroAllocator *allocator =
         tflite::MicroAllocator::Create(tensor_arena, kArenaBytes);
