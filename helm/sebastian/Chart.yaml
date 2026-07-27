@@ -4,7 +4,7 @@ description: Sebastian smart-speaker backend — Go API, NATS JetStream,
   self-hosted LiveKit SFU, agent worker and transitional control plane
 type: application
 # Chart version — bumped by release-please on chart changes.
-version: 0.1.5
+version: 0.1.6
 # App version — the backend image tag line these charts target by default.
 appVersion: "0.1.0"
 home: https://github.com/Zetesis-Labs/Sebastian

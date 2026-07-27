@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.6](https://github.com/Zetesis-Labs/Sebastian/compare/helm-v0.1.5...helm-v0.1.6) (2026-07-27)
+
+
+### Features
+
+* add sebastian server and admin dashboard ([ab0d8dc](https://github.com/Zetesis-Labs/Sebastian/commit/ab0d8dca5faaafe74ae558263b48a85e4b0bda56))
+* add Sebastian server and admin dashboard ([ed9cfbc](https://github.com/Zetesis-Labs/Sebastian/commit/ed9cfbc3794d415ae9d6d646966ce82af5102d91))
+
 ## [0.1.5](https://github.com/Zetesis-Labs/Sebastian/compare/helm-v0.1.4...helm-v0.1.5) (2026-07-13)
 
 
