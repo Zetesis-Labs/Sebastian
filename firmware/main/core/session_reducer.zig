@@ -18,9 +18,17 @@
 //! observation order, close priority, retry cadence — is a 1:1 port.
 
 const session_core = @import("session_core.zig");
+const cfg = @import("../config.zig");
 
 /// Smoothed mic peak at/above this counts as the user speaking.
-pub const VOICE_LEVEL: u32 = 3000;
+///
+/// Channel-aware: 3000 was tuned on the raw RIGHT beam at SHIFT=14. The comms
+/// LEFT beam runs one shift hotter (SHIFT=15 → half the amplitude) AND its NS
+/// floor sits lower, so couch-distance speech can land under 3000 and the
+/// session closes AS the user talks (field bug: a reply was generated and the
+/// device disconnected 42 ms later — silence timeout mid-speech). Halve the
+/// threshold to match the halved amplitude.
+pub const VOICE_LEVEL: u32 = if (cfg.mic_channel == .left) 1500 else 3000;
 /// Render peak (>>8) over the auto_clear zero floor = agent speaking.
 pub const AGENT_AUDIO_LEVEL: u32 = 1000;
 pub const AEC_LOG_PERIOD_TICKS: u32 = 500;

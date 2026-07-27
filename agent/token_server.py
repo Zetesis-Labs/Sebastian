@@ -38,8 +38,8 @@ agent). Serve it on the LAN the device is on; point the firmware at it via
 import logging
 import os
 import secrets
+from collections.abc import AsyncIterator
 from datetime import timedelta
-from typing import AsyncIterator
 
 from aiohttp import web
 from dotenv import load_dotenv

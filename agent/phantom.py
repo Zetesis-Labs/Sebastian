@@ -1,6 +1,6 @@
+import logging
 import time
 from collections import deque
-import logging
 
 import telemetry
 from text_match import containment as _containment

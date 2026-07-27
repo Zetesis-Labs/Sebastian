@@ -1,5 +1,7 @@
 from unittest.mock import patch
+
 from phantom import PhantomDetector
+
 
 def test_phantom_detector_normal_conversation() -> None:
     # A normal conversation where user doesn't repeat the agent

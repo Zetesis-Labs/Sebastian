@@ -24,7 +24,7 @@ Reads LIVEKIT_URL / _API_KEY / _API_SECRET from .env (same as the agent).
 import json
 import logging
 import os
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 from aiohttp import web
 from dotenv import load_dotenv

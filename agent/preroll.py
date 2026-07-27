@@ -16,7 +16,7 @@ SAMPLE_RATE = 16000
 
 
 class ParsedPreRoll:
-    __slots__ = ("wake_id", "sample_rate", "pcm")
+    __slots__ = ("pcm", "sample_rate", "wake_id")
 
     def __init__(self, wake_id: int, sample_rate: int, pcm: bytes) -> None:
         self.wake_id = wake_id

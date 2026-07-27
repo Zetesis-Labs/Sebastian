@@ -53,3 +53,6 @@ dashboard/.output/
 .devcontainer/.env
 agent/recordings/
 agent/phantoms/
+
+# Índice de clangd del devcontainer (se regenera solo; 1500+ ficheros binarios)
+.cache/

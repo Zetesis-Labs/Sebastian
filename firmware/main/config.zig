@@ -89,10 +89,20 @@ pub const probe_dual_channel_on_boot: bool = false;
 /// Diagnostic only; leave false in production (~7s of noise at boot).
 pub const probe_output_gain_on_boot: bool = false;
 
+/// Endpoint mode (ROADMAP §9): hold ONE persistent LiveKit session instead of
+/// connecting per wake. At idle the mic publishes gate silence (Opus DTX ≈ zero
+/// network) and the wake word runs on-device exactly as before — no voice leaves
+/// the device until wake. What changes: the server can push audio ANYTIME
+/// (proactive announce, music), and wake→response skips token+connect (~1-2 s
+/// faster, no per-wake connect failures). Pair with the agent's lazy LLM
+/// session (SEBASTIAN_ENDPOINT=1), which opens on the "wake" signal.
+pub var always_connected: bool = false;
+
 /// Override the defaults above with the values provisioned into NVS. Call once at
 /// boot, before the config is read (XVF/AEC apply, boot self-tests). Each missing
 /// key keeps its default, so a factory/unprovisioned unit is unchanged.
 pub fn load() void {
+    always_connected = sebastian_cfg_get_bool("always_conn", always_connected);
     fixed_beam = sebastian_cfg_get_bool("fixed_beam", fixed_beam);
     fixed_beam_azimuth_deg = @floatFromInt(sebastian_cfg_get_i32("beam_az", @intFromFloat(fixed_beam_azimuth_deg)));
     full_duplex = sebastian_cfg_get_bool("full_duplex", full_duplex);
