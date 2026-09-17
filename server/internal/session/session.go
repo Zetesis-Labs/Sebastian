@@ -123,7 +123,9 @@ func (s *Service) Create(ctx context.Context, credentials Credentials) (Created,
 		EventID:    eventID,
 		OccurredAt: now,
 	}); err != nil {
-		return Created{}, fmt.Errorf("record session: %w", ErrUnavailable)
+		// Keep the store error in the chain: swallowing it turned every storage
+		// fault into an opaque 503 with nothing to debug from.
+		return Created{}, fmt.Errorf("record session: %w: %w", ErrUnavailable, err)
 	}
 
 	metadata, err := json.Marshal(struct {
