@@ -140,13 +140,22 @@ scratchpad, todos en marcha. Grafana en `localhost:3010`.
 
 ## Placa nueva (`68:ee:8f:4d:8d:d4`), madrugada del 18
 
-Flasheada y provisionada en Pizarro (`10.0.0.125`) con la misma cadena. Arranca,
-entra en la red y emite syslog, pero está **sorda**: `pcm peak=1`, `gap_max=45 ms`
-(sin reloj I2S). Captura del arranque por serie: el scan I2C solo ve `0x18`; faltan
-`0x2C` (XVF) y `0x21` (expansor). `could not read XVF version — skipping DFU`,
-`XVF unmute failed`, todas las lecturas del AEC fallan y el anillo se degrada
-(`XVF not answering on I2C — ring paused`, el camino nuevo de `xvf_ui`
-funcionando como debe). Mismo cuadro que tenía esta unidad ayer en la oficina y
-que tenía la primera antes de la soldadura: **el XVF no recibe alimentación o no
-hace contacto**; el ESP, el I2C, el códec y la red están bien. Comprobar si el
-anillo llega a encenderse y si con el USB-C de la placa enchufado aparece `0x2C`.
+Flasheada y provisionada en Pizarro (`10.0.0.125`) con la misma cadena, pero
+sorda: el scan I2C solo veía `0x18`, `could not read XVF version`, todas las
+lecturas del AEC fallaban y el anillo se degradaba (`XVF not answering on I2C`).
+Y sin embargo el anillo se encendía y seguía al sonido: **el XVF estaba vivo con
+el firmware USB de fábrica**. En esa familia el XVF es el maestro del bus I2C
+(configura él el códec y el expansor, por eso tampoco aparece `0x21`) y pinta el
+anillo con su propia animación DoA. A esa familia no se le puede llegar por
+I2C, así que el DFU de nuestro firmware no aplica. La primera unidad venía con la
+familia I2C (`i2s_dfu 1.0.4`) y por eso `xvf_dfu.zig` pudo subirla a 1.0.7 sola.
+
+**Arreglo (una vez por placa):** modo seguro del XVF (sin alimentación, MUTE
+pulsado, enchufar el **USB-C de la placa ReSpeaker** al Mac, LED rojo
+parpadeando) → aparece como `2886:001a reSpeaker DFU Upgrade` →
+`dfu-util -R -e -a 1 -D firmware/main/xvf_fw/xvf_master_1.0.7.bin` (es la
+misma imagen que el firmware manda por I2C). Script en el scratchpad
+(`xvf_usb_dfu.sh`). Después, arrancada por el XIAO: `0x2C ACK`, `XVF firmware
+version: 1.0.7 — no DFU needed`, `AEC config applied & verified`. Diagnóstico
+rápido para la próxima placa: si el anillo se enciende y sigue al sonido pero el
+scan no ve `0x2C`, es esto.
