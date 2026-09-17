@@ -51,6 +51,12 @@ const DIR_OFFSET: u8 = 6; // physical LED-0 vs azimuth-0 alignment (+180°)
 
 const BREATH_PERIOD: u32 = 40; // ~3.2s at 80ms/frame
 
+// A hung XVF answers nothing, so each 80ms frame stalls on the I2C timeout and
+// the task watchdog (5s) reboots the device mid-session. The ring is the least
+// critical consumer of the bus: it steps aside and lets the session live on.
+const DEGRADED_AFTER: u32 = 12;
+const DEGRADED_DELAY: u32 = 2000;
+
 fn ring(idx: u8, center: [3]u8, halo: [3]u8) void {
     var pix = [_][3]u8{OFF} ** 12;
     pix[idx] = center;
@@ -107,7 +113,21 @@ fn uiTask(_: ?*anyopaque) callconv(.c) void {
     var speaking = false;
     var frame: u32 = 0;
     var was_muted: ?bool = null;
+    var degraded = false;
     while (true) : (frame +%= 1) {
+        if (xvf.consecutiveFailures() >= DEGRADED_AFTER) {
+            if (!degraded) {
+                degraded = true;
+                log.warn("XVF not answering on I2C — ring paused, probing every {d}ms", .{DEGRADED_DELAY});
+            }
+            c.vTaskDelay(DEGRADED_DELAY);
+            _ = xvf.readMuted(); // lone recovery probe; clears the counter when the XVF returns
+            continue;
+        }
+        if (degraded) {
+            degraded = false;
+            log.info("XVF answering again — ring resumed", .{});
+        }
         const muted = xvf.readMuted();
         mic.setMuted(muted); // GPIO30 mute doesn't silence our ASR beam — do it in software
         if (was_muted == null or was_muted.? != muted) {

@@ -84,9 +84,22 @@ fn unlockCtrl() void {
 fn xfer(req: []const u8, resp: ?[]u8) bool {
     lockCtrl();
     defer unlockCtrl();
-    if (!write(req)) return false;
-    if (resp) |r| return read(r);
-    return true;
+    const ok = blk: {
+        if (!write(req)) break :blk false;
+        if (resp) |r| break :blk read(r);
+        break :blk true;
+    };
+    if (ok) ctrl_failures.store(0, .release) else _ = ctrl_failures.fetchAdd(1, .acq_rel);
+    return ok;
+}
+
+var ctrl_failures = std.atomic.Value(u32).init(0);
+
+/// Consecutive failed control exchanges. A hung XVF stops answering on I2C and
+/// every transfer then burns its full timeout — callers that poll must back off
+/// on this instead of pinning the bus until the task watchdog fires.
+pub fn consecutiveFailures() u32 {
+    return ctrl_failures.load(.acquire);
 }
 
 /// Atomic write-request + read-response for other modules (xvf_aec).
