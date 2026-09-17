@@ -137,3 +137,16 @@ scratchpad, todos en marcha. Grafana en `localhost:3010`.
    provisioning (coredump con `pc=panic_abort`, backtrace perdido): carrera
    de apagado, no afecta al uso; unir resumen y backtrace del coredump en una
    sola línea de log para que no se separen.
+
+## Placa nueva (`68:ee:8f:4d:8d:d4`), madrugada del 18
+
+Flasheada y provisionada en Pizarro (`10.0.0.125`) con la misma cadena. Arranca,
+entra en la red y emite syslog, pero está **sorda**: `pcm peak=1`, `gap_max=45 ms`
+(sin reloj I2S). Captura del arranque por serie: el scan I2C solo ve `0x18`; faltan
+`0x2C` (XVF) y `0x21` (expansor). `could not read XVF version — skipping DFU`,
+`XVF unmute failed`, todas las lecturas del AEC fallan y el anillo se degrada
+(`XVF not answering on I2C — ring paused`, el camino nuevo de `xvf_ui`
+funcionando como debe). Mismo cuadro que tenía esta unidad ayer en la oficina y
+que tenía la primera antes de la soldadura: **el XVF no recibe alimentación o no
+hace contacto**; el ESP, el I2C, el códec y la red están bien. Comprobar si el
+anillo llega a encenderse y si con el USB-C de la placa enchufado aparece `0x2C`.
