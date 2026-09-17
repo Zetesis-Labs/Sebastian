@@ -55,7 +55,8 @@ const PreRollReference = struct {
         if (self.total_written < self.wake_mark) return 0;
         const lead = @min(self.wake_mark, @as(u64, pre_roll.WAKE_LEAD_SAMPLES));
         const since_mark = self.total_written - self.wake_mark;
-        return @intCast(@min(@as(u64, self.filled), lead + since_mark));
+        const window: u64 = @min(@as(u64, self.filled), lead + since_mark);
+        return @intCast(@min(window, @as(u64, pre_roll.MAX_WINDOW_SAMPLES)));
     }
 
     fn startIndex(self: PreRollReference) usize {
@@ -200,8 +201,10 @@ test "pre-roll window is anchored to wake mark" {
     try std.testing.expectEqual(@as(usize, 0), pre_roll.windowSamples(0, 0, 0));
     try std.testing.expectEqual(sr, pre_roll.windowSamples(0, sr64, sr));
     try std.testing.expectEqual(sr, pre_roll.windowSamples(sr64 / 2, sr64, sr));
-    try std.testing.expectEqual(lead + sr, pre_roll.windowSamples(10 * sr64, 11 * sr64, 11 * sr));
-    try std.testing.expectEqual(pre_roll.SAMPLE_CAPACITY, pre_roll.windowSamples(10 * sr64, 30 * sr64, pre_roll.SAMPLE_CAPACITY));
+    try std.testing.expectEqual(lead + sr / 4, pre_roll.windowSamples(10 * sr64, 10 * sr64 + sr64 / 4, 11 * sr));
+    // A slow connect must never grow the send past the cap (SCTP send cache).
+    try std.testing.expectEqual(pre_roll.MAX_WINDOW_SAMPLES, pre_roll.windowSamples(10 * sr64, 11 * sr64, 11 * sr));
+    try std.testing.expectEqual(pre_roll.MAX_WINDOW_SAMPLES, pre_roll.windowSamples(10 * sr64, 30 * sr64, pre_roll.SAMPLE_CAPACITY));
 }
 
 test "pre-roll start index handles wrap and full ring" {
@@ -217,10 +220,10 @@ test "pre-roll state tracks fill, wake and available duration" {
     const sr: usize = pre_roll.SAMPLE_RATE;
     for (0..sr * 3) |_| state.noteSample();
     state.markWake();
-    for (0..sr) |_| state.noteSample();
+    for (0..sr / 4) |_| state.noteSample();
 
-    try std.testing.expectEqual(pre_roll.WAKE_LEAD_SAMPLES + sr, state.windowSamples());
-    try std.testing.expectEqual(@as(u32, 3000), state.availableMs());
+    try std.testing.expectEqual(pre_roll.WAKE_LEAD_SAMPLES + sr / 4, state.windowSamples());
+    try std.testing.expectEqual(@as(u32, 2250), state.availableMs());
 }
 
 test "pre-roll keeps wake anchored after long connect and ring wrap" {
@@ -231,8 +234,9 @@ test "pre-roll keeps wake anchored after long connect and ring wrap" {
     state.markWake();
     noteSamples(&state, sr * 8);
 
-    try std.testing.expectEqual(sr * 10, state.windowSamples());
-    try std.testing.expectEqual(@as(u32, 10_000), state.availableMs());
+    // Capped: the newest 2.5 s (the command), not lead + 8 s of connect.
+    try std.testing.expectEqual(pre_roll.MAX_WINDOW_SAMPLES, state.windowSamples());
+    try std.testing.expectEqual(@as(u32, 2500), state.availableMs());
     try std.testing.expect(state.startIndex() < pre_roll.SAMPLE_CAPACITY);
 }
 
@@ -290,11 +294,12 @@ test "pre-roll window invariants hold across timeline matrix" {
             for (filled_values) |filled| {
                 const count = pre_roll.windowSamples(wake_mark, wake_mark + delta, filled);
                 const lead = @min(wake_mark, @as(u64, pre_roll.WAKE_LEAD_SAMPLES));
-                const expected: usize = @intCast(@min(@as(u64, filled), delta + lead));
+                const uncapped: u64 = @min(@as(u64, filled), delta + lead);
+                const expected: usize = @intCast(@min(uncapped, @as(u64, pre_roll.MAX_WINDOW_SAMPLES)));
 
                 try std.testing.expectEqual(expected, count);
                 try std.testing.expect(count <= filled);
-                try std.testing.expect(count <= pre_roll.SAMPLE_CAPACITY);
+                try std.testing.expect(count <= pre_roll.MAX_WINDOW_SAMPLES);
             }
         }
     }

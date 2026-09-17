@@ -15,6 +15,7 @@ pub const SECONDS = core.SECONDS;
 pub const SAMPLE_CAPACITY = core.SAMPLE_CAPACITY;
 
 const TOPIC = "sebastian.preroll";
+const SCTP_SEND_CACHE_BYTES: u64 = 100 * 1024;
 
 var ring: ?[*]i16 = null;
 var write_idx: usize = 0;
@@ -89,6 +90,13 @@ pub fn send(room: c.livekit_room_handle_t, wake_id: u32) bool {
 
     const sample_count: u32 = @intCast(count);
     const total_len: u64 = core.HEADER_BYTES + @as(u64, sample_count) * @sizeOf(i16);
+    // The publisher data channel buffers sends in a 100 KB cache (peer.c
+    // send_cache_size). A slow connect grows this window past it (140-198 KB
+    // seen in the field) — flag it so a reboot right after the handoff can be
+    // read against the size that went into the SCTP association.
+    if (total_len > SCTP_SEND_CACHE_BYTES) {
+        log.warn("pre-roll {d} bytes exceeds the SCTP send cache ({d} bytes)", .{ total_len, SCTP_SEND_CACHE_BYTES });
+    }
     var opts = c.livekit_data_stream_options_t{
         .topic = TOPIC,
         .is_text = false,

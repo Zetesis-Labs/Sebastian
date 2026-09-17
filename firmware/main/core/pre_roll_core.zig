@@ -7,12 +7,19 @@ pub const SECONDS: usize = 12;
 pub const SAMPLE_CAPACITY: usize = SAMPLE_RATE * SECONDS;
 pub const HEADER_BYTES: usize = 16;
 pub const WAKE_LEAD_SAMPLES: usize = SAMPLE_RATE * 2;
+/// Hard cap on what one send may carry. The publisher data channel buffers
+/// sends in a 100 KB cache (peer.c); a slow connect grew this window to
+/// 140-198 KB in the field and the sessions that followed ran on a corrupted
+/// heap. 2.5 s = 80 KB keeps clear of the cache and, because the window is
+/// the NEWEST samples, still holds the command spoken while connecting.
+pub const MAX_WINDOW_SAMPLES: usize = @as(usize, SAMPLE_RATE) * 5 / 2;
 
 pub fn windowSamples(wake_mark: u64, total_written: u64, filled: usize) usize {
     if (total_written < wake_mark) return 0;
     const lead: u64 = @min(wake_mark, WAKE_LEAD_SAMPLES);
     const since_mark = total_written - wake_mark;
-    return @intCast(@min(@as(u64, filled), since_mark + lead));
+    const window: u64 = @min(@as(u64, filled), since_mark + lead);
+    return @intCast(@min(window, @as(u64, MAX_WINDOW_SAMPLES)));
 }
 
 pub fn availableMs(sample_count: usize) u32 {
