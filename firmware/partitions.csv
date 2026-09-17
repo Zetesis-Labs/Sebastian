@@ -2,3 +2,5 @@
 nvs,      data, nvs,     0x9000,  0x6000,
 phy_init, data, phy,     0xf000,  0x1000,
 factory,  app,  factory, 0x10000, 4M,
+# Panic core dump (ELF, CRC32); read back + logged over syslog at boot (coredump_report.c).
+coredump, data, coredump, 0x410000, 64K,

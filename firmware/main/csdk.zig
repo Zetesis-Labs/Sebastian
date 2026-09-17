@@ -337,6 +337,9 @@ pub const MALLOC_CAP_INTERNAL: u32 = 1 << 11;
 pub extern fn heap_caps_malloc(size: usize, caps: u32) ?*anyopaque;
 pub extern fn heap_caps_get_free_size(caps: u32) usize;
 pub extern fn heap_caps_get_largest_free_block(caps: u32) usize;
+/// Walks every heap and validates block headers (poisoning canaries when
+/// enabled). print_errors=true logs each corrupted block's address.
+pub extern fn heap_caps_check_integrity_all(print_errors: bool) bool;
 
 // --- WiFi (example_utils) + SNTP ---------------------------------------------
 pub extern fn lk_example_network_connect() bool;
@@ -395,6 +398,13 @@ pub extern fn esp_codec_dev_read(dev: esp_codec_dev_handle_t, data: *anyopaque, 
 pub extern fn esp_codec_dev_close(dev: esp_codec_dev_handle_t) c_int;
 pub extern fn esp_timer_get_time() i64;
 pub extern fn esp_restart() noreturn;
+// esp_reset_reason_t (esp_system.h): the cause of the last reset. Logged over
+// syslog at boot because the ROM's own `rst:0x..` line and any panic backtrace
+// only reach the UART/USB-JTAG console, which nothing reads in the field.
+pub extern fn esp_reset_reason() c_int;
+// Logs (and erases) the core dump left in flash by a previous panic. See
+// main/coredump_report.c.
+pub extern fn sebastian_coredump_report() void;
 
 pub const I2S_DATA_BIT_WIDTH_16BIT: c_int = 16;
 pub const I2S_SLOT_BIT_WIDTH_32BIT: c_int = 32;

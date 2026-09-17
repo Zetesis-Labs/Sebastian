@@ -36,9 +36,10 @@ static int syslog_vprintf(const char *fmt, va_list args) {
     int r = orig ? orig(fmt, uart) : vprintf(fmt, uart);
     va_end(uart);
 
-    // Non-blocking guard: if another line holds the buffer, skip the mirror (UART
-    // already emitted it). Timeout 0 → never stalls the logging task.
-    if (sock < 0 || lock == NULL || xSemaphoreTake(lock, 0) != pdTRUE) return r;
+    // Short wait for the buffer: with timeout 0 the line right before an
+    // esp_restart() was lost whenever another task logged in the same burst,
+    // leaving reboots with no cause in Loki. A few ms never stalls audio.
+    if (sock < 0 || lock == NULL || xSemaphoreTake(lock, pdMS_TO_TICKS(5)) != pdTRUE) return r;
 
     // RFC3164: "<PRI>tag: message". PRI = facility(1=user) << 3 | severity(6=info).
     int n = snprintf(msg, sizeof(msg), "<14>sebastian-device: ");

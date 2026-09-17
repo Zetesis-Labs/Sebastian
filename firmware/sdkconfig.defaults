@@ -50,3 +50,12 @@ CONFIG_UAC_TUSB_PRODUCT="Sebastian Mic"
 # lectura llena el buffer aunque el terminador esté dentro (bug IDF).
 # 4KB deja margen holgado para el burst 101+frames.
 CONFIG_WS_BUFFER_SIZE=4096
+
+# --- Panic core dump to flash (partition "coredump" in partitions.csv) ---
+# The console is unreadable in the field (UART0 = I2S pins, USB-JTAG owned by
+# TinyUSB), so the crash summary is read back from flash and shipped over syslog.
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
+CONFIG_ESP_COREDUMP_CHECKSUM_CRC32=y
+CONFIG_ESP_COREDUMP_CHECK_BOOT=n
+

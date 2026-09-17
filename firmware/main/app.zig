@@ -355,6 +355,33 @@ fn wdgTask(_: ?*anyopaque) callconv(.c) void {
     }
 }
 
+/// Why the chip last reset, in the ROM's `rst:0x..` shape so the telemetry
+/// bridge counts it as a reboot with its reason. Emitted once the syslog sink is
+/// up: a watchdog, a panic and a brownout all look identical from Loki
+/// otherwise (silence, then BOOT OK), and that ambiguity cost a whole session.
+fn logResetReason() void {
+    const code = c.esp_reset_reason();
+    const name: []const u8 = switch (code) {
+        1 => "POWERON",
+        2 => "EXT",
+        3 => "SW",
+        4 => "PANIC",
+        5 => "INT_WDT",
+        6 => "TASK_WDT",
+        7 => "WDT",
+        8 => "DEEPSLEEP",
+        9 => "BROWNOUT",
+        10 => "SDIO",
+        11 => "USB",
+        12 => "JTAG",
+        13 => "EFUSE",
+        14 => "PWR_GLITCH",
+        15 => "CPU_LOCKUP",
+        else => "UNKNOWN",
+    };
+    log.info("reset reason rst:0x{x} ({s})", .{ @as(u32, @intCast(@max(0, code))), name });
+}
+
 fn logStageError(comptime stage: []const u8, err: anyerror) void {
     log.err("{s} failed: {s}", .{ stage, @errorName(err) });
 }
@@ -616,6 +643,15 @@ fn teardownActiveSession() void {
     wdgArm(25); // close budget — livekit_room_close has hung forever before
     closeSession();
     wdgDisarm();
+    // Field bug 2026-09-17: after a session the internal heap reported a
+    // 384 KiB "largest free block" (impossible on an S3) and the NEXT session
+    // panicked with no core dump. Check here, right after the teardown, so a
+    // corruption is attributed to the session that caused it.
+    if (c.heap_caps_check_integrity_all(true)) {
+        logHeap("post-session");
+    } else {
+        log.err("HEAP CORRUPTED after session teardown — see the block addresses above", .{});
+    }
     xvf_aec.logState(); // post-session: did the AEC converge this session?
     // Let the speaker's render FIFO drain before re-arming detection — the agent
     // says its own name and a tail leaking into the mic would immediately re-trigger.
@@ -749,6 +785,8 @@ fn runAgent(xvf_ok: bool, aec_configured: bool) void {
     // device's serial output reaches Loki even though nothing reads its UART in
     // prod (power + WiFi only). No-op if syslog_ip is unprovisioned.
     c.sebastian_syslog_start();
+    logResetReason();
+    c.sebastian_coredump_report();
     control.start();
 
     if (wakeword.init()) {
