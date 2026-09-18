@@ -66,6 +66,7 @@ type message struct {
 	Cfg string `json:"cfg,omitempty"`
 	Mac string `json:"mac,omitempty"`
 	Why string `json:"why,omitempty"`
+	Dev string `json:"dev,omitempty"` // ok: the unit's own device secret (RF-51)
 }
 
 // Dialer opens the UDP conversation; swapped in tests.
@@ -88,8 +89,9 @@ func NewClientWithDialer(dial Dialer) *Client { return &Client{dial: dial} }
 
 // Adopt sends cfg (a sebastian.config.v1 document, as the exact JSON text the
 // signature covers) to the device at ip, signed with secret. progress may be
-// nil. Returns nil when the device stored the config and is restarting.
-func (c *Client) Adopt(ctx context.Context, ip string, cfg, secret string, progress func(Phase)) error {
+// nil. Returns the unit's own device secret (empty from a firmware that
+// predates it) when the device stored the config and is restarting.
+func (c *Client) Adopt(ctx context.Context, ip string, cfg, secret string, progress func(Phase)) (string, error) {
 	notify := func(p Phase) {
 		if progress != nil {
 			progress(p)
@@ -97,29 +99,29 @@ func (c *Client) Adopt(ctx context.Context, ip string, cfg, secret string, progr
 	}
 	conn, err := c.dial(ctx, net.JoinHostPort(ip, fmt.Sprint(Port)))
 	if err != nil {
-		return fmt.Errorf("dial %s: %w", ip, err)
+		return "", fmt.Errorf("dial %s: %w", ip, err)
 	}
 	defer conn.Close()
 
 	notify(PhaseHello)
 	nonce, err := hello(ctx, conn)
 	if err != nil {
-		return err
+		return "", err
 	}
 	adopt := message{T: "adopt", N: nonce, Cfg: cfg, Mac: Sign(secret, nonce, cfg)}
 	if err := send(conn, adopt); err != nil {
-		return err
+		return "", err
 	}
 
 	deadline := replyTimeout
 	for {
 		reply, err := receive(ctx, conn, deadline)
 		if err != nil {
-			return err
+			return "", err
 		}
 		switch reply.T {
 		case "ok":
-			return nil
+			return reply.Dev, nil
 		case "wait":
 			notify(PhaseWaitingConsent)
 			deadline = consentTimeout
@@ -127,7 +129,7 @@ func (c *Client) Adopt(ctx context.Context, ip string, cfg, secret string, progr
 			notify(PhaseQueued)
 			deadline = queuedTimeout
 		case "err":
-			return errorFor(reply.Why)
+			return "", errorFor(reply.Why)
 		default:
 			// a stale nonce reply or noise: keep waiting for the real answer
 		}

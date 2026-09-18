@@ -292,6 +292,14 @@ export const SHARED: SharedGroup[] = [
         applied: true,
         help: "Lets any control room of your organization adopt this unit over the network without pressing MUTE. Pre-filled by an embedded installer; optional on the public one.",
       },
+      {
+        path: "adoption.deviceSecret",
+        label: "Device secret",
+        type: "password",
+        applied: true,
+        advanced: true,
+        help: "Born with the unit and shown after Load from device: the key that hands this speaker to a control room of another organization. Leave it as loaded; typing a new one rotates it.",
+      },
     ],
   },
 ];

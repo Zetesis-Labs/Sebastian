@@ -58,11 +58,13 @@ countdown; past it, re-plug the board.
 ### Fleet fields (2026-09-18)
 
 - `adoption.orgSecret` / `adoption.deviceSecret`: the secrets of
-  docs/implementation/11-fleet-adoption-control-room.md §5. A unit that has
-  `orgSecret` and no `deviceSecret` enrols on its own with the control room of
-  `tokenServerUrl` (`/v1/devices/{id}/enroll`) and stores the device secret it
-  receives: that is how a unit provisioned from the embedded installer is born
-  adopted. Stored as
+  docs/implementation/11-fleet-adoption-control-room.md §5. The device secret
+  is born with the unit (generated at first boot, kept across adoptions,
+  readable with `sebastian.config.get`); a document only carries it to rotate
+  it. A unit that has `orgSecret` and whose control room (`tokenServerUrl`)
+  does not hold its secret yet enrols on its own (`/v1/devices/{id}/enroll`),
+  handing the secret over: that is how a unit provisioned from the embedded
+  installer is born adopted. Stored as
   `org_secret` / `dev_secret`; an empty string erases them (that is what the
   control room's *forget* sends). With a device secret the firmware opens
   sessions through `POST /v1/sessions` instead of the legacy `/token`.

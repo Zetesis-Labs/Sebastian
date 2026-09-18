@@ -216,7 +216,7 @@ func (h *Server) EnrollDevice(ctx context.Context, request EnrollDeviceRequestOb
 	if request.Body == nil {
 		return EnrollDevice401ApplicationProblemPlusJSONResponse(problem(401, "Unauthorized", "The enrolment proof is missing.")), nil
 	}
-	secret, err := h.devices.Enroll(ctx, request.DeviceId, request.Body.Nonce, request.Body.Mac)
+	err := h.devices.Enroll(ctx, request.DeviceId, request.Body.Nonce, request.Body.Mac, request.Body.DeviceSecret)
 	switch {
 	case errors.Is(err, device.ErrNoOrgSecret):
 		return EnrollDevice404ApplicationProblemPlusJSONResponse(enrollUnavailable()), nil
@@ -225,5 +225,5 @@ func (h *Server) EnrollDevice(ctx context.Context, request EnrollDeviceRequestOb
 	case err != nil:
 		return EnrollDevice503ApplicationProblemPlusJSONResponse{UnavailableApplicationProblemPlusJSONResponse: h.unavailable(ctx, "enrolment failed", err, "device_id", request.DeviceId)}, nil
 	}
-	return EnrollDevice201JSONResponse{DeviceSecret: secret}, nil
+	return EnrollDevice201JSONResponse{ControlRoom: h.devices.ControlRoom().Name}, nil
 }

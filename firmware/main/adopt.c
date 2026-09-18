@@ -212,8 +212,19 @@ static void handle_adopt(int sock, const struct sockaddr_in *peer, const cJSON *
         send_err(sock, peer, why);
         return;
     }
+    // The unit's own secret goes to the adopter (RF-51): it is what the control
+    // room will authenticate our sessions with.
+    sebastian_mark_bound();
+    char dev[129] = {0};
+    if (!sebastian_ensure_device_secret() || !sebastian_get_device_secret(dev, sizeof(dev))) {
+        ESP_LOGE(TAG, "adopted from %s but no device secret to hand over", ip);
+        send_err(sock, peer, "secret");
+        return;
+    }
+    char ok[192];
+    snprintf(ok, sizeof(ok), "{\"t\":\"ok\",\"dev\":\"%s\"}", dev);
     ESP_LOGI(TAG, "adopted from %s — restarting into the new control room", ip);
-    send_json(sock, peer, "{\"t\":\"ok\"}");
+    send_json(sock, peer, ok);
     vTaskDelay(pdMS_TO_TICKS(400)); // let the reply and the log leave
     esp_restart();
 }

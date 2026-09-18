@@ -104,7 +104,7 @@ func (d *fakeDevice) handle(from net.Addr, m message) {
 				return
 			}
 			d.gotCfg = m.Cfg
-			d.reply(from, message{T: "ok"})
+			d.reply(from, message{T: "ok", Dev: "unit-secret-unit-secret-unit-secret-1"})
 		}
 	}
 }
@@ -133,11 +133,15 @@ func TestAdoptWithOrganizationSecret(t *testing.T) {
 	client := NewClientWithDialer(dialTo(dev.addr()))
 	var phases []Phase
 	cfg := `{"schema":"sebastian.config.v1","livekit":{"tokenServerUrl":"http://10.0.0.188:8787/token"}}`
-	if err := client.Adopt(context.Background(), "10.0.0.125", cfg, "org-secret", func(p Phase) { phases = append(phases, p) }); err != nil {
+	unit, err := client.Adopt(context.Background(), "10.0.0.125", cfg, "org-secret", func(p Phase) { phases = append(phases, p) })
+	if err != nil {
 		t.Fatal(err)
 	}
 	if dev.storedCfg() != cfg {
 		t.Fatalf("device stored %q", dev.storedCfg())
+	}
+	if unit != "unit-secret-unit-secret-unit-secret-1" {
+		t.Fatalf("the unit's secret was not handed over: %q", unit)
 	}
 	if len(phases) != 1 || phases[0] != PhaseHello {
 		t.Fatalf("phases %v", phases)
@@ -149,7 +153,7 @@ func TestAdoptWithDeviceSecretAndQueuedConversation(t *testing.T) {
 	dev.set(func(d *fakeDevice) { d.busy = true })
 	client := NewClientWithDialer(dialTo(dev.addr()))
 	var phases []Phase
-	if err := client.Adopt(context.Background(), "x", `{"schema":"sebastian.config.v1"}`, "dev-secret", func(p Phase) { phases = append(phases, p) }); err != nil {
+	if _, err := client.Adopt(context.Background(), "x", `{"schema":"sebastian.config.v1"}`, "dev-secret", func(p Phase) { phases = append(phases, p) }); err != nil {
 		t.Fatal(err)
 	}
 	if len(phases) != 2 || phases[1] != PhaseQueued {
@@ -160,7 +164,7 @@ func TestAdoptWithDeviceSecretAndQueuedConversation(t *testing.T) {
 func TestAdoptDeniedWithWrongSecret(t *testing.T) {
 	dev := newFakeDevice(t)
 	client := NewClientWithDialer(dialTo(dev.addr()))
-	err := client.Adopt(context.Background(), "x", `{"schema":"sebastian.config.v1"}`, "intruder", nil)
+	_, err := client.Adopt(context.Background(), "x", `{"schema":"sebastian.config.v1"}`, "intruder", nil)
 	if !errors.Is(err, ErrDenied) {
 		t.Fatalf("expected ErrDenied, got %v", err)
 	}
@@ -174,7 +178,7 @@ func TestFactoryUnitNeedsConsent(t *testing.T) {
 	dev.set(func(d *fakeDevice) { d.factory = true })
 	client := NewClientWithDialer(dialTo(dev.addr()))
 	var phases []Phase
-	err := client.Adopt(context.Background(), "x", `{"schema":"sebastian.config.v1"}`, "anything", func(p Phase) { phases = append(phases, p) })
+	_, err := client.Adopt(context.Background(), "x", `{"schema":"sebastian.config.v1"}`, "anything", func(p Phase) { phases = append(phases, p) })
 	if !errors.Is(err, ErrConsentTimeout) {
 		t.Fatalf("expected ErrConsentTimeout, got %v", err)
 	}
@@ -183,7 +187,7 @@ func TestFactoryUnitNeedsConsent(t *testing.T) {
 	}
 
 	dev.set(func(d *fakeDevice) { d.pressMute = true })
-	if err := client.Adopt(context.Background(), "x", `{"schema":"sebastian.config.v1"}`, "anything", nil); err != nil {
+	if _, err := client.Adopt(context.Background(), "x", `{"schema":"sebastian.config.v1"}`, "anything", nil); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -192,7 +196,7 @@ func TestAdoptReportsStoreRejection(t *testing.T) {
 	dev := newFakeDevice(t)
 	dev.set(func(d *fakeDevice) { d.rejectWith = "wifi" })
 	client := NewClientWithDialer(dialTo(dev.addr()))
-	err := client.Adopt(context.Background(), "x", `{"schema":"sebastian.config.v1"}`, "org-secret", nil)
+	_, err := client.Adopt(context.Background(), "x", `{"schema":"sebastian.config.v1"}`, "org-secret", nil)
 	if !errors.Is(err, ErrRejected) || err.Error() != "the device rejected the config: wifi" {
 		t.Fatalf("got %v", err)
 	}
@@ -207,7 +211,7 @@ func TestAdoptNoReply(t *testing.T) {
 	client := NewClientWithDialer(dialTo(conn.LocalAddr().String()))
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
-	err = client.Adopt(ctx, "x", `{}`, "s", nil)
+	_, err = client.Adopt(ctx, "x", `{}`, "s", nil)
 	if err == nil {
 		t.Fatal("expected an error")
 	}

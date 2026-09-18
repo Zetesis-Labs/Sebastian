@@ -126,8 +126,7 @@ static bool json_string_field(const char *body, const char *field, char *out, si
     return ok;
 }
 
-int sebastian_enroll(const char *base_url, const char *device_id, const char *org_secret,
-                     char *secret_out, size_t secret_size) {
+int sebastian_enroll(const char *base_url, const char *device_id, const char *org_secret, const char *device_secret) {
     static char body[512]; // static: internal RAM is scarce, the poll task stack is 4 KB
     char url[300];
     snprintf(url, sizeof(url), "%s/v1/devices/%s/enroll", base_url, device_id);
@@ -139,7 +138,8 @@ int sebastian_enroll(const char *base_url, const char *device_id, const char *or
     if (!json_string_field(body, "nonce", nonce, sizeof(nonce))) return -5;
     char mac[65];
     if (!sebastian_hmac_sha256_hex(org_secret, nonce, device_id, mac)) return -6;
-    int len = snprintf(body, sizeof(body), "{\"nonce\":\"%s\",\"mac\":\"%s\"}", nonce, mac);
+    int len = snprintf(body, sizeof(body), "{\"nonce\":\"%s\",\"mac\":\"%s\",\"deviceSecret\":\"%s\"}", nonce, mac, device_secret);
+    if (len <= 0 || len >= (int)sizeof(body)) return -6;
 
     esp_http_client_handle_t client = open_client(url, HTTP_METHOD_POST, device_id, NULL, NULL);
     if (client == NULL) return -1;
@@ -154,10 +154,7 @@ int sebastian_enroll(const char *base_url, const char *device_id, const char *or
         result = code > 0 ? code : -3;
         goto cleanup;
     }
-    n = esp_http_client_read_response(client, body, sizeof(body) - 1);
-    if (n <= 0) { result = -4; goto cleanup; }
-    body[n] = '\0';
-    result = json_string_field(body, "deviceSecret", secret_out, secret_size) ? 0 : -5;
+    result = 0;
 cleanup:
     esp_http_client_close(client);
     esp_http_client_cleanup(client);

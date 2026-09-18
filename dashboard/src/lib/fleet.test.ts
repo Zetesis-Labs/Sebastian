@@ -61,6 +61,9 @@ describe('job messages (RF-35, spec §11)', () => {
   it('explains a denied secret', () => {
     expect(jobMessage({ ...base, phase: 'failed', error: 'auth' }).text).toMatch(/secreto no coincide/)
   })
+  it('explains a unit that hands no secret (old firmware)', () => {
+    expect(failureMessage('no_secret', '10.0.0.77')).toMatch(/no entregó su secreto/)
+  })
   it('explains an unreachable ip', () => {
     expect(failureMessage('no_reply', '10.0.0.77')).toMatch(/10\.0\.0\.77 no responde/)
   })

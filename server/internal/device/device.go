@@ -128,9 +128,10 @@ type Store interface {
 	Rename(ctx context.Context, id, name string) error
 }
 
-// Adopter is the network side (adoption.Client); swapped in tests.
+// Adopter is the network side (adoption.Client); swapped in tests. Adopt
+// returns the unit's own device secret, handed over in its ok reply.
 type Adopter interface {
-	Adopt(ctx context.Context, ip, cfg, secret string, progress func(adoption.Phase)) error
+	Adopt(ctx context.Context, ip, cfg, secret string, progress func(adoption.Phase)) (string, error)
 }
 
 // ControlRoom is this server's identity as seen by devices and the installer.
@@ -404,28 +405,27 @@ func (s *Service) EnrollChallenge(id string) (string, error) {
 }
 
 // Enroll verifies the proof and, like a network adoption, binds the unit to
-// this control room with a fresh device secret. The nonce is single-use.
-func (s *Service) Enroll(ctx context.Context, id, nonce, mac string) (string, error) {
+// this control room with the secret it hands over. The nonce is single-use.
+func (s *Service) Enroll(ctx context.Context, id, nonce, mac, deviceSecret string) error {
 	if s.room.OrgSecret == "" {
-		return "", ErrNoOrgSecret
+		return ErrNoOrgSecret
 	}
 	s.mu.Lock()
 	ch := s.enrolls[id]
 	delete(s.enrolls, id)
 	s.mu.Unlock()
-	if !enrollValid(ch, nonce, mac, s.room.OrgSecret, id, s.now()) {
+	if !enrollValid(ch, nonce, mac, s.room.OrgSecret, id, s.now()) || deviceSecret == "" {
 		s.logger.Warn("enrolment denied", "device_id", id)
-		return "", ErrUnauthorized
+		return ErrUnauthorized
 	}
-	secret := s.newSecret()
-	if err := s.store.MarkAdopted(ctx, id, DigestSecret(secret)); err != nil {
-		return "", err
+	if err := s.store.MarkAdopted(ctx, id, DigestSecret(deviceSecret)); err != nil {
+		return err
 	}
 	s.mu.Lock()
 	delete(s.pendingSecrets, id)
 	s.mu.Unlock()
 	s.logger.Info("device enrolled", "device_id", id)
-	return secret, nil
+	return nil
 }
 
 // ── adoption ────────────────────────────────────────────────────────────────
@@ -465,8 +465,7 @@ func (s *Service) Adopt(ctx context.Context, id string, req AdoptRequest) (Job, 
 	if err != nil {
 		return Job{}, err
 	}
-	deviceSecret := s.newSecret()
-	cfg, err := adoptionConfig(s.room, deviceSecret, req.Config)
+	cfg, err := adoptionConfig(s.room, req.Config)
 	if err != nil {
 		return Job{}, err
 	}
@@ -475,19 +474,26 @@ func (s *Service) Adopt(ctx context.Context, id string, req AdoptRequest) (Job, 
 		signWith = req.DeviceSecret
 	}
 	job := s.startJob(id, "adopt", ip)
-	go s.runAdopt(context.WithoutCancel(ctx), job, ip, cfg, signWith, deviceSecret)
+	go s.runAdopt(context.WithoutCancel(ctx), job, ip, cfg, signWith)
 	return *job, nil
 }
 
-func (s *Service) runAdopt(ctx context.Context, job *Job, ip, cfg, signWith, deviceSecret string) {
+// runAdopt: the unit hands its own secret over in the ok reply (RF-51); a
+// firmware from before that contract replies without one and cannot be bound.
+func (s *Service) runAdopt(ctx context.Context, job *Job, ip, cfg, signWith string) {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
-	err := s.adopter.Adopt(ctx, ip, cfg, signWith, func(p adoption.Phase) {
+	deviceSecret, err := s.adopter.Adopt(ctx, ip, cfg, signWith, func(p adoption.Phase) {
 		s.updateJob(job, func(j *Job) { j.Phase = phaseOf(p) })
 	})
 	if err != nil {
 		s.logger.Warn("adoption failed", "device_id", job.DeviceID, "ip", ip, "error", err)
 		s.updateJob(job, func(j *Job) { j.Phase = "failed"; j.Error = errorCode(err) })
+		return
+	}
+	if deviceSecret == "" {
+		s.logger.Warn("adoption accepted but the unit handed no secret (old firmware)", "device_id", job.DeviceID, "ip", ip)
+		s.updateJob(job, func(j *Job) { j.Phase = "failed"; j.Error = "no_secret" })
 		return
 	}
 	if err := s.store.MarkAdopted(ctx, job.DeviceID, DigestSecret(deviceSecret)); err != nil {
@@ -520,7 +526,7 @@ func (s *Service) Forget(ctx context.Context, id string, req AdoptRequest) (Job,
 		if ip == "" {
 			netErr = ErrNoAddress
 		} else {
-			netErr = s.adopter.Adopt(ctx, ip, forgetConfig(), signWith, func(p adoption.Phase) {
+			_, netErr = s.adopter.Adopt(ctx, ip, forgetConfig(), signWith, func(p adoption.Phase) {
 				s.updateJob(job, func(j *Job) { j.Phase = phaseOf(p) })
 			})
 		}

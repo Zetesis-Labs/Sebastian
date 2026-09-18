@@ -110,7 +110,7 @@ export interface paths {
         put?: never;
         /**
          * Enrol a device that proves it holds the organization secret
-         * @description Second step: `mac` = hex HMAC-SHA256(organization secret, nonce + "." + deviceId), the same construction the LAN adoption uses. On success the unit is adopted by this control room and receives its device secret, which it stores and uses from then on for `POST /v1/sessions`.
+         * @description Second step: `mac` = hex HMAC-SHA256(organization secret, nonce + "." + deviceId), the same construction the LAN adoption uses, and the unit's own device secret (born with the unit). On success the control room adopts the unit and keeps the secret's digest for `POST /v1/sessions`.
          */
         post: operations["enrollDevice"];
         delete?: never;
@@ -531,9 +531,12 @@ export interface components {
             nonce: string;
             /** @description hex HMAC-SHA256(organization secret, nonce + "." + deviceId) */
             mac: string;
+            /** @description The unit's own secret, which this control room will authenticate its sessions with. */
+            deviceSecret: string;
         };
         EnrollmentResponse: {
-            deviceSecret: string;
+            /** @description Name of the control room that adopted the unit. */
+            controlRoom: string;
         };
         DesiredProfile: {
             /** @description Firmware profile name. Empty or absent clears the desired state. */
@@ -806,7 +809,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Enrolled; the device secret, delivered once. */
+            /** @description Enrolled: this control room holds the unit's secret now. */
             201: {
                 headers: {
                     [name: string]: unknown;

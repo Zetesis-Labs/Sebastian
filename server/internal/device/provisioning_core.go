@@ -32,15 +32,13 @@ func ConfigVersion(config map[string]any) (string, json.RawMessage, error) {
 	return hex.EncodeToString(sum[:6]), canonical, nil
 }
 
-// adoptionConfig is what binds a unit to this control room (design §3, block 3).
-func adoptionConfig(room ControlRoom, deviceSecret string, overrides map[string]any) (string, error) {
+// adoptionConfig is what binds a unit to this control room (design §3, block
+// 3). It carries no device secret: the unit keeps its own and hands it over.
+func adoptionConfig(room ControlRoom, overrides map[string]any) (string, error) {
 	doc := map[string]any{
-		"schema":  "sebastian.config.v1",
-		"livekit": map[string]any{"tokenServerUrl": room.origin() + "/token"},
-		"adoption": map[string]any{
-			"orgSecret":    room.OrgSecret,
-			"deviceSecret": deviceSecret,
-		},
+		"schema":        "sebastian.config.v1",
+		"livekit":       map[string]any{"tokenServerUrl": room.origin() + "/token"},
+		"adoption":      map[string]any{"orgSecret": room.OrgSecret},
 		"configVersion": "",
 	}
 	if room.SyslogIP != "" {

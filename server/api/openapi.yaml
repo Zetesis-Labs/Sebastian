@@ -210,9 +210,9 @@ paths:
       summary: Enrol a device that proves it holds the organization secret
       description: >-
         Second step: `mac` = hex HMAC-SHA256(organization secret, nonce + "." +
-        deviceId), the same construction the LAN adoption uses. On success the
-        unit is adopted by this control room and receives its device secret,
-        which it stores and uses from then on for `POST /v1/sessions`.
+        deviceId), the same construction the LAN adoption uses, and the unit's
+        own device secret (born with the unit). On success the control room
+        adopts the unit and keeps the secret's digest for `POST /v1/sessions`.
       tags: [devices]
       parameters:
         - $ref: "#/components/parameters/DeviceId"
@@ -224,7 +224,7 @@ paths:
               $ref: "#/components/schemas/EnrollmentRequest"
       responses:
         "201":
-          description: Enrolled; the device secret, delivered once.
+          description: "Enrolled: this control room holds the unit's secret now."
           content:
             application/json:
               schema:
@@ -1043,7 +1043,7 @@ components:
     EnrollmentRequest:
       type: object
       additionalProperties: false
-      required: [nonce, mac]
+      required: [nonce, mac, deviceSecret]
       properties:
         nonce:
           type: string
@@ -1054,15 +1054,19 @@ components:
           minLength: 64
           maxLength: 64
           description: hex HMAC-SHA256(organization secret, nonce + "." + deviceId)
-    EnrollmentResponse:
-      type: object
-      additionalProperties: false
-      required: [deviceSecret]
-      properties:
         deviceSecret:
           type: string
           minLength: 32
           maxLength: 256
+          description: The unit's own secret, which this control room will authenticate its sessions with.
+    EnrollmentResponse:
+      type: object
+      additionalProperties: false
+      required: [controlRoom]
+      properties:
+        controlRoom:
+          type: string
+          description: Name of the control room that adopted the unit.
     DesiredProfile:
       type: object
       additionalProperties: false

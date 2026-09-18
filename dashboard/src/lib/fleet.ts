@@ -147,6 +147,7 @@ export function failureMessage(error: string, ip: string): string {
     return 'El altavoz ha rechazado la adopción: el secreto no coincide. Necesitas el secreto de organización de su dueño o el secreto de ese altavoz.'
   }
   if (error === 'consent_timeout') return 'No se pulsó MUTE a tiempo. Vuelve a adoptar cuando tengas el altavoz a mano.'
+  if (error === 'no_secret') return 'El altavoz aceptó la adopción pero no entregó su secreto: firmware anterior al contrato actual. Reflashéalo desde el instalador.'
   if (error === 'no_reply' || error === 'transport') {
     return `${ip} no responde. ¿Está encendido y en una red alcanzable desde este control room?`
   }
