@@ -7,6 +7,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 
 #include "cJSON.h"
 #include "esp_http_client.h"
@@ -14,13 +15,32 @@
 
 static const char *TAG = "session_http";
 
+// esp_http_client_get_header() reads the REQUEST headers; response headers only
+// arrive through the event handler. This captures the one header we care about.
+typedef struct {
+    const char *name;
+    char *out;
+    size_t size;
+} header_capture_t;
+
+static esp_err_t on_http_event(esp_http_client_event_t *evt) {
+    header_capture_t *cap = evt->user_data;
+    if (evt->event_id == HTTP_EVENT_ON_HEADER && cap && cap->name && evt->header_key && evt->header_value &&
+        strcasecmp(evt->header_key, cap->name) == 0) {
+        strlcpy(cap->out, evt->header_value, cap->size);
+    }
+    return ESP_OK;
+}
+
 static esp_http_client_handle_t open_client(const char *url, esp_http_client_method_t method,
-                                            const char *device_id, const char *secret) {
+                                            const char *device_id, const char *secret, header_capture_t *cap) {
     esp_http_client_config_t config = {
         .url = url,
         .method = method,
         .timeout_ms = 5000,
         .crt_bundle_attach = NULL, // the control room is plain HTTP on the LAN
+        .event_handler = cap ? on_http_event : NULL,
+        .user_data = cap,
     };
     esp_http_client_handle_t client = esp_http_client_init(&config);
     if (client == NULL) return NULL;
@@ -34,19 +54,15 @@ int sebastian_http_get_auth(const char *url, const char *device_id, const char *
                             char *out, size_t out_size, int *status) {
     if (hdr_out && hdr_size) hdr_out[0] = '\0';
     if (status) *status = 0;
-    esp_http_client_handle_t client = open_client(url, HTTP_METHOD_GET, device_id, secret);
+    header_capture_t cap = {.name = capture_header, .out = hdr_out, .size = hdr_size};
+    esp_http_client_handle_t client = open_client(url, HTTP_METHOD_GET, device_id, secret,
+                                                  (capture_header && hdr_out && hdr_size) ? &cap : NULL);
     if (client == NULL) return -1;
     int result;
     if (esp_http_client_open(client, 0) != ESP_OK) { result = -2; goto cleanup; }
     esp_http_client_fetch_headers(client);
     int code = esp_http_client_get_status_code(client);
     if (status) *status = code;
-    if (capture_header && hdr_out && hdr_size) {
-        char *value = NULL;
-        if (esp_http_client_get_header(client, capture_header, &value) == ESP_OK && value) {
-            strlcpy(hdr_out, value, hdr_size);
-        }
-    }
     if (code != 200) { result = -3; goto cleanup; }
     int read = esp_http_client_read_response(client, out, (int)out_size - 1);
     if (read < 0) { result = -4; goto cleanup; }
@@ -62,7 +78,7 @@ int sebastian_session_create(const char *base_url, const char *device_id, const 
                              char *url_out, size_t url_size, char *token_out, size_t token_size) {
     char url[300];
     snprintf(url, sizeof(url), "%s/v1/sessions", base_url);
-    esp_http_client_handle_t client = open_client(url, HTTP_METHOD_POST, device_id, secret);
+    esp_http_client_handle_t client = open_client(url, HTTP_METHOD_POST, device_id, secret, NULL);
     if (client == NULL) return -1;
     esp_http_client_set_header(client, "Content-Length", "0");
 
