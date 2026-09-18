@@ -77,81 +77,85 @@ function Locks({ locks }: { locks: Lock[] }) {
   );
 }
 
-export function ConfigForm({ config, onChange, issues, storedPassword, onStoredPassword }: Props) {
-  const [advanced, setAdvanced] = useState(false);
+// Module-level on purpose: a component defined inside ConfigForm would be a new
+// type on every render, so React would remount the input on each keystroke and
+// the field would lose focus after one character.
+type FieldProps = Props & { f: FieldMeta };
 
+function Field({ f, config, onChange, issues, storedPassword, onStoredPassword }: FieldProps) {
   const issueFor = (path?: string) => (path ? issues.find((i) => i.path === path) : undefined);
+  const value = getField(config, f.path);
+  const set = (v: unknown) => onChange(setField(config, f.path, v));
+  const common = {
+    label: f.label,
+    applied: f.applied,
+    pending: !f.applied,
+    advanced: f.advanced,
+    help: helpFor(f),
+  };
 
-  function Field({ f }: { f: FieldMeta }) {
-    const value = getField(config, f.path);
-    const set = (v: unknown) => onChange(setField(config, f.path, v));
-    const common = {
-      label: f.label,
-      applied: f.applied,
-      pending: !f.applied,
-      advanced: f.advanced,
-      help: helpFor(f),
-    };
-
-    if (f.type === "toggle") {
-      return <ToggleField {...common} checked={Boolean(value)} onChange={set} />;
-    }
-    if (f.type === "enum") {
-      return (
-        <SelectField {...common} value={String(value)} onChange={(e) => set(e.target.value)}>
-          {f.options?.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </SelectField>
-      );
-    }
-
-    if (f.path === "wifi.password" && storedPassword === "keep") {
-      return (
-        <LockedField
-          {...common}
-          status="Guardada en la placa. Se conserva al enviar."
-          action="Cambiar"
-          onAction={() => onStoredPassword?.("edit")}
-        />
-      );
-    }
-
-    const issue = issueFor(f.issuePath);
-    const passwordEditing = f.path === "wifi.password" && storedPassword === "edit";
-    const hint = passwordEditing ? (
-      <span className="flex flex-wrap items-center gap-x-2">
-        <span className="text-warn">Sustituirá a la guardada en la placa (vacío = red abierta).</span>
-        <button
-          type="button"
-          className="font-semibold text-brand hover:underline"
-          onClick={() => {
-            onChange(setField(config, "wifi.password", ""));
-            onStoredPassword?.("keep");
-          }}
-        >
-          Conservar la guardada
-        </button>
-      </span>
-    ) : issue ? (
-      <span className={issue.severity === "error" ? "text-danger" : "text-warn"}>{issue.message}</span>
-    ) : undefined;
-    const isNumber = f.type === "number";
+  if (f.type === "toggle") {
+    return <ToggleField {...common} checked={Boolean(value)} onChange={set} />;
+  }
+  if (f.type === "enum") {
     return (
-      <TextField
+      <SelectField {...common} value={String(value)} onChange={(e) => set(e.target.value)}>
+        {f.options?.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </SelectField>
+    );
+  }
+
+  if (f.path === "wifi.password" && storedPassword === "keep") {
+    return (
+      <LockedField
         {...common}
-        type={f.type === "password" ? "password" : f.type === "url" ? "url" : isNumber ? "number" : "text"}
-        inputMode={isNumber ? "numeric" : f.type === "url" ? "url" : undefined}
-        autoComplete="off"
-        placeholder={f.placeholder}
-        value={value === undefined || value === null ? "" : String(value)}
-        onChange={(e) => set(isNumber ? Number(e.target.value) || 0 : e.target.value)}
-        hint={hint}
+        status="Guardada en la placa. Se conserva al enviar."
+        action="Cambiar"
+        onAction={() => onStoredPassword?.("edit")}
       />
     );
   }
+
+  const issue = issueFor(f.issuePath);
+  const passwordEditing = f.path === "wifi.password" && storedPassword === "edit";
+  const hint = passwordEditing ? (
+    <span className="flex flex-wrap items-center gap-x-2">
+      <span className="text-warn">Sustituirá a la guardada en la placa (vacío = red abierta).</span>
+      <button
+        type="button"
+        className="font-semibold text-brand hover:underline"
+        onClick={() => {
+          onChange(setField(config, "wifi.password", ""));
+          onStoredPassword?.("keep");
+        }}
+      >
+        Conservar la guardada
+      </button>
+    </span>
+  ) : issue ? (
+    <span className={issue.severity === "error" ? "text-danger" : "text-warn"}>{issue.message}</span>
+  ) : undefined;
+  const isNumber = f.type === "number";
+  return (
+    <TextField
+      {...common}
+      type={f.type === "password" ? "password" : f.type === "url" ? "url" : isNumber ? "number" : "text"}
+      inputMode={isNumber ? "numeric" : f.type === "url" ? "url" : undefined}
+      autoComplete="off"
+      placeholder={f.placeholder}
+      value={value === undefined || value === null ? "" : String(value)}
+      onChange={(e) => set(isNumber ? Number(e.target.value) || 0 : e.target.value)}
+      hint={hint}
+    />
+  );
+}
+
+export function ConfigForm({ config, onChange, issues, storedPassword, onStoredPassword }: Props) {
+  const [advanced, setAdvanced] = useState(false);
 
   const visible = (fields: FieldMeta[]) => fields.filter((f) => advanced || !f.advanced);
   const mode = MODES.find((m) => m.id === config.mode) ?? MODES[0];
@@ -212,7 +216,7 @@ export function ConfigForm({ config, onChange, issues, storedPassword, onStoredP
         {mode.locks.length > 0 && <Locks locks={mode.locks} />}
         <div className="grid gap-4 sm:grid-cols-2">
           {visible(mode.fields).map((f) => (
-            <Field key={f.path} f={f} />
+            <Field key={f.path} f={f} config={config} onChange={onChange} issues={issues} storedPassword={storedPassword} onStoredPassword={onStoredPassword} />
           ))}
         </div>
       </fieldset>
@@ -232,7 +236,7 @@ export function ConfigForm({ config, onChange, issues, storedPassword, onStoredP
             </legend>
             <div className="grid gap-4 sm:grid-cols-2">
               {fields.map((f) => (
-                <Field key={f.path} f={f} />
+                <Field key={f.path} f={f} config={config} onChange={onChange} issues={issues} storedPassword={storedPassword} onStoredPassword={onStoredPassword} />
               ))}
             </div>
           </fieldset>
