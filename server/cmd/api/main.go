@@ -22,6 +22,7 @@ import (
 	postgresstore "github.com/zetesis-labs/sebastian/server/internal/postgres"
 	"github.com/zetesis-labs/sebastian/server/internal/recording"
 	"github.com/zetesis-labs/sebastian/server/internal/session"
+	"github.com/zetesis-labs/sebastian/server/internal/transcribe"
 )
 
 func main() {
@@ -71,7 +72,19 @@ func run(logger *slog.Logger) error {
 	lanClient := adoption.NewClient()
 	devices := device.NewService(store, lan, lanClient, room, logger)
 	meetings := meeting.NewService(store.Meetings(), devices, lanClient, cfg.MeetingsDir, meeting.Limits{MaxDuration: cfg.MeetingMaxDuration}, logger)
+	var provider transcribe.Provider
+	if cfg.OpenAIAPIKey != "" {
+		openai := transcribe.NewOpenAI(cfg.OpenAIAPIKey)
+		openai.BaseURL, openai.TranscribeModel, openai.SummaryModel = cfg.OpenAIBaseURL, cfg.TranscribeModel, cfg.SummaryModel
+		provider = openai
+	} else {
+		logger.Warn("OPENAI_API_KEY not set — meetings will record but not transcribe")
+	}
+	transcriber := transcribe.NewJob(meetings, provider, transcribe.FFmpeg{Path: cfg.FFmpeg}, cfg.MeetingSummary, logger)
+	meetings.OnTranscribe, meetings.OnSummarize = transcriber.Enqueue, transcriber.EnqueueSummary
 	go meetings.Run(ctx, 5*time.Second)
+	go transcriber.Run(ctx)
+	go meetings.RunRetention(ctx, cfg.MeetingRetention, 24*time.Hour)
 	handler := apihttp.NewHandler(sessions, recordings, devices, meetings, store, logger, cfg.DatabasePingTimeout)
 	server, err := httpserver.New(cfg.Address, handler, logger, cfg.AdminSecret,
 		httpserver.Raw{Pattern: "PUT /v1/meetings/{id}/audio", Handler: apihttp.MeetingAudioUpload(meetings, cfg.AgentSecret)},

@@ -361,6 +361,58 @@ export interface paths {
         delete: operations["deleteMeeting"];
         options?: never;
         head?: never;
+        /** Rename speakers and flag the meeting to keep (RM-31, RM-45) */
+        patch: operations["updateMeeting"];
+        trace?: never;
+    };
+    "/v1/admin/meetings/{meetingId}/transcript": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The transcript as a download, txt or srt (RM-41) */
+        get: operations["getMeetingTranscript"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/meetings/{meetingId}/transcribe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Transcribe again (RM-33) */
+        post: operations["transcribeMeeting"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/meetings/{meetingId}/summarize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Generate the summary again (RM-32) */
+        post: operations["summarizeMeeting"];
+        delete?: never;
+        options?: never;
+        head?: never;
         patch?: never;
         trace?: never;
     };
@@ -692,6 +744,54 @@ export interface components {
             keep: boolean;
             /** Format: date-time */
             deletedAt?: string;
+            transcript?: components["schemas"]["MeetingTranscript"];
+            /** @description Why the transcription failed (RM-33), with state no_transcript. */
+            transcriptError?: string;
+            summary?: components["schemas"]["MeetingSummary"];
+        };
+        MeetingTranscript: {
+            /** @description ISO-639-1, when known. */
+            language?: string;
+            /** @description The whole transcript, one "Speaker: text" line per segment. */
+            text: string;
+            segments: components["schemas"]["MeetingSegment"][];
+            /** @description Names the operator gave to speaker ids (RM-31). */
+            speakers?: {
+                [key: string]: string;
+            };
+            model?: string;
+            /** @description False when the fallback model transcribed without speakers. */
+            diarized: boolean;
+        };
+        MeetingSegment: {
+            /**
+             * Format: double
+             * @description Seconds from the start of the recording.
+             */
+            start: number;
+            /** Format: double */
+            end: number;
+            /** @description Speaker id ("Hablante 1"); empty without diarization. */
+            speaker: string;
+            text: string;
+        };
+        MeetingSummary: {
+            language?: string;
+            text: string;
+            agreements: string[];
+            actions: string[];
+            /** @description Generated automatically by this model (RM-32). */
+            model: string;
+            /** Format: date-time */
+            generatedAt: string;
+        };
+        MeetingPatch: {
+            /** @description Speaker id → name; an empty name removes the alias (RM-31). */
+            speakers?: {
+                [key: string]: string;
+            };
+            /** @description Exclude from retention (RM-45). */
+            keep?: boolean;
         };
         MeetingList: {
             items: components["schemas"]["Meeting"][];
@@ -1447,6 +1547,8 @@ export interface operations {
             query?: {
                 deviceId?: string;
                 state?: components["schemas"]["MeetingState"];
+                /** @description Text to find in the transcript or the summary (RM-42). */
+                q?: string;
                 limit?: number;
             };
             header?: never;
@@ -1514,6 +1616,139 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["MeetingNotFound"];
             /** @description The meeting is still in progress. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    updateMeeting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                meetingId: components["parameters"]["MeetingId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MeetingPatch"];
+            };
+        };
+        responses: {
+            /** @description The meeting as updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Meeting"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["MeetingNotFound"];
+            /** @description There is no transcript whose speakers could be renamed. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    getMeetingTranscript: {
+        parameters: {
+            query?: {
+                format?: "txt" | "srt";
+            };
+            header?: never;
+            path: {
+                meetingId: components["parameters"]["MeetingId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The transcript. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["MeetingNotFound"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    transcribeMeeting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                meetingId: components["parameters"]["MeetingId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Queued. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Meeting"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["MeetingNotFound"];
+            /** @description The meeting is in progress, already transcribing, or has no audio. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    summarizeMeeting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                meetingId: components["parameters"]["MeetingId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Queued. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Meeting"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["MeetingNotFound"];
+            /** @description There is no transcript to summarize. */
             409: {
                 headers: {
                     [name: string]: unknown;
