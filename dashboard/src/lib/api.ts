@@ -95,9 +95,20 @@ export const getDevices = createServerFn({ method: 'GET' }).handler(async () => 
   return { devices: devices.items, room: publicRoom }
 })
 
+export type ControlRoomPublic = Omit<ControlRoomInfo, 'orgSecret'>
+
+// The ficha needs the control room's own defaults (token server, syslog) to
+// show what an adoption wrote into the unit.
 export const getDevice = createServerFn({ method: 'GET' })
   .validator((deviceId: string) => deviceId)
-  .handler(async ({ data }) => apiGet<DeviceDetailWire>(`/v1/admin/devices/${id(data)}`))
+  .handler(async ({ data }) => {
+    const [detail, room] = await Promise.all([
+      apiGet<DeviceDetailWire>(`/v1/admin/devices/${id(data)}`),
+      apiGet<ControlRoomInfo>('/v1/admin/control-room'),
+    ])
+    const { orgSecret: _omit, ...publicRoom } = room
+    return { detail, room: publicRoom as ControlRoomPublic }
+  })
 
 // Desired-state: the device reconciles on its next poll (~30 s) and reboots
 // into the chosen profile. An empty name clears the desired state.

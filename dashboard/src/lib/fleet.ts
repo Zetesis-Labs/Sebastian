@@ -168,6 +168,38 @@ export function configSync(device: Pick<Device, 'reportedConfigVersion' | 'desir
   return now.getTime() - lastPoll > 100_000 ? 'stale' : 'applying'
 }
 
+// The ficha's form: only what the control room governs (spec §3.4), grouped
+// the way the operator thinks. `mode` renders the mode selector first.
+export const FORM_GROUPS: { title: string; hint: string; mode?: boolean; paths: string[] }[] = [
+  { title: 'Red WiFi', hint: 'Déjalo vacío para no tocar la red del altavoz.', paths: ['wifi.ssid', 'wifi.password', 'wifi.hidden'] },
+  { title: 'Control room', hint: 'Lo que la adopción escribió en el altavoz.', paths: ['livekit.tokenServerUrl', 'telemetry.syslogIp', 'telemetry.syslogPort'] },
+  { title: 'Audio', hint: 'Modo de conversación y haz del micro.', mode: true, paths: ['audio.fixedBeam', 'audio.fixedBeamAzimuthDeg'] },
+  { title: 'Conversación', hint: 'Cuándo se cierra una sesión y cuánta voz hace falta para abrirla.', paths: ['session.silenceTimeoutMs', 'session.voiceLevel'] },
+]
+
+// An empty SSID in the ficha means "keep the stored network", not an error.
+export function fichaIssues<T extends { path: string }>(issues: T[], form: { wifi: { ssid: string } }): T[] {
+  return issues.filter((i) => !(i.path === 'wifi.ssid' && !form.wifi.ssid))
+}
+
+// What an adoption from this control room wrote into the unit: shown when the
+// desired document does not say otherwise.
+export function seedFromRoom<T extends { livekit: { tokenServerUrl: string }; telemetry: { syslogIp: string; syslogPort: number } }>(
+  form: T,
+  room: { apiUrl: string; syslogIp?: string; syslogPort?: number },
+): T {
+  const origin = room.apiUrl.replace(/\/$/, '')
+  return {
+    ...form,
+    livekit: { ...form.livekit, tokenServerUrl: form.livekit.tokenServerUrl || (origin ? `${origin}/token` : '') },
+    telemetry: {
+      ...form.telemetry,
+      syslogIp: form.telemetry.syslogIp || room.syslogIp || '',
+      syslogPort: form.telemetry.syslogPort || room.syslogPort || 514,
+    },
+  }
+}
+
 // Fields the control room governs (spec §3.4); the rest is read-only in the form.
 export const GOVERNABLE_PATHS = new Set([
   'mode',

@@ -7,11 +7,12 @@ import {
   renameDevice,
   setDesiredConfig,
   setDeviceProfile,
+  type ControlRoomPublic,
   type DeviceDetail,
   type Json,
 } from '../lib/api'
 import { formatDate } from '../lib/format'
-import { GOVERNABLE_PATHS, REFLASH_ONLY, STATE_HINT, STATE_LABEL, STATE_TONE, configSync, desiredDocument, shortRoom, timeline } from '../lib/fleet'
+import { FORM_GROUPS, GOVERNABLE_PATHS, STATE_HINT, STATE_LABEL, STATE_TONE, configSync, desiredDocument, fichaIssues, seedFromRoom, shortRoom, timeline } from '../lib/fleet'
 import { defaultConfig, mergeConfig, type DeviceConfig } from '@installer/config'
 import { MODES, SHARED, getField, setField, type FieldMeta } from '@installer/modes'
 import { validate } from '@installer/validate'
@@ -32,23 +33,28 @@ export const Route = createFileRoute('/devices/$deviceId')({
 
 const QUICK_PROFILES = ['agente', 'micro-usb']
 
-// The desired document the form edits, seeded from what the control room
-// holds (or the installer defaults) — never from secrets.
-function seedForm(detail: DeviceDetail): DeviceConfig {
+// The desired document the form edits: what this control room holds for the
+// unit (or wrote into it at adoption), never secrets, never a password.
+function seedForm(detail: DeviceDetail, room: ControlRoomPublic): DeviceConfig {
   const base = detail.desiredConfig ? mergeConfig(detail.desiredConfig) : defaultConfig()
-  return { ...base, wifi: { ...base.wifi, password: '' } }
+  return seedFromRoom({ ...base, wifi: { ...base.wifi, password: '' } }, room)
 }
 
+const FIELD_BY_PATH = new Map<string, FieldMeta>(
+  [...MODES.flatMap((m) => m.fields), ...SHARED.flatMap((g) => g.fields)].map((f) => [f.path, f] as const),
+)
+
 function DevicePage() {
-  const detail = Route.useLoaderData() as DeviceDetail
+  const { detail: loaded, room } = Route.useLoaderData() as { detail: DeviceDetail; room: ControlRoomPublic }
+  const detail = loaded
   const router = useRouter()
-  const [form, setForm] = useState<DeviceConfig>(() => seedForm(detail))
+  const [form, setForm] = useState<DeviceConfig>(() => seedForm(detail, room))
   const [dirty, setDirty] = useState(false)
   const [name, setName] = useState(detail.displayName)
   const [msg, setMsg] = useState<{ text: string; tone: 'ok' | 'warn' | 'info' } | null>(null)
   const [secret, setSecret] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const issues = useMemo(() => validate(form), [form])
+  const issues = useMemo(() => fichaIssues(validate(form), form), [form])
   const [now, setNow] = useState<Date | null>(null)
 
   useEffect(() => {
@@ -64,8 +70,8 @@ function DevicePage() {
   // A fresh load (after the device applied) reseeds the form unless the
   // operator is mid-edit.
   useEffect(() => {
-    if (!dirty) setForm(seedForm(detail))
-  }, [detail, dirty])
+    if (!dirty) setForm(seedForm(detail, room))
+  }, [detail, room, dirty])
 
   const sync = configSync(detail, new Date())
   const running = detail.reportedConfigVersion ?? '—'
@@ -99,8 +105,6 @@ function DevicePage() {
     void act('Guardando la configuración deseada…', () => setDesiredConfig({ data: { deviceId: detail.id, config: doc } }), 'Guardada. El altavoz la aplicará en su próximo poll (30 s) y se reiniciará.').then(() => setDirty(false))
   }
 
-  const mode = MODES.find((m) => m.id === form.mode) ?? MODES[0]
-  const fields: FieldMeta[] = [...mode.fields, ...SHARED.flatMap((g) => g.fields)]
 
   return (
     <main className="page-shell detail-page">
@@ -177,22 +181,31 @@ function DevicePage() {
             {sync === 'none' && `sin configuración deseada · ejecuta ${running}`}
           </span>
         </div>
-        <div className="config-form">
-          <label className="config-field">
-            <span>Modo</span>
-            <select value={form.mode} onChange={(e) => update('mode', e.target.value)}>
-              {MODES.map((m) => (
-                <option key={m.id} value={m.id}>{m.title}</option>
-              ))}
-            </select>
-          </label>
-          {fields.map((f) => (
-            <Field key={f.path} f={f} form={form} onChange={update} issue={issues.find((i) => i.path === f.issuePath)?.message} />
-          ))}
-        </div>
-        <p className="device-meta">
-          La contraseña WiFi solo viaja si escribes una nueva. Un cambio de WiFi se aplica como prueba: si el altavoz no obtiene IP en 2 minutos, vuelve a la red anterior.
-        </p>
+        {FORM_GROUPS.map((group) => (
+          <fieldset key={group.title} className="config-group">
+            <legend>
+              <span>{group.title}</span>
+              <small>{group.hint}</small>
+            </legend>
+            <div className="config-form">
+              {group.mode && (
+                <label className="config-field">
+                  <span>Modo</span>
+                  <select value={form.mode} onChange={(e) => update('mode', e.target.value)}>
+                    {MODES.map((m) => (
+                      <option key={m.id} value={m.id}>{m.title}</option>
+                    ))}
+                  </select>
+                  <small>{MODES.find((m) => m.id === form.mode)?.sub}</small>
+                </label>
+              )}
+              {group.paths.map((path) => {
+                const f = FIELD_BY_PATH.get(path)
+                return f ? <Field key={f.path} f={f} form={form} onChange={update} issue={issues.find((i) => i.path === (f.issuePath ?? f.path))?.message} /> : null
+              })}
+            </div>
+          </fieldset>
+        ))}
         <div className="device-actions">
           <button type="button" className="chip-button primary" disabled={busy} onClick={save}>Guardar como deseada</button>
           {detail.desiredConfigVersion && (
@@ -252,15 +265,12 @@ function DevicePage() {
 
 function Field({ f, form, onChange, issue }: Readonly<{ f: FieldMeta; form: DeviceConfig; onChange: (path: string, value: unknown) => void; issue?: string }>) {
   const value = getField(form, f.path)
-  const locked = REFLASH_ONLY[f.path]
-  const governable = GOVERNABLE_PATHS.has(f.path)
-  const disabled = Boolean(locked) || !governable
-  const hint = locked ?? (!governable ? 'Este campo no lo aplica el firmware (solo el instalador / token server).' : issue)
+  const hint = issue ?? HINT[f.path] ?? f.help
   if (f.type === 'toggle') {
     return (
-      <label className="config-field">
+      <label className="config-field config-toggle">
         <span>{f.label}</span>
-        <input type="checkbox" checked={Boolean(value)} disabled={disabled} onChange={(e) => onChange(f.path, e.target.checked)} />
+        <input type="checkbox" checked={Boolean(value)} onChange={(e) => onChange(f.path, e.target.checked)} />
         {hint && <small>{hint}</small>}
       </label>
     )
@@ -269,7 +279,7 @@ function Field({ f, form, onChange, issue }: Readonly<{ f: FieldMeta; form: Devi
     return (
       <label className="config-field">
         <span>{f.label}</span>
-        <select value={String(value)} disabled={disabled} onChange={(e) => onChange(f.path, e.target.value)}>
+        <select value={String(value)} onChange={(e) => onChange(f.path, e.target.value)}>
           {f.options?.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
           ))}
@@ -285,14 +295,27 @@ function Field({ f, form, onChange, issue }: Readonly<{ f: FieldMeta; form: Devi
       <input
         type={f.type === 'password' ? 'password' : isNumber ? 'number' : 'text'}
         value={value === undefined || value === null ? '' : String(value)}
-        placeholder={f.path === 'wifi.password' ? 'sin cambios' : f.placeholder}
-        disabled={disabled}
+        placeholder={PLACEHOLDER[f.path] ?? f.placeholder}
         autoComplete="off"
         onChange={(e) => onChange(f.path, isNumber ? Number(e.target.value) || 0 : e.target.value)}
       />
       {hint && <small className={issue ? 'warn' : ''}>{hint}</small>}
     </label>
   )
+}
+
+// What the operator reads under each field in the ficha (the installer's help
+// is written for a unit in hand; here the unit is remote).
+const HINT: Record<string, string> = {
+  'wifi.ssid': 'Vacío: conserva la red guardada en el altavoz.',
+  'wifi.password': 'Solo viaja si escribes una nueva. Un cambio de red se prueba 2 min y, si no obtiene IP, vuelve a la anterior.',
+  'livekit.tokenServerUrl': 'Cambiarlo mueve el altavoz a otro control room.',
+  'telemetry.syslogIp': 'Receptor UDP de los logs del altavoz. Vacío: se quedan en la placa.',
+}
+
+const PLACEHOLDER: Record<string, string> = {
+  'wifi.ssid': 'sin cambios',
+  'wifi.password': 'sin cambios',
 }
 
 function Detail({ label, value }: Readonly<{ label: string; value: string }>) {
