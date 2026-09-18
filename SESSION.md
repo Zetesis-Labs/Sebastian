@@ -213,3 +213,17 @@ Trampas nuevas:
   construye con `--base /installer/`.
 - Los server functions de TanStack Start rechazan `unknown` en el payload: el
   documento de configuración viaja tipado como JSON.
+
+### Nace adoptada (RF-03/RF-51), noche del 18
+
+- Una placa provisionada desde el instalador embebido lleva `org_secret` y no
+  `dev_secret`. `control.zig` (`enrollIfNeeded`, antes del primer poll y en
+  cada poll hasta que salga) hace `GET /v1/devices/{id}/enroll` → nonce,
+  `POST …/enroll {nonce, mac}` con `mac = HMAC(orgSecret, nonce + "." + id)`
+  (`sebastian_enroll` en `session_http.c`, HMAC compartido con `adopt.c`), y
+  guarda el `deviceSecret` que recibe con `sebastian_provisioning_apply`.
+- Server: `device.Service.EnrollChallenge/Enroll` (nonce de un solo uso, 60 s,
+  `MarkAdopted` como una adopción en red); 404 sin `SEBASTIAN_ORG_SECRET`.
+- Pendiente de probar en placa: hace falta una unidad con secreto de
+  organización y sin secreto de altavoz (provisionar desde `/installer` del
+  dashboard, o `Olvidar` + re-provisionar por USB).

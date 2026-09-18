@@ -2,12 +2,14 @@ package device
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"maps"
 	"strings"
+	"time"
 
 	"github.com/zetesis-labs/sebastian/server/internal/adoption"
 )
@@ -66,6 +68,28 @@ func adoptionConfig(room ControlRoom, deviceSecret string, overrides map[string]
 	}
 	body, err := json.Marshal(doc)
 	return string(body), err
+}
+
+// Enrolment (RF-03/RF-51): a unit provisioned from the embedded installer holds
+// the organization secret but no device secret, and asks for one over HTTP.
+// It proves the secret the way LAN adoption does — HMAC over a nonce — so the
+// secret itself never travels.
+type enrollChallenge struct {
+	Nonce  string
+	Issued time.Time
+}
+
+const enrollTTL = 60 * time.Second
+
+func enrollProof(orgSecret, nonce, deviceID string) string {
+	return adoption.Sign(orgSecret, nonce, deviceID)
+}
+
+func enrollValid(ch enrollChallenge, nonce, mac, orgSecret, deviceID string, now time.Time) bool {
+	if ch.Nonce == "" || nonce != ch.Nonce || now.Sub(ch.Issued) > enrollTTL {
+		return false
+	}
+	return hmac.Equal([]byte(strings.ToLower(mac)), []byte(enrollProof(orgSecret, nonce, deviceID)))
 }
 
 func forgetConfig() string {

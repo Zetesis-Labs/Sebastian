@@ -20,6 +20,8 @@ docs/installer/
 
 # --- Zig ---
 firmware/.zig-cache/
+firmware/.cache/
+firmware/build.*/
 firmware/zig-out/
 firmware/zig-relsafe-*/
 

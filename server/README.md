@@ -52,6 +52,11 @@ persistencia usa Bun con consultas SQL-first escritas en
   reconciliación del firmware; la cabecera `X-Desired-Config` lleva la versión
   de la configuración deseada. `GET /v1/devices/{id}/config` (secreto de
   dispositivo) la devuelve.
+- `GET`/`POST /v1/devices/{id}/enroll`: alta de una unidad provisionada desde
+  el instalador embebido (lleva el secreto de organización, no el suyo): el
+  `GET` da un nonce de un solo uso (60 s) y el `POST {nonce, mac}` con
+  `mac = HMAC-SHA256(secreto de organización, nonce + "." + id)` la adopta y le
+  devuelve su secreto de dispositivo. 404 si no hay `SEBASTIAN_ORG_SECRET`.
 - Flota (`docs/implementation/11-fleet-adoption-control-room.md`):
   `GET /v1/admin/devices` (vista con lo visto por mDNS), `GET/PATCH
   /v1/admin/devices/{id}`, `POST …/adopt` y `POST …/forget` (202 + job en

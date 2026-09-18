@@ -97,7 +97,15 @@ El operador solo tiene que introducir la WiFi.
 
 **RF-03 Un altavoz provisionado desde el instalador embebido nace adoptado.** Al
 primer contacto aparece como "Adoptado aquí", con secreto de altavoz emitido en
-ese primer contacto (§8).
+ese primer contacto (§8). Mecanismo: la unidad lleva el secreto de organización
+y ningún secreto de altavoz; antes de su primer poll pide un reto a
+`GET /v1/devices/{id}/enroll`, lo firma (HMAC del nonce con el secreto de
+organización, como la adopción en red) y `POST …/enroll` le devuelve su
+secreto de altavoz, que guarda en NVS. Si el control room no tiene secreto de
+organización o la prueba falla, la unidad reintenta en cada poll y mientras
+tanto aparece como "Registrado · sin adoptar". El secreto emitido así no se
+muestra en el dashboard (va directo a la unidad); si el operador lo necesita,
+lo regenera desde la ficha (RF-53).
 
 **RF-04 Firmware compatible.** El botón de flashear del instalador embebido
 instala la versión de firmware empaquetada con ese control room, no la última
@@ -224,9 +232,9 @@ tiene una conversación en curso, la adopción espera a que termine (máximo
 prerrellena; el instalador de GitHub Pages lo pide como campo opcional.
 
 **RF-51 Secreto de altavoz emitido al adoptar.** Al adoptar (o al primer contacto
-de una unidad provisionada desde el instalador embebido), el control room
-genera un secreto por unidad y se lo entrega en el mismo mensaje. La unidad lo
-usa desde entonces para abrir sesiones.
+de una unidad provisionada desde el instalador embebido, RF-03), el control
+room genera un secreto por unidad y se lo entrega en el mismo mensaje. La
+unidad lo usa desde entonces para abrir sesiones.
 
 **RF-52 Ver una vez.** El secreto de altavoz se muestra una sola vez en el
 dashboard, en el momento de emitirlo o de regenerarlo, con botón de copiar y

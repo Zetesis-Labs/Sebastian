@@ -27,6 +27,13 @@ bool sebastian_take_last_error(char *out, size_t out_size);
 // something else, or a negative value for transport/parse errors.
 int sebastian_session_create(const char *base_url, const char *device_id, const char *secret,
                              char *url_out, size_t url_size, char *token_out, size_t token_size);
+// Enrolment (RF-03/RF-51): a unit that holds the organization secret but no
+// device secret asks {base}/v1/devices/{id}/enroll for one, proving the
+// organization secret with an HMAC over the server's nonce. Returns 0 and the
+// new device secret, the HTTP status when the server refused, or negative for
+// transport/parse errors.
+int sebastian_enroll(const char *base_url, const char *device_id, const char *org_secret,
+                     char *secret_out, size_t secret_size);
 // GET with optional device credentials, capturing one response header. Returns
 // the body length (>= 0), or negative: -1 init, -2 open, -3 http (status in
 // *status), -4 read.
@@ -53,3 +60,5 @@ bool sebastian_adopt_consent_pending(void);
 void sebastian_adopt_consent_grant(void);
 // Peer that last failed authentication ("adopt-denied:<ip>"), "" when none.
 const char *sebastian_adopt_last_denied(void);
+// hex HMAC-SHA256(secret, a + "." + b) — the proof shared by adoption and enrolment.
+bool sebastian_hmac_sha256_hex(const char *secret, const char *a, const char *b, char out[65]);

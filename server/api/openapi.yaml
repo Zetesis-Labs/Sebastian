@@ -179,6 +179,70 @@ paths:
                 $ref: "#/components/schemas/Problem"
         "503":
           $ref: "#/components/responses/Unavailable"
+  /v1/devices/{deviceId}/enroll:
+    get:
+      operationId: getEnrollmentChallenge
+      summary: Challenge for a device to enrol with the organization secret
+      description: >-
+        Device-facing, first step of the enrolment (RF-03/RF-51): a unit
+        provisioned from the embedded installer holds the organization secret
+        but no device secret yet, so it asks this control room for one. The
+        nonce is single-use and expires after 60 s. 404 when this control room
+        has no organization secret (enrolment is not possible).
+      tags: [devices]
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+      responses:
+        "200":
+          description: The challenge.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnrollmentChallenge"
+        "404":
+          description: Enrolment is not available on this control room.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+    post:
+      operationId: enrollDevice
+      summary: Enrol a device that proves it holds the organization secret
+      description: >-
+        Second step: `mac` = hex HMAC-SHA256(organization secret, nonce + "." +
+        deviceId), the same construction the LAN adoption uses. On success the
+        unit is adopted by this control room and receives its device secret,
+        which it stores and uses from then on for `POST /v1/sessions`.
+      tags: [devices]
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnrollmentRequest"
+      responses:
+        "201":
+          description: Enrolled; the device secret, delivered once.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnrollmentResponse"
+        "401":
+          description: The nonce is unknown, expired or the proof does not match.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          description: Enrolment is not available on this control room.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/admin/control-room:
     get:
       operationId: getControlRoom
@@ -962,6 +1026,39 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Device"
+    EnrollmentChallenge:
+      type: object
+      additionalProperties: false
+      required: [nonce]
+      properties:
+        nonce:
+          type: string
+          minLength: 64
+          maxLength: 64
+          pattern: "^[0-9a-f]{64}$"
+    EnrollmentRequest:
+      type: object
+      additionalProperties: false
+      required: [nonce, mac]
+      properties:
+        nonce:
+          type: string
+          minLength: 64
+          maxLength: 64
+        mac:
+          type: string
+          minLength: 64
+          maxLength: 64
+          description: hex HMAC-SHA256(organization secret, nonce + "." + deviceId)
+    EnrollmentResponse:
+      type: object
+      additionalProperties: false
+      required: [deviceSecret]
+      properties:
+        deviceSecret:
+          type: string
+          minLength: 32
+          maxLength: 256
     DesiredProfile:
       type: object
       additionalProperties: false
