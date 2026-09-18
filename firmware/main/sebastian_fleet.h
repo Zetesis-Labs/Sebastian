@@ -37,7 +37,18 @@ bool sebastian_take_last_error(char *out, size_t out_size);
 // LiveKit URL + token on success, the HTTP status when the server answered
 // something else, or a negative value for transport/parse errors.
 int sebastian_session_create(const char *base_url, const char *device_id, const char *secret,
+                             const char *json_body, // NULL = no body (a conversation)
                              char *url_out, size_t url_size, char *token_out, size_t token_size);
+// PUT {base}/v1/devices/{id}/meeting: the unit confirms it records, or that it
+// stopped and why (meeting recordings, RM-52). Returns 0 on 204, the HTTP
+// status when refused, negative on transport errors.
+int sebastian_report_meeting(const char *base_url, const char *device_id, const char *secret,
+                             const char *meeting_id, const char *state, const char *reason);
+// POST {base}/v1/devices/{id}/meetings: a gesture start asks the control room
+// for a meeting (RM-01/02); fills its id. 0 on 202, HTTP status when refused
+// (409 busy, 422 profile), negative on transport/parse errors.
+int sebastian_request_meeting(const char *base_url, const char *device_id, const char *secret,
+                              char *id_out, size_t id_size);
 // Enrolment (RF-03/RF-51): a unit that holds the organization secret hands its
 // own device secret to {base}/v1/devices/{id}/enroll, proving the organization
 // secret with an HMAC over the server's nonce. Returns 0 when the control room
@@ -53,6 +64,11 @@ int sebastian_report_running_config(const char *base_url, const char *device_id,
 int sebastian_http_get_auth(const char *url, const char *device_id, const char *secret,
                             const char *capture_header, char *hdr_out, size_t hdr_size,
                             char *out, size_t out_size, int *status);
+// Same, capturing two response headers.
+int sebastian_http_get_auth2(const char *url, const char *device_id, const char *secret,
+                             const char *header1, char *hdr1_out, size_t hdr1_size,
+                             const char *header2, char *hdr2_out, size_t hdr2_size,
+                             char *out, size_t out_size, int *status);
 
 // ── announce.c ──────────────────────────────────────────────────────────────
 // Advertise _sebastian._tcp on the LAN. Call once the network is up.
@@ -79,5 +95,17 @@ void sebastian_adopt_consent_grant(void);
 // True from the moment an adoption is accepted until the unit restarts: the
 // ring shows it in solid amber (RF-64).
 bool sebastian_adopt_accepted(void);
+
+// ── meeting orders (docs/implementation/14 §3.2) ─────────────────────────────
+// One mailbox for the next order the app must act on: from the LAN command
+// ({"t":"cmd"}), from the poll's X-Meeting header, or from the MUTE gesture.
+// origin: 'n' network, 'g' gesture. cmd: "record-start" | "record-stop" | "record-warn".
+void sebastian_meeting_push(const char *cmd, const char *id, char origin);
+bool sebastian_meeting_take(char *cmd, size_t cmd_size, char *id, size_t id_size, char *origin);
+// The app's facts the listener needs to answer busy/idle/profile.
+void sebastian_meeting_set_active(bool active);
+bool sebastian_meeting_is_active(void);
+void sebastian_meeting_set_recordable(bool recordable); // agente profile (RM-54)
+bool sebastian_meeting_is_recordable(void);
 // hex HMAC-SHA256(secret, a + "." + b) — the proof shared by adoption and enrolment.
 bool sebastian_hmac_sha256_hex(const char *secret, const char *a, const char *b, char out[65]);

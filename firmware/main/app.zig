@@ -54,6 +54,11 @@ var room: c.livekit_room_handle_t = null;
 // produces it every few ms, so it is sampled into each tick via swap.
 var render_peak = std.atomic.Value(u32).init(0);
 var wake_seq: u32 = 0;
+// The meeting the idle loop was told to record (design 14 §3.2, block B).
+var meeting_id_z: [40]u8 = undefined;
+var meeting_origin: u8 = 'n';
+
+const IdleOutcome = enum { wake, meeting };
 
 // Discrete session events (agent state, participant info) flow through this
 // queue from the LiveKit callback threads into the session loop. Created once
@@ -451,7 +456,7 @@ fn revokeUsbToIdle() void {
     xvf_ui.setState(.idle);
 }
 
-fn waitForWakeWord() void {
+fn waitForWakeWord() IdleOutcome {
     // Convivencia: while idling for the wake word, the USB host can borrow
     // the mic — usage-driven, zero config (core/arbiter_core hysteresis).
     // Ownership changes execute HERE, on the single agent task, so they can
@@ -462,6 +467,10 @@ fn waitForWakeWord() void {
             .grant_usb => grantUsbFromIdle(),
             .revoke_usb => revokeUsbToIdle(),
         };
+        if (takeMeetingStart()) {
+            if (arb.owner == .usb) revokeUsbToIdle();
+            return .meeting;
+        }
         c.vTaskDelay(arbiter_core.TICK_MS);
     }
     // Rare race: detection latched in the same tick the mic went to USB.
@@ -469,6 +478,26 @@ fn waitForWakeWord() void {
     if (arb.owner == .usb) revokeUsbToIdle();
     xvf_ui.setState(.waking); // ring: orbiting pixel — heard you, connecting
     log.info("wake word confirmed — fetching token", .{});
+    return .wake;
+}
+
+/// A record-start order waiting in the mailbox (LAN, poll or gesture). Stops
+/// and warnings that arrive while idle refer to nothing and are dropped.
+fn takeMeetingStart() bool {
+    var cmd: [16]u8 = undefined;
+    var origin: u8 = 'n';
+    if (!c.sebastian_meeting_take(&cmd, cmd.len, &meeting_id_z, meeting_id_z.len, &origin)) return false;
+    const verb = std.mem.sliceTo(&cmd, 0);
+    if (!std.mem.eql(u8, verb, "record-start")) {
+        log.info("meeting order {s} while idle — ignored", .{verb});
+        return false;
+    }
+    if (c.sebastian_meeting_is_recordable() == false) {
+        log.info("meeting order in a profile without recording — ignored (RM-54)", .{});
+        return false;
+    }
+    meeting_origin = origin;
+    return true;
 }
 
 fn fetchConnectionAfterWake() ?token.Connection {
@@ -663,7 +692,10 @@ fn teardownActiveSession() void {
 
 fn runWakeCycle(audio: AudioPipeline) void {
     startWakeDetection();
-    waitForWakeWord();
+    if (waitForWakeWord() == .meeting) {
+        runMeetingCycle(audio);
+        return;
+    }
 
     // The wake task keeps draining I2S into the pre-roll ring through token fetch
     // and connect; LiveKit remains disconnected here, so IDLE costs zero minutes.
@@ -672,6 +704,108 @@ fn runWakeCycle(audio: AudioPipeline) void {
     if (!openSessionForWake(audio, conn, wake_id)) return;
 
     runActiveSession(wake_id);
+    teardownActiveSession();
+}
+
+// ── Meeting recording (spec 13, design 14 block B) ──────────────────────────
+//
+// A meeting session is a LiveKit session opened with kind=meeting: the agent
+// only records. No wake word, no pre-roll, no reducer: the unit publishes its
+// mic until told to stop (LAN cmd, poll header, gesture), the room ends, or
+// the USB host takes the mic. Silence and the maximum are the server's
+// business; the ring is red the whole time (RM-10).
+const MEETING_TICK_MS: u32 = 250;
+const MEETING_CONNECT_TICKS: u32 = 60; // 15 s to reach the room before giving up
+
+fn runMeetingCycle(audio: AudioPipeline) void {
+    const id = std.mem.sliceTo(&meeting_id_z, 0);
+    const id_ptr: [*:0]const u8 = @ptrCast(&meeting_id_z);
+    // A gesture start has no id yet: the control room assigns one. Ask for it
+    // by reporting "recording" with an empty id is not possible, so a gesture
+    // start goes through the control room: it is told to start (RM-01) and the
+    // real order comes back with the id.
+    if (id.len == 0) {
+        log.info("record gesture — asking the control room to start a meeting", .{});
+        const rc = control.requestMeeting();
+        if (rc != 0) log.warn("meeting request failed (rc={d})", .{rc});
+        wakeword.stop();
+        return;
+    }
+    log.info("meeting {s}: opening the recording session (origin {c})", .{ id, meeting_origin });
+    xvf_ui.setState(.waking);
+    const conn = token.fetchMeeting(id) catch |err| {
+        logStageError("meeting token", err);
+        wakeword.stop();
+        xvf_ui.setState(.idle);
+        return;
+    };
+    wdgArm(60);
+    openSession(audio, conn) catch |err| {
+        logStageError("meeting session open", err);
+        wakeword.stop();
+        wdgDisarm();
+        xvf_ui.setState(.idle);
+        return;
+    };
+    wakeword.stop();
+    mic_src.setLive(true);
+    c.sebastian_meeting_set_active(true);
+    xvf_ui.setRecording(.on);
+
+    var reason: [*:0]const u8 = "";
+    var report_pending = true;
+    var ticks: u32 = 0;
+    var usb_capture_ticks: u32 = 0;
+    var cmd: [16]u8 = undefined;
+    var cmd_id: [40]u8 = undefined;
+    var origin: u8 = 'n';
+    while (true) : (ticks += 1) {
+        c.vTaskDelay(MEETING_TICK_MS);
+        wdgArm(60);
+        const state = c.livekit_room_get_state(room);
+        const conn_phase = classifyConnection(state);
+        if (conn_phase == .ended) {
+            log.warn("meeting {s}: room ended (state={d})", .{ id, state });
+            reason = "room_lost";
+            break;
+        }
+        if (report_pending and conn_phase == .connected) {
+            const rc = control.reportMeeting(id_ptr, "recording", "");
+            if (rc == 0) {
+                report_pending = false;
+                log.info("meeting {s}: recording confirmed to the control room", .{id});
+            } else if (ticks % 20 == 0) {
+                log.warn("meeting {s}: confirmation failed (rc={d}) — retrying", .{ id, rc });
+            }
+        }
+        if (report_pending and conn_phase == .connecting and ticks >= MEETING_CONNECT_TICKS) {
+            log.warn("meeting {s}: never reached the room", .{id});
+            reason = "room_lost";
+            break;
+        }
+        if (c.sebastian_meeting_take(&cmd, cmd.len, &cmd_id, cmd_id.len, &origin)) {
+            const verb = std.mem.sliceTo(&cmd, 0);
+            if (std.mem.eql(u8, verb, "record-stop")) {
+                reason = if (origin == 'g') "gesture" else "";
+                log.info("meeting {s}: stop ({s})", .{ id, if (origin == 'g') "gesture" else "control room" });
+                break;
+            }
+            if (std.mem.eql(u8, verb, "record-warn")) xvf_ui.setRecording(.warn);
+            // record-start while recording: already here (RM-05)
+        }
+        usb_capture_ticks = if (usb_mic.hostCapturing()) usb_capture_ticks + 1 else 0;
+        if (usb_capture_ticks * MEETING_TICK_MS >= arbiter_core.RESUME_AFTER_MS) {
+            log.info("meeting {s}: USB capture takeover — stopping", .{id});
+            reason = "gesture";
+            break;
+        }
+    }
+    xvf_ui.setRecording(.off);
+    c.sebastian_meeting_set_active(false);
+    if (reason[0] != 0) {
+        const rc = control.reportMeeting(id_ptr, "stopped", reason);
+        if (rc != 0) log.warn("meeting {s}: stop not reported (rc={d})", .{ id, rc });
+    }
     teardownActiveSession();
 }
 
@@ -711,6 +845,7 @@ export fn app_main() callconv(.c) void {
     // Before xvf_ui.start() so the ring and the button are exclusively ours.
     if (xvf_master and xvf_unmuted) selector.maybeRun();
     profile.applyActive();
+    c.sebastian_meeting_set_recordable(profile.activeMode() == .agent); // RM-54
 
     // applyConfig writes the gains + fixes the beam, all readback-verified; it
     // returns false if any of that didn't take (e.g. the beam is not actually

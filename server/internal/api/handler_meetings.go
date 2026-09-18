@@ -21,6 +21,7 @@ import (
 
 type MeetingService interface {
 	Start(ctx context.Context, deviceID string, origin meeting.Origin) (meeting.Meeting, error)
+	StartFromUnit(ctx context.Context, deviceID, secret string) (meeting.Meeting, error)
 	Stop(ctx context.Context, id uuid.UUID, reason meeting.EndReason) (meeting.Meeting, error)
 	Report(ctx context.Context, deviceID, secret string, id uuid.UUID, state string, reason meeting.EndReason) error
 	PendingCommand(ctx context.Context, deviceID string) string
@@ -52,6 +53,22 @@ func (h *Server) StartMeeting(ctx context.Context, request StartMeetingRequestOb
 		return StartMeeting503ApplicationProblemPlusJSONResponse{UnavailableApplicationProblemPlusJSONResponse: h.unavailable(ctx, "start meeting failed", err, "device_id", request.DeviceId)}, nil
 	}
 	return StartMeeting202JSONResponse(meetingResponse(m, h.now())), nil
+}
+
+// RequestMeeting is the gesture path (RM-02): the unit asks with its secret.
+func (h *Server) RequestMeeting(ctx context.Context, request RequestMeetingRequestObject) (RequestMeetingResponseObject, error) {
+	m, err := h.meetings.StartFromUnit(ctx, request.DeviceId, request.Params.XDeviceSecret)
+	switch {
+	case errors.Is(err, device.ErrUnauthorized):
+		return RequestMeeting401ApplicationProblemPlusJSONResponse{UnauthorizedApplicationProblemPlusJSONResponse: UnauthorizedApplicationProblemPlusJSONResponse(problem(401, "Unauthorized", "Invalid device credentials."))}, nil
+	case errors.Is(err, meeting.ErrBusy):
+		return RequestMeeting409ApplicationProblemPlusJSONResponse(problem(409, "Already recording", "A meeting is already in progress on this unit.")), nil
+	case errors.Is(err, meeting.ErrProfile), errors.Is(err, meeting.ErrNotAdopted), errors.Is(err, meeting.ErrAbsent):
+		return RequestMeeting422ApplicationProblemPlusJSONResponse(problem(422, "Cannot record", err.Error())), nil
+	case err != nil:
+		return RequestMeeting503ApplicationProblemPlusJSONResponse{UnavailableApplicationProblemPlusJSONResponse: h.unavailable(ctx, "request meeting failed", err, "device_id", request.DeviceId)}, nil
+	}
+	return RequestMeeting202JSONResponse(meetingResponse(m, h.now())), nil
 }
 
 func (h *Server) StopMeeting(ctx context.Context, request StopMeetingRequestObject) (StopMeetingResponseObject, error) {

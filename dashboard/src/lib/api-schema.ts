@@ -381,6 +381,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/devices/{deviceId}/meetings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** The unit asks for a meeting after the MUTE gesture (RM-02) */
+        post: operations["requestMeeting"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/devices/{deviceId}/meeting": {
         parameters: {
             query?: never;
@@ -1536,6 +1553,50 @@ export interface operations {
             404: components["responses"]["MeetingNotFound"];
             /** @description The meeting is not in progress. */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    requestMeeting: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Device-Secret": string;
+            };
+            path: {
+                deviceId: components["parameters"]["DeviceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Meeting requested; the unit starts it with this id. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Meeting"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description A meeting is already in progress on this unit (RM-05). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The unit cannot record (not adopted here, not contacting, or not in the agente profile). */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

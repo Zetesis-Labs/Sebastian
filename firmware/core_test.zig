@@ -1375,3 +1375,76 @@ test "arbiter survives pathological flapping without livelock" {
     // Flapping faster than both hysteresis windows must never transition.
     try std.testing.expectEqual(@as(u32, 0), grants + revokes);
 }
+
+// ── MUTE gestures for meeting recordings (RM-02/20/50) ───────────────────────
+
+const gesture = @import("main/core/gesture_core.zig");
+
+/// Replays a press/release script sampled every 80 ms and returns the
+/// verdicts that were not .none, in order.
+fn replay(script: []const struct { pressed: bool, ms: u32 }, tail_ms: u32, out: []gesture.Verdict) []gesture.Verdict {
+    var d = gesture.Detector{};
+    var n: usize = 0;
+    var t: u32 = 0;
+    var i: usize = 0;
+    const end = script[script.len - 1].ms + tail_ms;
+    while (t <= end) : (t += 80) {
+        while (i + 1 < script.len and script[i + 1].ms <= t) i += 1;
+        const pressed = script[i].pressed and script[i].ms <= t;
+        const v = d.feed(pressed, t);
+        if (v != .none) {
+            out[n] = v;
+            n += 1;
+        }
+    }
+    return out[0..n];
+}
+
+test "gesture: a short tap is the mute of always, reported once the gap elapsed" {
+    var out: [4]gesture.Verdict = undefined;
+    const got = replay(&.{ .{ .pressed = true, .ms = 0 }, .{ .pressed = false, .ms = 240 } }, 2000, &out);
+    try std.testing.expectEqualSlices(gesture.Verdict, &.{.mute_tap}, got);
+    try std.testing.expectEqual(@as(u8, 0), gesture.togglesToUndo(.mute_tap));
+}
+
+test "gesture: a long press alone does nothing and undoes the XVF's toggle" {
+    var out: [4]gesture.Verdict = undefined;
+    const got = replay(&.{ .{ .pressed = true, .ms = 0 }, .{ .pressed = false, .ms = 2000 } }, 2000, &out);
+    try std.testing.expectEqualSlices(gesture.Verdict, &.{.long_alone}, got);
+    try std.testing.expectEqual(@as(u8, 1), gesture.togglesToUndo(.long_alone));
+}
+
+test "gesture: short then long within a second toggles the recording (RM-02)" {
+    var out: [4]gesture.Verdict = undefined;
+    const got = replay(&.{
+        .{ .pressed = true, .ms = 0 },   .{ .pressed = false, .ms = 240 },
+        .{ .pressed = true, .ms = 800 }, .{ .pressed = false, .ms = 2600 },
+    }, 2000, &out);
+    try std.testing.expectEqualSlices(gesture.Verdict, &.{.record_toggle}, got);
+    try std.testing.expectEqual(@as(u8, 2), gesture.togglesToUndo(.record_toggle));
+}
+
+test "gesture: short then long after more than a second is a tap and a lone long" {
+    var out: [4]gesture.Verdict = undefined;
+    const got = replay(&.{
+        .{ .pressed = true, .ms = 0 },    .{ .pressed = false, .ms = 240 },
+        .{ .pressed = true, .ms = 1600 }, .{ .pressed = false, .ms = 3600 },
+    }, 2000, &out);
+    try std.testing.expectEqualSlices(gesture.Verdict, &.{ .mute_tap, .long_alone }, got);
+}
+
+test "gesture: two short taps are two mutes" {
+    var out: [4]gesture.Verdict = undefined;
+    const got = replay(&.{
+        .{ .pressed = true, .ms = 0 },   .{ .pressed = false, .ms = 240 },
+        .{ .pressed = true, .ms = 560 }, .{ .pressed = false, .ms = 800 },
+    }, 2000, &out);
+    try std.testing.expectEqualSlices(gesture.Verdict, &.{ .mute_tap, .mute_tap }, got);
+}
+
+test "gesture: a clumsy medium press is ignored and its toggle undone" {
+    var out: [4]gesture.Verdict = undefined;
+    const got = replay(&.{ .{ .pressed = true, .ms = 0 }, .{ .pressed = false, .ms = 960 } }, 2000, &out);
+    try std.testing.expectEqualSlices(gesture.Verdict, &.{.ignored}, got);
+    try std.testing.expectEqual(@as(u8, 1), gesture.togglesToUndo(.ignored));
+}

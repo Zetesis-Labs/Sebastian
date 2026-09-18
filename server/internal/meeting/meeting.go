@@ -119,8 +119,20 @@ func (s *Service) Start(ctx context.Context, deviceID string, origin Origin) (Me
 	if err := s.store.Insert(ctx, m); err != nil {
 		return Meeting{}, err
 	}
-	s.deliver(ctx, m, CmdStart)
+	// A gesture start comes from the unit itself: it starts with the id we
+	// answer; there is nothing to order.
+	if origin != OriginGesture {
+		s.deliver(ctx, m, CmdStart)
+	}
 	return m, nil
+}
+
+// StartFromUnit is the gesture path (RM-02): the unit authenticates and asks.
+func (s *Service) StartFromUnit(ctx context.Context, deviceID, secret string) (Meeting, error) {
+	if err := s.units.Authenticate(ctx, deviceID, secret); err != nil {
+		return Meeting{}, err
+	}
+	return s.Start(ctx, deviceID, OriginGesture)
 }
 
 // Stop ends a meeting (RM-20…22); the reason records who asked.

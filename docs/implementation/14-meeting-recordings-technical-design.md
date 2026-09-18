@@ -13,7 +13,7 @@
 
 | Hecho | Consecuencia |
 |-------|--------------|
-| El XVF3800 expone el estado crudo del botón: `GPI_READ_VALUES` (resid 36, cmd 0, 3 bytes). El propio XVF conmuta el mute (GPO 30) en cada pulsación. | La pulsación larga (RM-02) se mide leyendo el GPI desde la tarea del anillo (80 ms). Tras el gesto, el firmware restaura el mute que había (escritura GPO 30). **Spike 0**: confirmar en placa qué bit del GPI es el botón y su nivel activo. |
+| El XVF3800 expone el estado crudo del botón: `GPI_READ_VALUES` (resid 36, cmd 0; solo responde con longitud de lectura 4 = estado + 3 bytes). **Spike 0 hecho (2026-09-18, `68ee`)**: el botón es el bit 0 del byte 0, a nivel y activo bajo (`01` suelto, `00` pulsado); el XVF conmuta el mute (GPO 30) solo en el flanco de pulsar; una pulsación de 5 s se lee entera. | La pulsación larga (RM-02) se mide leyendo el GPI desde la tarea del anillo (80 ms) en `core/gesture_core.zig` (puro, T-B1). Los veredictos que no son un toque de mute deshacen las conmutaciones del XVF (1 la larga sola, 2 el gesto). |
 | El catálogo `recordings` existe (kind, object_url, transcript) pero **nadie lo alimenta**: el agente guarda WAV en su disco local y no registra nada. No hay object storage en Sebastian. | El audio de reunión lo custodia el **server** en su volumen: el agente se lo envía en streaming. Nueva PVC del server en el chart. |
 | OpenAI: `gpt-4o-transcribe-diarize` con `response_format=diarized_json` devuelve segmentos `{start, end, speaker, text}`; `chunking_strategy=auto`; `known_speaker_names/references` permiten fijar hablantes. Tope **25 MB por petición**; formatos `mp3 mp4 mpeg mpga m4a wav webm` (Ogg no figura). | El fichero se guarda en Ogg/Opus (decisión §11 de la spec) y el job de transcripción lo **remultiplexa a WebM sin recodificar** (`ffmpeg -c copy`), troceado en piezas de ≤ 20 MB (≈ 55 min a 48 kbit/s). Los hablantes se mantienen entre piezas pasando como referencia unos segundos de cada hablante de la pieza anterior. |
 | El agente recibe el micro como `AudioFrame` PCM (no paquetes Opus). | El agente codifica con `ffmpeg` (subproceso, `libopus 48k mono`) y escribe la salida por streaming al server. `ffmpeg` entra en la imagen del agente y en la del server. |
@@ -124,8 +124,12 @@ transcripción, emitir evento). Tests de tabla contra §3.3, RM-05, RM-23…26.
   ya grabando (RM-05), `idle` = stop sin grabación, `profile` = micro-usb
   (RM-54).
 - **Orden por poll** (RM-06 sin LAN): la respuesta de `desired-profile` gana
-  la cabecera `X-Meeting: start:<id>` | `stop:<id>`; la placa la atiende como
-  la orden UDP. El server la retira cuando la placa confirma.
+  la cabecera `X-Meeting: start:<id>` | `stop:<id>` | `warn:<id>`; la placa la
+  atiende como la orden UDP. El server la retira cuando la placa confirma.
+- **Arranque por gesto** (RM-02): la placa no inventa ids: hace
+  `POST /v1/devices/{id}/meetings` con su secreto y recibe la reunión
+  (`requestedBy: gesture`); el server no le devuelve la orden. La placa
+  arranca la sesión con ese id.
 - **Confirmación** (RM-52): `PUT /v1/devices/{id}/meeting` con
   `X-Device-Secret`, cuerpo `{meetingId, state:"recording"|"stopped", reason}`.
   `recording` pasa la reunión a *Grabando* (fija `started_at`); `stopped` con
@@ -263,9 +267,11 @@ frente a los 3,5 de la spec: la diferencia es la transcripción por piezas
    fin de la sesión y se reintenta desde el dashboard.
 4. Las órdenes en red se firman con el secreto de organización; sin él, solo
    poll (≤ 30 s), y la ficha lo dice.
-5. La placa no mide el silencio ni el máximo: lo hace el server sobre el
-   audio que recibe (una sola fuente de verdad) y manda `record-stop`; la
-   placa solo avisa con el anillo cuando recibe `X-Meeting: warn` 30 s antes.
+5. La placa no mide el silencio ni el máximo. El máximo lo mide el server
+   (RM-24); el silencio lo detecta el **agente** con el VAD que ya corre
+   (RM-23) y lo comunica con `POST …/stop {reason:"silence"}` y, 30 s antes,
+   con `…/warn` — el server no decodifica Opus. La placa solo avisa con el
+   anillo cuando recibe `record-warn` (LAN o `X-Meeting: warn:<id>`).
 6. Modelo de transcripción `gpt-4o-transcribe-diarize` (reserva `whisper-1`);
    modelo de resumen configurable, por defecto el mini vigente.
 

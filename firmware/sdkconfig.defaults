@@ -65,3 +65,7 @@ CONFIG_ESP_COREDUMP_CHECK_BOOT=n
 CONFIG_MDNS_TASK_CREATE_FROM_SPIRAM=y
 CONFIG_MDNS_MEMORY_ALLOC_SPIRAM=y
 CONFIG_MDNS_MAX_SERVICES=4
+
+# The whole agent loop runs on the main task (app_main → runAgent); the IDF
+# default of 3584 B overflowed with one more frame (meeting sessions, block B).
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192

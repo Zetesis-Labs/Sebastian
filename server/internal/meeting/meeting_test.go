@@ -220,9 +220,15 @@ func TestStartRefusesTheWrongUnitAndASecondMeeting(t *testing.T) {
 		t.Fatalf("a unit that is not contacting cannot be asked (RM-03): %v", err)
 	}
 	h.units.detail.State = device.StateAdopted
-	first, err := h.s.Start(ctx, "68ee", OriginGesture)
+	if _, err := h.s.StartFromUnit(ctx, "68ee", "wrong"); !errors.Is(err, device.ErrUnauthorized) {
+		t.Fatalf("a gesture start needs the unit's secret: %v", err)
+	}
+	first, err := h.s.StartFromUnit(ctx, "68ee", "unit-secret")
 	if err != nil || first.State != StateRequested || first.RequestedBy != OriginGesture {
 		t.Fatalf("start: %+v %v", first, err)
+	}
+	if len(h.cmd.got) != 0 {
+		t.Fatal("a gesture start is not ordered back to the unit")
 	}
 	if _, err := h.s.Start(ctx, "68ee", OriginDashboard); !errors.Is(err, ErrBusy) {
 		t.Fatalf("one meeting per unit (RM-05): %v", err)
