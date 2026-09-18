@@ -170,20 +170,29 @@ type fakeAdopter struct {
 	phases  []adoption.Phase
 	verify  string // expected secret
 	lastCfg string
+	unit    string // the secret the unit hands over ("" = old firmware)
 }
+
+const unitSecret = "unit-secret-unit-secret-unit-secret-1"
 
 type fakeCall struct{ ip, cfg, secret string }
 
-func (a *fakeAdopter) Adopt(_ context.Context, ip, cfg, secret string, progress func(adoption.Phase)) error {
+func (a *fakeAdopter) Adopt(_ context.Context, ip, cfg, secret string, progress func(adoption.Phase)) (string, error) {
 	a.calls = append(a.calls, fakeCall{ip, cfg, secret})
 	a.lastCfg = cfg
 	for _, p := range a.phases {
 		progress(p)
 	}
 	if a.verify != "" && secret != a.verify {
-		return adoption.ErrDenied
+		return "", adoption.ErrDenied
 	}
-	return a.fail
+	if a.fail != nil {
+		return "", a.fail
+	}
+	if a.unit == "" {
+		return unitSecret, nil
+	}
+	return a.unit, nil
 }
 
 func newTestService(store *fakeStore, lan discovery.Browser, adopter *fakeAdopter) *Service {
@@ -223,18 +232,14 @@ func TestEnrollBindsAUnitThatProvesTheOrganizationSecret(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	secret, err := s.Enroll(context.Background(), id, nonce, adoption.Sign("org-secret", nonce, id))
-	if err != nil {
+	if err := s.Enroll(context.Background(), id, nonce, adoption.Sign("org-secret", nonce, id), unitSecret); err != nil {
 		t.Fatal(err)
 	}
-	if secret != strings.Repeat("ab", 32) {
-		t.Fatalf("secret %q", secret)
-	}
 	d := store.devices[id]
-	if d == nil || !d.Adopted || string(store.digests[id][0]) != string(DigestSecret(secret)) {
-		t.Fatalf("unit not adopted with its secret: %+v", d)
+	if d == nil || !d.Adopted || string(store.digests[id][0]) != string(DigestSecret(unitSecret)) {
+		t.Fatalf("unit not adopted with the secret it handed over: %+v", d)
 	}
-	if _, err := s.Enroll(context.Background(), id, nonce, adoption.Sign("org-secret", nonce, id)); !errors.Is(err, ErrUnauthorized) {
+	if err := s.Enroll(context.Background(), id, nonce, adoption.Sign("org-secret", nonce, id), unitSecret); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("nonce reused: %v", err)
 	}
 }
@@ -245,16 +250,20 @@ func TestEnrollRejectsBadProofExpiryAndMissingOrgSecret(t *testing.T) {
 	s := newTestService(store, nil, &fakeAdopter{})
 
 	nonce, _ := s.EnrollChallenge(id)
-	if _, err := s.Enroll(context.Background(), id, nonce, adoption.Sign("wrong", nonce, id)); !errors.Is(err, ErrUnauthorized) {
+	if err := s.Enroll(context.Background(), id, nonce, adoption.Sign("wrong", nonce, id), unitSecret); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("wrong secret: %v", err)
 	}
 	nonce, _ = s.EnrollChallenge(id)
-	if _, err := s.Enroll(context.Background(), "other", nonce, adoption.Sign("org-secret", nonce, id)); !errors.Is(err, ErrUnauthorized) {
+	if err := s.Enroll(context.Background(), "other", nonce, adoption.Sign("org-secret", nonce, id), unitSecret); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("proof for another id: %v", err)
 	}
 	nonce, _ = s.EnrollChallenge(id)
+	if err := s.Enroll(context.Background(), id, nonce, adoption.Sign("org-secret", nonce, id), ""); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("no secret handed over: %v", err)
+	}
+	nonce, _ = s.EnrollChallenge(id)
 	s.now = func() time.Time { return now.Add(enrollTTL + time.Second) }
-	if _, err := s.Enroll(context.Background(), id, nonce, adoption.Sign("org-secret", nonce, id)); !errors.Is(err, ErrUnauthorized) {
+	if err := s.Enroll(context.Background(), id, nonce, adoption.Sign("org-secret", nonce, id), unitSecret); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("expired nonce: %v", err)
 	}
 	if len(store.devices) != 0 {
@@ -320,7 +329,7 @@ func TestAdoptSendsTheControlRoomConfigSignedWithTheOrgSecret(t *testing.T) {
 		t.Fatal(err)
 	}
 	done := waitJob(t, s, job)
-	if done.Phase != "adopted" || done.DeviceSecret != strings.Repeat("ab", 32) {
+	if done.Phase != "adopted" || done.DeviceSecret != unitSecret {
 		t.Fatalf("job %+v", done)
 	}
 	if len(adopter.calls) != 1 || adopter.calls[0].ip != "10.0.0.131" {
@@ -333,7 +342,7 @@ func TestAdoptSendsTheControlRoomConfigSignedWithTheOrgSecret(t *testing.T) {
 	lk := cfg["livekit"].(map[string]any)
 	ad := cfg["adoption"].(map[string]any)
 	tel := cfg["telemetry"].(map[string]any)
-	if lk["tokenServerUrl"] != "http://10.0.0.188:8787/token" || ad["orgSecret"] != "org-secret" || ad["deviceSecret"] != strings.Repeat("ab", 32) || tel["syslogIp"] != "10.0.0.188" {
+	if lk["tokenServerUrl"] != "http://10.0.0.188:8787/token" || ad["orgSecret"] != "org-secret" || ad["deviceSecret"] != nil || tel["syslogIp"] != "10.0.0.188" {
 		t.Fatalf("config %s", adopter.lastCfg)
 	}
 	d, _ := store.Get(context.Background(), "dddd")

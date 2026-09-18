@@ -217,7 +217,9 @@ function JobLine({ job }: Readonly<{ job: AdoptionJob }>) {
           </Link>
           <br />
           <span className="device-secret-once">
-            Secreto del altavoz (se muestra una sola vez): <code>{job.deviceSecret}</code>
+            Secreto del altavoz: <code>{job.deviceSecret}</code>
+            <br />
+            Es fijo: nace con la placa y no cambia al adoptarla. Se vuelve a leer por USB con «Load from device»; solo cambia si lo regeneras en la ficha.
           </span>
         </>
       )}

@@ -17,6 +17,7 @@
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
+#include "esp_random.h"
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
@@ -376,6 +377,65 @@ bool sebastian_provisioning_apply(const char *json, char *err, size_t err_size) 
 }
 
 bool sebastian_get_device_secret(char *out, size_t out_size) { return nvs_read_str("dev_secret", out, out_size); }
+
+static bool nvs_write_str(const char *key, const char *value) {
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) return false;
+    esp_err_t e = value[0] ? nvs_set_str(h, key, value) : nvs_erase_key(h, key);
+    if (e == ESP_ERR_NVS_NOT_FOUND) e = ESP_OK;
+    if (e == ESP_OK) e = nvs_commit(h);
+    nvs_close(h);
+    return e == ESP_OK;
+}
+
+// The device secret is born with the unit (RF-51): generated once, at the
+// first boot that needs it, and kept across adoptions. Only "forget" (factory)
+// erases it, and a regeneration from the ficha replaces it.
+bool sebastian_ensure_device_secret(void) {
+    nvs_ensure_init();
+    char cur[129];
+    if (nvs_read_str("dev_secret", cur, sizeof(cur))) return true;
+    uint8_t raw[32];
+    esp_fill_random(raw, sizeof(raw));
+    char hex[65];
+    static const char digits[] = "0123456789abcdef";
+    for (int i = 0; i < 32; i++) { hex[i * 2] = digits[raw[i] >> 4]; hex[i * 2 + 1] = digits[raw[i] & 0xF]; }
+    hex[64] = '\0';
+    if (!nvs_write_str("dev_secret", hex)) return false;
+    ESP_LOGI(TAG, "device secret generated");
+    return true;
+}
+
+// Which control room already holds our secret: the origin of the token URL
+// at the time of the last adoption/enrolment. A different token URL (USB
+// re-provisioning) or a 401 from the control room clears it, so the unit
+// enrols again (control.zig).
+static void token_origin(char *out, size_t out_size) {
+    char url[256] = {0};
+    out[0] = '\0';
+    if (!nvs_read_str("token_url", url, sizeof(url))) return;
+    const char *p = strstr(url, "://");
+    p = p ? strchr(p + 3, '/') : strchr(url, '/');
+    size_t n = p ? (size_t)(p - url) : strlen(url);
+    if (n >= out_size) n = out_size - 1;
+    memcpy(out, url, n);
+    out[n] = '\0';
+}
+
+void sebastian_mark_bound(void) {
+    char origin[256];
+    token_origin(origin, sizeof(origin));
+    nvs_write_str("cr_bound", origin);
+}
+
+void sebastian_clear_bound(void) { nvs_write_str("cr_bound", ""); }
+
+bool sebastian_is_bound(void) {
+    char origin[256], bound[256];
+    token_origin(origin, sizeof(origin));
+    if (!origin[0] || !nvs_read_str("cr_bound", bound, sizeof(bound))) return false;
+    return strcmp(origin, bound) == 0;
+}
 bool sebastian_get_org_secret(char *out, size_t out_size) { return nvs_read_str("org_secret", out, out_size); }
 bool sebastian_get_cfg_version(char *out, size_t out_size) { return nvs_read_str("cfg_ver", out, out_size); }
 
@@ -478,7 +538,10 @@ static void handle_config_get(void) {
         size_t slen = sizeof(sec);
         cJSON_AddBoolToObject(ad, "orgSecretSet", nvs_get_str(h, "org_secret", sec, &slen) == ESP_OK && slen > 1);
         slen = sizeof(sec);
-        cJSON_AddBoolToObject(ad, "deviceSecretSet", nvs_get_str(h, "dev_secret", sec, &slen) == ESP_OK && slen > 1);
+        // The unit is in hand (USB): its own secret is readable here, so an
+        // operator who lost it does not have to regenerate.
+        if (nvs_get_str(h, "dev_secret", sec, &slen) == ESP_OK && slen > 1) cJSON_AddStringToObject(ad, "deviceSecret", sec);
+        cJSON_AddBoolToObject(ad, "deviceSecretSet", slen > 1);
         cJSON *sess = cJSON_AddObjectToObject(root, "session");
         dump_i32(h, sess, "silenceTimeoutMs", "silence_ms");
         dump_i32(h, sess, "voiceLevel", "voice_lvl");

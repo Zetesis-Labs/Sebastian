@@ -102,14 +102,14 @@ func (s *stubDevices) EnrollChallenge(string) (string, error) {
 	}
 	return "nonce", s.err
 }
-func (s *stubDevices) Enroll(_ context.Context, _, nonce, mac string) (string, error) {
+func (s *stubDevices) Enroll(_ context.Context, _, nonce, mac, deviceSecret string) error {
 	if s.secret == "" {
-		return "", device.ErrNoOrgSecret
+		return device.ErrNoOrgSecret
 	}
-	if nonce != "nonce" || mac != "proof" {
-		return "", device.ErrUnauthorized
+	if nonce != "nonce" || mac != "proof" || deviceSecret == "" {
+		return device.ErrUnauthorized
 	}
-	return s.secret, s.err
+	return s.err
 }
 func (s *stubDevices) Adopt(context.Context, string, device.AdoptRequest) (device.Job, error) {
 	return s.job, s.err
@@ -312,13 +312,13 @@ func TestEnrollDeviceMapsUnavailableAuthAndSuccess(t *testing.T) {
 	if challenge, ok := response.(GetEnrollmentChallenge200JSONResponse); !ok || challenge.Nonce != "nonce" {
 		t.Fatalf("expected the nonce, got %#v", response)
 	}
-	enrolled, _ := handler.EnrollDevice(context.Background(), EnrollDeviceRequestObject{DeviceId: "68ee", Body: &EnrollmentRequest{Nonce: "nonce", Mac: "bad"}})
+	enrolled, _ := handler.EnrollDevice(context.Background(), EnrollDeviceRequestObject{DeviceId: "68ee", Body: &EnrollmentRequest{Nonce: "nonce", Mac: "bad", DeviceSecret: "unit"}})
 	if _, ok := enrolled.(EnrollDevice401ApplicationProblemPlusJSONResponse); !ok {
 		t.Fatalf("expected 401, got %#v", enrolled)
 	}
-	enrolled, _ = handler.EnrollDevice(context.Background(), EnrollDeviceRequestObject{DeviceId: "68ee", Body: &EnrollmentRequest{Nonce: "nonce", Mac: "proof"}})
-	if body, ok := enrolled.(EnrollDevice201JSONResponse); !ok || body.DeviceSecret != devices.secret {
-		t.Fatalf("expected the device secret, got %#v", enrolled)
+	enrolled, _ = handler.EnrollDevice(context.Background(), EnrollDeviceRequestObject{DeviceId: "68ee", Body: &EnrollmentRequest{Nonce: "nonce", Mac: "proof", DeviceSecret: "unit"}})
+	if body, ok := enrolled.(EnrollDevice201JSONResponse); !ok || body.ControlRoom == "" {
+		t.Fatalf("expected the control room name, got %#v", enrolled)
 	}
 }
 

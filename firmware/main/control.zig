@@ -12,10 +12,11 @@
 //!   GET {origin}/v1/devices/{mac}/config   (X-Device-Id / X-Device-Secret)
 //! stores it through provisioning.c and reboots.
 //!
-//! A unit provisioned from the embedded installer holds the organization
-//! secret but no device secret: before its first poll it enrols —
+//! The device secret is born with the unit (provisioning.c). A unit whose
+//! control room does not hold it yet (provisioned from the installer, or the
+//! control room answered 401) enrols before its poll —
 //!   GET/POST {origin}/v1/devices/{mac}/enroll   (HMAC over the server's nonce)
-//! and stores the device secret it gets back, so it is born adopted (RF-03/51).
+//! handing its secret over, so it is born adopted (RF-03/51).
 //!
 //! Every change reboots (~8 s) — deliberately: hot-swapping LiveKit ↔ TinyUSB
 //! stacks is fragile; the boot path is the one code path that is always
@@ -47,7 +48,6 @@ var hdr_buf: [32]u8 = undefined;
 var cfg_ver: [24]u8 = undefined;
 var dev_secret: [129]u8 = undefined;
 var org_secret: [129]u8 = undefined;
-var enroll_doc: [224]u8 = undefined;
 var id_z: [13]u8 = undefined;
 var prof_z: [profile.NAME_MAX + 1]u8 = undefined;
 var cfg_body: ?[*]u8 = null; // PSRAM, allocated on first use
@@ -139,24 +139,21 @@ fn fetchAndApplyConfig(origin: [*:0]const u8, version: []const u8) void {
     requestRestart(text);
 }
 
-/// Born adopted: with an organization secret and no device secret, ask the
-/// control room for one. Retried on every poll until it succeeds.
+/// Born adopted: when the control room of the token URL does not hold our
+/// secret yet and we carry the organization secret, hand it over. Retried on
+/// every poll until it succeeds.
 fn enrollIfNeeded() void {
-    if (secretZ() != null) return;
+    if (c.sebastian_is_bound()) return;
     if (!c.sebastian_get_org_secret(&org_secret, org_secret.len)) return;
     const origin = originZ() orelse return;
-    const rc = c.sebastian_enroll(origin, @ptrCast(&id_z), @ptrCast(&org_secret), &dev_secret, dev_secret.len);
+    const secret = secretZ() orelse return;
+    const rc = c.sebastian_enroll(origin, @ptrCast(&id_z), @ptrCast(&org_secret), secret);
     if (rc != 0) {
         log.warn("enrolment with {s} failed (rc={d}) — retrying on the next poll", .{ origin, rc });
         return;
     }
-    const doc = std.fmt.bufPrintZ(&enroll_doc, "{{\"schema\":\"sebastian.config.v1\",\"adoption\":{{\"deviceSecret\":\"{s}\"}}}}", .{std.mem.sliceTo(&dev_secret, 0)}) catch return;
-    var why: [32]u8 = undefined;
-    if (!c.sebastian_provisioning_apply(doc.ptr, &why, why.len)) {
-        log.err("enrolled but the device secret was not stored: {s}", .{std.mem.sliceTo(&why, 0)});
-        return;
-    }
-    log.info("enrolled with {s}: device secret stored, sessions will use it", .{origin});
+    c.sebastian_mark_bound();
+    log.info("enrolled with {s}: it holds our device secret now", .{origin});
 }
 
 fn pollOnce() void {
@@ -170,6 +167,12 @@ fn pollOnce() void {
     var status: c_int = 0;
     const n = c.sebastian_http_get_auth(url.ptr, @ptrCast(&id_z), secretZ(), "X-Desired-Config", &hdr_buf, hdr_buf.len, &resp_buf, resp_buf.len, &status);
     announceResult(status, n);
+    if (status == 401 and c.sebastian_is_bound()) {
+        // The control room does not know our secret (rebuilt, or we were
+        // forgotten there): enrol again on the next poll if we can.
+        log.warn("control room answered 401 — will re-enrol", .{});
+        c.sebastian_clear_bound();
+    }
     if (n < 0) return; // server unreachable — try next tick
 
     const desired = std.mem.trim(u8, resp_buf[0..@intCast(n)], " \t\r\n");
@@ -204,6 +207,7 @@ fn pollTask(_: ?*anyopaque) callconv(.c) void {
 /// when it has no control room: that is how an unadopted unit gets found.
 pub fn start() void {
     if (!deviceId(&id_z)) return;
+    _ = c.sebastian_ensure_device_secret();
     _ = std.fmt.bufPrintZ(&prof_z, "{s}", .{profile.nameOf(profile.active)}) catch {};
     const cr: [*:0]const u8 = originZ() orelse "";
     c.sebastian_announce_start(@ptrCast(&id_z), @ptrCast(&prof_z), cr);

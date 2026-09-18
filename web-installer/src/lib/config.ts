@@ -25,7 +25,7 @@ export interface DeviceConfig {
     fullDuplex: boolean;
   };
   session: { silenceTimeoutMs: number; voiceLevel: number };
-  adoption?: { orgSecret: string };
+  adoption?: { orgSecret: string; deviceSecret?: string };
 }
 
 // The audio settings each mode fixes. Selecting a mode merges these over the

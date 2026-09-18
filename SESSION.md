@@ -240,3 +240,16 @@ Trampas nuevas:
 - Prueba de secretos distintos: `server2.env` (casa-2) lleva
   `otra-organizacion-2026`; el campo de secreto de altavoz está en "Adoptar
   aquí" y "Adoptar por IP".
+
+### El secreto nace con el altavoz (noche del 18)
+
+- `sebastian_ensure_device_secret` lo genera en el primer arranque; adoptar no
+  lo cambia: la placa lo entrega en `{"t":"ok","dev":…}` y en el enrol
+  (`POST …/enroll {nonce, mac, deviceSecret}`); el server guarda el hash.
+  `adoptionConfig` ya no lleva `deviceSecret`; solo lo lleva una rotación
+  (RF-53, opcional) o un forget (vacío → borrar; regenera al arrancar).
+- `cr_bound` en NVS recuerda con qué control room está dado de alta; un token
+  URL distinto o un 401 en el poll fuerzan re-enrol.
+- `sebastian.config.get` devuelve `adoption.deviceSecret` (placa en mano); el
+  instalador lo enseña en el campo avanzado "Device secret".
+- Placas con firmware anterior: la adopción falla con `no_secret` → reflashear.

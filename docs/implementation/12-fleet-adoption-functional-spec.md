@@ -109,14 +109,14 @@ El operador solo tiene que introducir la WiFi.
 **RF-03 Un altavoz provisionado desde el instalador embebido nace adoptado.** Al
 primer contacto aparece como "Adoptado aquí", con secreto de altavoz emitido en
 ese primer contacto (§8). Mecanismo: la unidad lleva el secreto de organización
-y ningún secreto de altavoz; antes de su primer poll pide un reto a
+y su propio secreto de altavoz (RF-51); antes de su primer poll pide un reto a
 `GET /v1/devices/{id}/enroll`, lo firma (HMAC del nonce con el secreto de
-organización, como la adopción en red) y `POST …/enroll` le devuelve su
-secreto de altavoz, que guarda en NVS. Si el control room no tiene secreto de
-organización o la prueba falla, la unidad reintenta en cada poll y mientras
-tanto aparece como "Registrado · sin adoptar". El secreto emitido así no se
-muestra en el dashboard (va directo a la unidad); si el operador lo necesita,
-lo regenera desde la ficha (RF-53).
+organización, como la adopción en red) y en `POST …/enroll` entrega su secreto
+de altavoz; el control room lo adopta. Lo mismo ocurre si el control room
+responde 401 a sus polls (base reconstruida, unidad olvidada allí). Si el
+control room no tiene secreto de organización o la prueba falla, la unidad
+reintenta en cada poll y mientras tanto aparece como "Registrado · sin
+adoptar".
 
 **RF-04 Firmware compatible.** El botón de flashear del instalador embebido
 instala la versión de firmware empaquetada con ese control room, no la última
@@ -242,18 +242,23 @@ tiene una conversación en curso, la adopción espera a que termine (máximo
 (variable de entorno; en producción, desde Infisical). El instalador embebido lo
 prerrellena; el instalador de GitHub Pages lo pide como campo opcional.
 
-**RF-51 Secreto de altavoz emitido al adoptar.** Al adoptar (o al primer contacto
-de una unidad provisionada desde el instalador embebido, RF-03), el control
-room genera un secreto por unidad y se lo entrega en el mismo mensaje. La
-unidad lo usa desde entonces para abrir sesiones.
+**RF-51 El secreto de altavoz nace con la unidad.** La placa lo genera en su
+primer arranque y lo conserva: adoptarla, cederla o moverla de control room
+no lo cambia. Al aceptar una adopción (por secreto de organización, por cesión
+o por MUTE) y al darse de alta sola (RF-03), la unidad lo entrega al control
+room, que guarda solo su hash y lo usa para autenticar sus sesiones. Solo
+*Olvidar* (vuelta a fábrica) lo borra: la unidad genera otro al arrancar.
 
-**RF-52 Ver una vez.** El secreto de altavoz se muestra una sola vez en el
-dashboard, en el momento de emitirlo o de regenerarlo, con botón de copiar y
-código QR. Después no se puede volver a ver, solo regenerar.
+**RF-52 Ver al adoptar.** El dashboard muestra el secreto de altavoz al
+adoptar y al regenerar, con botón de copiar y código QR. Como es fijo, el
+operador lo apunta una vez; con la unidad en mano también se lee por USB
+(*Load from device* en el instalador). El control room no puede volver a
+mostrarlo (no lo guarda).
 
-**RF-53 Regenerar.** *Regenerar secreto* en la ficha emite uno nuevo y lo
-entrega a la unidad en su siguiente poll; el anterior deja de valer cuando la
-unidad confirma el nuevo.
+**RF-53 Regenerar, opcional.** *Regenerar secreto* en la ficha emite uno nuevo
+y lo entrega a la unidad en su siguiente poll; el anterior deja de valer
+cuando la unidad confirma el nuevo. Es para cuando no se confía en quien tuvo
+el secreto antes (una cesión); nada obliga a hacerlo.
 
 **RF-54 Nunca en el navegador.** El secreto de organización no viaja al
 JavaScript del dashboard ni aparece en respuestas de la API sin sesión de

@@ -16,6 +16,13 @@
 bool sebastian_provisioning_apply(const char *json, char *err, size_t err_size);
 bool sebastian_get_token_url(char *out, size_t out_size);
 bool sebastian_get_device_secret(char *out, size_t out_size);
+// Generate the unit's own secret if it has none (born with the unit, RF-51).
+bool sebastian_ensure_device_secret(void);
+// Binding memory: which control room (origin of the token URL) already holds
+// our secret. Set after an adoption or enrolment; cleared to force re-enrolment.
+void sebastian_mark_bound(void);
+void sebastian_clear_bound(void);
+bool sebastian_is_bound(void);
 bool sebastian_get_org_secret(char *out, size_t out_size);
 bool sebastian_get_cfg_version(char *out, size_t out_size);
 // One-shot error recorded by a previous boot (e.g. "wifi-rollback").
@@ -27,13 +34,12 @@ bool sebastian_take_last_error(char *out, size_t out_size);
 // something else, or a negative value for transport/parse errors.
 int sebastian_session_create(const char *base_url, const char *device_id, const char *secret,
                              char *url_out, size_t url_size, char *token_out, size_t token_size);
-// Enrolment (RF-03/RF-51): a unit that holds the organization secret but no
-// device secret asks {base}/v1/devices/{id}/enroll for one, proving the
-// organization secret with an HMAC over the server's nonce. Returns 0 and the
-// new device secret, the HTTP status when the server refused, or negative for
-// transport/parse errors.
-int sebastian_enroll(const char *base_url, const char *device_id, const char *org_secret,
-                     char *secret_out, size_t secret_size);
+// Enrolment (RF-03/RF-51): a unit that holds the organization secret hands its
+// own device secret to {base}/v1/devices/{id}/enroll, proving the organization
+// secret with an HMAC over the server's nonce. Returns 0 when the control room
+// adopted it, the HTTP status when it refused, or negative for transport/parse
+// errors.
+int sebastian_enroll(const char *base_url, const char *device_id, const char *org_secret, const char *device_secret);
 // GET with optional device credentials, capturing one response header. Returns
 // the body length (>= 0), or negative: -1 init, -2 open, -3 http (status in
 // *status), -4 read.
