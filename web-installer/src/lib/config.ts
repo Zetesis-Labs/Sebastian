@@ -132,8 +132,19 @@ export function mergeConfig(input: unknown): DeviceConfig {
     telemetry: section("telemetry", base.telemetry),
     audio: section("audio", base.audio),
     session: section("session", base.session),
-    ...(src.adoption && typeof src.adoption === "object" ? { adoption: src.adoption as DeviceConfig["adoption"] } : {}),
+    ...adoptionOf(src.adoption),
   };
+}
+
+// Only the secrets themselves travel back to the board; the dump's *Set flags
+// stay out of the document.
+function adoptionOf(value: unknown): Pick<DeviceConfig, "adoption"> {
+  if (!value || typeof value !== "object") return {};
+  const src = value as Record<string, unknown>;
+  const adoption: NonNullable<DeviceConfig["adoption"]> = { orgSecret: typeof src.orgSecret === "string" ? src.orgSecret : "" };
+  if (typeof src.deviceSecret === "string" && src.deviceSecret) adoption.deviceSecret = src.deviceSecret;
+  if (!adoption.orgSecret && !adoption.deviceSecret) return {};
+  return { adoption };
 }
 
 // Pre-fill served by a control room's dashboard next to the embedded installer
