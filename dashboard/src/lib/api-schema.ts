@@ -47,7 +47,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Create a device session and dispatch its assigned agent */
+        /**
+         * Create a device session and dispatch its assigned agent
+         * @description With `kind=meeting` the agent is dispatched in meeting mode for that meeting (design 14 §3.2).
+         */
         post: operations["createSession"];
         delete?: never;
         options?: never;
@@ -306,6 +309,95 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/devices/{deviceId}/meetings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask the unit to record a meeting (RM-03)
+         * @description Creates a meeting in state `requested` and sends the unit the order over the LAN, signed with the organization secret; the unit's next poll carries it too (RM-06). One meeting per unit (RM-05); only in the agente profile (RM-44).
+         */
+        post: operations["startMeeting"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/meetings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Meetings, newest first (RM-40) */
+        get: operations["listMeetings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/meetings/{meetingId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One meeting (RM-41) */
+        get: operations["getMeeting"];
+        put?: never;
+        post?: never;
+        /** Delete audio and content irreversibly, keeping the trace (RM-46) */
+        delete: operations["deleteMeeting"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/meetings/{meetingId}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop a meeting (RM-22; the agent uses it for RM-21) */
+        post: operations["stopMeeting"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/devices/{deviceId}/meeting": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** The unit confirms it records, or that it stopped and why (RM-52) */
+        put: operations["reportMeeting"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/recordings": {
         parameters: {
             query?: never;
@@ -551,6 +643,76 @@ export interface components {
             /** @description Firmware profile name. Empty or absent clears the desired state. */
             name?: string;
         };
+        /**
+         * @description requested = asked, the unit has not confirmed; recording; closing = stop asked, file being closed; transcribing; ready; no_transcript = audio only, retryable; cut = the unit vanished, audio kept up to that point.
+         * @enum {string}
+         */
+        MeetingState: "requested" | "recording" | "closing" | "transcribing" | "ready" | "no_transcript" | "cut";
+        Meeting: {
+            /** Format: uuid */
+            id: string;
+            deviceId: string;
+            state: components["schemas"]["MeetingState"];
+            /** @enum {string} */
+            requestedBy: "gesture" | "dashboard" | "voice";
+            /** Format: date-time */
+            requestedAt: string;
+            /** Format: date-time */
+            startedAt?: string;
+            /** Format: date-time */
+            endedAt?: string;
+            /** @enum {string} */
+            endReason?: "gesture" | "dashboard" | "voice" | "silence" | "max_duration" | "device_lost" | "room_lost";
+            /**
+             * Format: int64
+             * @description Recorded duration; while recording, the live duration so far (RM-14).
+             */
+            durationMs: number;
+            /** Format: int64 */
+            audioBytes: number;
+            hasAudio: boolean;
+            /** @description Excluded from retention (RM-45). */
+            keep: boolean;
+            /** Format: date-time */
+            deletedAt?: string;
+        };
+        MeetingList: {
+            items: components["schemas"]["Meeting"][];
+        };
+        MeetingStart: {
+            /**
+             * @default dashboard
+             * @enum {string}
+             */
+            requestedBy: "gesture" | "dashboard" | "voice";
+        };
+        MeetingStop: {
+            /**
+             * @default dashboard
+             * @enum {string}
+             */
+            reason: "dashboard" | "voice" | "silence";
+        };
+        MeetingReport: {
+            /** Format: uuid */
+            meetingId: string;
+            /** @enum {string} */
+            state: "recording" | "stopped";
+            /**
+             * @description Why the unit stopped (only with `stopped`).
+             * @enum {string}
+             */
+            reason?: "gesture" | "room_lost";
+        };
+        SessionRequest: {
+            /**
+             * @default conversation
+             * @enum {string}
+             */
+            kind: "conversation" | "meeting";
+            /** Format: uuid */
+            meetingId?: string;
+        };
         RecordingSummary: {
             /** Format: int64 */
             count: number;
@@ -563,6 +725,15 @@ export interface components {
         };
     };
     responses: {
+        /** @description The meeting does not exist. */
+        MeetingNotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
         /** @description Device not found. */
         DeviceNotFound: {
             headers: {
@@ -593,6 +764,7 @@ export interface components {
     };
     parameters: {
         DeviceId: string;
+        MeetingId: string;
     };
     requestBodies: never;
     headers: never;
@@ -659,7 +831,11 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["SessionRequest"];
+            };
+        };
         responses: {
             /** @description Session created. */
             201: {
@@ -714,6 +890,8 @@ export interface operations {
                 headers: {
                     /** @description Version of the desired config; the device fetches it when different from `cfg`. */
                     "X-Desired-Config"?: string;
+                    /** @description A pending meeting order (RM-06): start:<meetingId> or stop:<meetingId>. Absent when none. */
+                    "X-Meeting"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -1197,6 +1375,203 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    startMeeting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deviceId: components["parameters"]["DeviceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["MeetingStart"];
+            };
+        };
+        responses: {
+            /** @description Meeting requested. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Meeting"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["DeviceNotFound"];
+            /** @description A meeting is already in progress on this unit (RM-05). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The unit cannot record (not adopted here, or not in the agente profile). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    listMeetings: {
+        parameters: {
+            query?: {
+                deviceId?: string;
+                state?: components["schemas"]["MeetingState"];
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Meetings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeetingList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    getMeeting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                meetingId: components["parameters"]["MeetingId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The meeting. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Meeting"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["MeetingNotFound"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    deleteMeeting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                meetingId: components["parameters"]["MeetingId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["MeetingNotFound"];
+            /** @description The meeting is still in progress. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    stopMeeting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                meetingId: components["parameters"]["MeetingId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["MeetingStop"];
+            };
+        };
+        responses: {
+            /** @description Stopping. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Meeting"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["MeetingNotFound"];
+            /** @description The meeting is not in progress. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    reportMeeting: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Device-Secret": string;
+            };
+            path: {
+                deviceId: components["parameters"]["DeviceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MeetingReport"];
+            };
+        };
+        responses: {
+            /** @description Recorded. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["MeetingNotFound"];
             503: components["responses"]["Unavailable"];
         };
     };
