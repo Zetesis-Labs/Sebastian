@@ -17,13 +17,14 @@ var (
 )
 
 type Device struct {
-	ID               string
-	Identity         string
-	CredentialDigest []byte
-	PendingDigest    []byte // regenerated secret not yet confirmed by the device
-	ProfileID        uuid.UUID
-	AgentName        string
-	AgentConfig      json.RawMessage
+	ID                string
+	Identity          string
+	CredentialDigest  []byte
+	PendingDigest     []byte // regenerated secret not yet confirmed by the device
+	ProfileID         uuid.UUID
+	AgentName         string
+	AgentConfig       json.RawMessage
+	MeetingSilenceMin int // RM-23, travels to the agent with a meeting session
 }
 
 // Kind is what the session is for: a conversation with the agent, or a
@@ -167,6 +168,9 @@ func dispatchMetadata(device Device, credentials Credentials) map[string]any {
 		out["mode"] = "meeting"
 		if credentials.MeetingID != uuid.Nil {
 			out["meeting_id"] = credentials.MeetingID
+		}
+		if device.MeetingSilenceMin > 0 {
+			out["silence_s"] = device.MeetingSilenceMin * 60
 		}
 	}
 	return out

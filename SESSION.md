@@ -386,3 +386,23 @@ miraba el anillo). `68ee8f4d8dd4` y `e072a1f895f4` siguen con firmware anterior.
 - Siguiente: bloque E (control room): lista/ficha de reuniones, reproductor
   + transcripción sincronizada, txt/srt, renombrar, buscar, parar/borrar,
   botones en la ficha del altavoz, `meetingSilenceMin`/`meetingMaxHours`.
+
+## Reuniones, bloque E (madrugada del 19) — misma rama, PR único del spec 13
+
+- Dashboard: `lib/meetings.ts` puro (+ 6 tests), `api.ts` (reuniones,
+  límites, proxies de audio con `Range` y de txt/srt), rutas `/meetings`,
+  `/meetings/$id` (+ `audio`/`transcript` de servidor), tira en la home,
+  panel en la ficha (grabar/parar, límites 5–60 min / 1–8 h, últimas
+  reuniones), enlace "Reuniones" en la cabecera.
+- Server: `devices.meeting_silence_min/max_hours` (Atlas, dev DB local
+  `sebastian_schema` en el Postgres de 55440), `PATCH /devices/{id}` con
+  `meetingSilenceMin/MaxHours`, límite por unidad en el tick, `silence_s` en
+  los metadatos del despacho; el agente lo lee.
+- Probado en Chrome (pestaña propia): lista, ficha con resumen y
+  transcripción, grabar desde la ficha → "Grabando desde 00:48 (0:07)" →
+  parar → `ready` con transcripción en segundos; límites guardados (15/3).
+  El `<audio>` se alimenta por `fetch` + `blob:` (con `Sec-Fetch-Dest: audio`
+  la ruta de servidor devuelve 404 en dev). La reproducción en sí no se pudo
+  ver desde la pestaña automatizada (ni un WAV sintético carga metadatos ahí):
+  probar a mano.
+- Bloque F (voz) sin hacer: opcional según el diseño.

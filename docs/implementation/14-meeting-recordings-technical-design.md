@@ -277,10 +277,28 @@ confirmación. Proxy de audio `/meetings/$id/audio` con Range.
 
 Tests (vitest, `meetings.ts` puro):
 - `T-E1` `meetingLabel/state → texto y tono` para los siete estados y los motivos de parada.
-- `T-E2` `activeSegment(segments, t)` y `srt(segments, speakers)` / `txt(...)`.
+- `T-E2` `activeSegment(segments, t)` (la línea sigue encendida en las pausas); txt/srt los renderiza el server (`GET …/transcript`) y el dashboard solo los descarga por proxy, sin duplicar la lógica.
 - `T-E3` `liveDuration(startedAt, now)` y "Grabando desde HH:MM (mm:ss)".
 - `T-E4` la ficha oculta *Grabar* en micro-usb y explica (RM-44); muestra *Parar* con una en curso (RM-05).
-- `T-E5` `renameSpeaker` aplica a todos los segmentos.
+- `T-E5` `speakerName/speakersOf`: el renombrado vive en el server (`PATCH`, `Transcript.Rename`) y se aplica a toda la transcripción.
+
+Hecho (19-09): `/meetings` (filtros por estado y `q`, duración en vivo,
+*Parar* en la fila), `/meetings/{id}` (reproductor + transcripción
+sincronizada con clic para saltar, resumen con acuerdos y acciones,
+renombrar hablantes, conservar, transcribir/resumir de nuevo, txt/srt,
+borrar con confirmación), tira de reuniones en *Grabaciones*, panel en la
+ficha del altavoz (grabar/parar, "Grabando desde…", últimas reuniones,
+`meetingSilenceMin` 5–60 y `meetingMaxHours` 1–8 con `PATCH /devices/{id}`;
+`devices.meeting_silence_min/meeting_max_hours`, migración
+`20260918223744_meeting_limits`). El silencio viaja al agente en los
+metadatos (`silence_s`) y el máximo lo aplica el server por unidad en cada
+tick.
+
+Trampa: el `<audio>` no puede apuntar al proxy `/meetings/{id}/audio`
+directamente — en `vite dev` las peticiones con `Sec-Fetch-Dest: audio` no
+llegan a la ruta de servidor de TanStack (404) — así que la página descarga
+el audio con `fetch` (que sí llega) y lo reproduce desde un `blob:`. El
+proxy conserva `Range` para descargas y para el día en que se sirva directo.
 
 ### Bloque F — voz (opcional, el riesgo (1) de la spec)
 

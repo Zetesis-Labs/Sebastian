@@ -620,6 +620,10 @@ export interface components {
             desiredConfigVersion?: string;
             /** Format: date-time */
             seenOnLanAt?: string;
+            /** @description Minutes without voice that end a meeting recording (RM-23). */
+            meetingSilenceMin?: number;
+            /** @description Maximum length of a meeting recording (RM-24). */
+            meetingMaxHours?: number;
         };
         DeviceDetail: components["schemas"]["Device"] & {
             hasDeviceSecret: boolean;
@@ -641,7 +645,11 @@ export interface components {
             recordingCount: number;
         };
         DeviceUpdate: {
-            displayName: string;
+            displayName?: string;
+            /** @description Minutes without voice that end a meeting recording (RM-23). */
+            meetingSilenceMin?: number;
+            /** @description A recording never exceeds this (RM-24). */
+            meetingMaxHours?: number;
         };
         /** @description A sebastian.config.v1 document (see web-installer/public/PROVISIONING.md). Validated by the firmware. */
         DeviceConfig: {

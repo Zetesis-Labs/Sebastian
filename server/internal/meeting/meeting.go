@@ -483,10 +483,24 @@ func (s *Service) RunRetention(ctx context.Context, days int, every time.Duratio
 
 func (s *Service) path(id uuid.UUID) string { return filepath.Join(s.dir, id.String()+".ogg") }
 
+// limitsFor is the unit's own maximum (RM-24, from its ficha), else the
+// control room's default.
+func (s *Service) limitsFor(ctx context.Context, deviceID string) Limits {
+	detail, err := s.units.Get(ctx, deviceID)
+	if err != nil || detail.MeetingMaxHours <= 0 {
+		return s.limits
+	}
+	return Limits{MaxDuration: time.Duration(detail.MeetingMaxHours) * time.Hour}
+}
+
 // apply is the one place the core meets the world: persist, then act.
 func (s *Service) apply(ctx context.Context, m Meeting, ev Event) (Meeting, error) {
 	before := m.State
-	next, actions, err := Next(m, ev, s.limits)
+	limits := s.limits
+	if ev.Kind == EvTick {
+		limits = s.limitsFor(ctx, m.DeviceID)
+	}
+	next, actions, err := Next(m, ev, limits)
 	if err != nil {
 		return m, err
 	}

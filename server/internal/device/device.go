@@ -74,6 +74,10 @@ type Device struct {
 	LastEvent   string
 	LastEventAt time.Time
 
+	// Meeting recordings (RM-23/24), set from the ficha.
+	MeetingSilenceMin int
+	MeetingMaxHours   int
+
 	// Derived / from the LAN announce.
 	State       State
 	IP          string
@@ -138,6 +142,7 @@ type Store interface {
 	SetPendingSecret(ctx context.Context, id string, digest []byte) error
 	Forget(ctx context.Context, id string) error
 	Rename(ctx context.Context, id, name string) error
+	SetMeetingLimits(ctx context.Context, id string, silenceMin, maxHours int) error
 }
 
 // Adopter is the network side (adoption.Client); swapped in tests. Adopt
@@ -303,6 +308,21 @@ func (s *Service) SetDesiredProfile(ctx context.Context, id, name string) error 
 
 func (s *Service) Rename(ctx context.Context, id, name string) error {
 	return s.store.Rename(ctx, id, name)
+}
+
+// Meeting limits per unit (RM-23: 5–60 min of silence; RM-24: 1–8 h).
+const (
+	MinMeetingSilenceMin, MaxMeetingSilenceMin = 5, 60
+	MinMeetingMaxHours, MaxMeetingMaxHours     = 1, 8
+)
+
+var ErrMeetingLimits = errors.New("device: meeting limits out of range")
+
+func (s *Service) SetMeetingLimits(ctx context.Context, id string, silenceMin, maxHours int) error {
+	if silenceMin < MinMeetingSilenceMin || silenceMin > MaxMeetingSilenceMin || maxHours < MinMeetingMaxHours || maxHours > MaxMeetingMaxHours {
+		return ErrMeetingLimits
+	}
+	return s.store.SetMeetingLimits(ctx, id, silenceMin, maxHours)
 }
 
 // ── desired config ──────────────────────────────────────────────────────────

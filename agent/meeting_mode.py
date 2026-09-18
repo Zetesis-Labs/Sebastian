@@ -49,6 +49,7 @@ FINISHED_STATES = frozenset({"transcribing", "ready", "no_transcript", "cut"})
 @dataclass(frozen=True)
 class MeetingJob:
     meeting_id: str
+    silence_s: float = SILENCE_S  # RM-23: the unit's own window, from its ficha
 
 
 def meeting_from_metadata(metadata: str | None) -> MeetingJob | None:
@@ -64,6 +65,9 @@ def meeting_from_metadata(metadata: str | None) -> MeetingJob | None:
     meeting_id = body.get("meeting_id")
     if not isinstance(meeting_id, str) or not meeting_id.strip():
         return None
+    silence = body.get("silence_s")
+    if isinstance(silence, (int, float)) and not isinstance(silence, bool) and silence > 0:
+        return MeetingJob(meeting_id=meeting_id.strip(), silence_s=float(silence))
     return MeetingJob(meeting_id=meeting_id.strip())
 
 
@@ -381,7 +385,7 @@ class MicCapture:
 
 async def run_meeting(ctx: JobContext, job: MeetingJob, device_identity: str, vad: agents_vad.VAD) -> None:
     """The shell: join, capture until the unit leaves, deliver, clean the room."""
-    log.info("meeting mode: meeting=%s device=%s — capture only, no assistant (RM-12)", job.meeting_id, device_identity)
+    log.info("meeting mode: meeting=%s device=%s silence=%.0fs — capture only, no assistant (RM-12)", job.meeting_id, device_identity, job.silence_s)
     if not AGENT_SECRET:
         log.error("SEBASTIAN_AGENT_SECRET is not set — the server will refuse the audio")
     mic = MicCapture(ctx.room, device_identity)
@@ -396,7 +400,7 @@ async def run_meeting(ctx: JobContext, job: MeetingJob, device_identity: str, va
     vad_stream = vad.stream()
     async with http_session() as http:
         api = ServerAPI(http, API_URL, AGENT_SECRET, job.meeting_id)
-        silence = spawn(watch_silence(vad_stream, SilenceNet(SILENCE_S), api))
+        silence = spawn(watch_silence(vad_stream, SilenceNet(job.silence_s), api))
         try:
             ok = await run_pipeline(mic.frames(), OpusEncoder(spool.append), spool, Uploader(api, spool), on_frame=vad_stream.push_frame)
         finally:

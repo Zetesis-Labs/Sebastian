@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"strings"
@@ -179,6 +180,11 @@ func (f *fakeStore) Forget(_ context.Context, id string) error {
 }
 func (f *fakeStore) Rename(_ context.Context, id, name string) error {
 	f.renamed[id] = name
+	return nil
+}
+
+func (f *fakeStore) SetMeetingLimits(_ context.Context, id string, silenceMin, maxHours int) error {
+	f.renamed[id+":limits"] = fmt.Sprintf("%d/%d", silenceMin, maxHours)
 	return nil
 }
 
@@ -592,5 +598,20 @@ func TestRegenerateSecretTravelsInTheConfigUntilConfirmed(t *testing.T) {
 	raw, _ = s.DeviceConfig(context.Background(), "aaaa", secret)
 	if strings.Contains(string(raw), "new-secret-new-secret") {
 		t.Fatal("a confirmed secret must not keep travelling in the config")
+	}
+}
+
+// RM-23/24: the ficha's limits stay inside the spec's ranges.
+func TestMeetingLimitsStayInRange(t *testing.T) {
+	store := newFakeStore()
+	svc := NewService(store, nil, nil, ControlRoom{}, nil)
+	if err := svc.SetMeetingLimits(context.Background(), "68ee", 4, 3); !errors.Is(err, ErrMeetingLimits) {
+		t.Fatalf("4 min: %v", err)
+	}
+	if err := svc.SetMeetingLimits(context.Background(), "68ee", 10, 9); !errors.Is(err, ErrMeetingLimits) {
+		t.Fatalf("9 h: %v", err)
+	}
+	if err := svc.SetMeetingLimits(context.Background(), "68ee", 15, 2); err != nil || store.renamed["68ee:limits"] != "15/2" {
+		t.Fatalf("15 min / 2 h: %v %v", err, store.renamed)
 	}
 }

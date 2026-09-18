@@ -27,14 +27,16 @@ type adminDeviceRow struct {
 	DesiredConfigVersion  *string    `bun:"desired_config_version"`
 	LastEvent             *string    `bun:"last_event"`
 	LastEventAt           *time.Time `bun:"last_event_at"`
+	MeetingSilenceMin     int        `bun:"meeting_silence_min"`
+	MeetingMaxHours       int        `bun:"meeting_max_hours"`
 }
 
 const adminDeviceColumns = `id, display_name, enabled, desired_device_profile, reported_device_profile,
 	profile_reported_at, credential_digest IS NOT NULL AS adopted, adopted_at, reported_firmware,
-	reported_config_version, desired_config_version, last_event, last_event_at`
+	reported_config_version, desired_config_version, last_event, last_event_at, meeting_silence_min, meeting_max_hours`
 
 func (r adminDeviceRow) toDomain() device.Device {
-	item := device.Device{ID: r.ID, DisplayName: r.DisplayName, Enabled: r.Enabled, Adopted: r.Adopted}
+	item := device.Device{ID: r.ID, DisplayName: r.DisplayName, Enabled: r.Enabled, Adopted: r.Adopted, MeetingSilenceMin: r.MeetingSilenceMin, MeetingMaxHours: r.MeetingMaxHours}
 	if r.DesiredProfile != nil {
 		item.DesiredProfile = *r.DesiredProfile
 	}
@@ -360,6 +362,16 @@ func (s *Store) Forget(ctx context.Context, id string) error {
 	})
 	if err != nil && !errors.Is(err, device.ErrNotFound) {
 		return fmt.Errorf("forget device: %w", err)
+	}
+	return err
+}
+
+func (s *Store) SetMeetingLimits(ctx context.Context, id string, silenceMin, maxHours int) error {
+	err := s.updateDevice(ctx, id, func(q *bun.UpdateQuery) *bun.UpdateQuery {
+		return q.Set("meeting_silence_min = ?", silenceMin).Set("meeting_max_hours = ?", maxHours)
+	})
+	if err != nil && !errors.Is(err, device.ErrNotFound) {
+		return fmt.Errorf("set meeting limits: %w", err)
 	}
 	return err
 }
