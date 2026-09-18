@@ -5,7 +5,9 @@ import {
   configSync,
   desiredDocument,
   failureMessage,
+  fichaIssues,
   groupDevices,
+  seedFromRoom,
   isValidIPv4,
   jobMessage,
   sectionOf,
@@ -109,6 +111,20 @@ describe('timeline', () => {
   })
   it('says when a unit never contacted and is not on the LAN', () => {
     expect(timeline({ state: 'joining', adoptedAt: '2026-09-18T11:59:40Z' }, now)).toEqual(['sin contacto todavía', 'adoptado hace 20 s', 'no se ve en la red'])
+  })
+})
+
+describe('ficha form', () => {
+  it('an empty SSID keeps the stored network instead of failing validation', () => {
+    const issues = [{ path: 'wifi.ssid', severity: 'error' }, { path: 'telemetry.syslogIp', severity: 'error' }]
+    expect(fichaIssues(issues, { wifi: { ssid: '' } }).map((i) => i.path)).toEqual(['telemetry.syslogIp'])
+    expect(fichaIssues(issues, { wifi: { ssid: 'Pizarro' } }).map((i) => i.path)).toEqual(['wifi.ssid', 'telemetry.syslogIp'])
+  })
+  it('shows what the adoption wrote when the desired document is silent', () => {
+    const seeded = seedFromRoom({ livekit: { tokenServerUrl: '' }, telemetry: { syslogIp: '', syslogPort: 0 } }, { apiUrl: 'http://10.0.0.188:8787/', syslogIp: '10.0.0.188', syslogPort: 514 })
+    expect(seeded.livekit.tokenServerUrl).toBe('http://10.0.0.188:8787/token')
+    expect(seeded.telemetry).toEqual({ syslogIp: '10.0.0.188', syslogPort: 514 })
+    expect(seedFromRoom({ livekit: { tokenServerUrl: 'http://x/token' }, telemetry: { syslogIp: '1.1.1.1', syslogPort: 1514 } }, { apiUrl: 'http://y' }).livekit.tokenServerUrl).toBe('http://x/token')
   })
 })
 

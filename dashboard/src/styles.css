@@ -161,7 +161,13 @@ a.device-name:hover { color: var(--orange); }
 .adopt-ip input:focus, .config-field input:focus, .config-field select:focus, .device-name-input:focus { outline: none; border-color: var(--orange); }
 .config-field input:disabled, .config-field select:disabled { opacity: .5; }
 .config-field small { color: var(--muted); font-size: 11px; line-height: 1.4; } .config-field small.warn { color: #ffb597; }
-.config-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px 20px; margin: 20px 0; }
+.config-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px 20px; margin: 14px 0 0; }
+.config-group { margin: 22px 0 0; padding: 18px 20px 20px; border: 1px solid var(--line); border-radius: 14px; min-width: 0; }
+.config-group legend { display: grid; gap: 2px; padding: 0 8px; }
+.config-group legend span { color: var(--ink); font-size: 15px; font-weight: 600; }
+.config-group legend small { color: var(--muted); font-size: 12px; }
+.config-toggle { grid-template-columns: 1fr auto; align-items: center; }
+.config-toggle small { grid-column: 1 / -1; }
 .device-panel { padding-top: 44px; }
 .device-panel .section-heading { margin-bottom: 10px; }
 .device-sync { color: var(--muted); font: 500 11px 'DM Mono', monospace; text-transform: uppercase; letter-spacing: .1em; }
