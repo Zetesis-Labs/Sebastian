@@ -57,6 +57,14 @@ func (h *Server) GetDevice(ctx context.Context, request GetDeviceRequestObject) 
 		LastError: base.LastError, ReportedConfigVersion: base.ReportedConfigVersion, DesiredConfigVersion: base.DesiredConfigVersion,
 		SeenOnLanAt: base.SeenOnLanAt, HasDeviceSecret: detail.HasDeviceSecret, Sessions: sessions,
 	}
+	if detail.RunningConfig != nil {
+		var cfg DeviceConfig
+		if err := jsonUnmarshal(detail.RunningConfig, &cfg); err == nil {
+			response.RunningConfig = &cfg
+			at := detail.RunningConfigAt
+			response.RunningConfigAt = &at
+		}
+	}
 	if detail.DesiredConfig != nil {
 		var cfg DeviceConfig
 		if err := jsonUnmarshal(detail.DesiredConfig, &cfg); err == nil {
@@ -177,6 +185,21 @@ func (h *Server) RegenerateDeviceSecret(ctx context.Context, request RegenerateD
 		return RegenerateDeviceSecret503ApplicationProblemPlusJSONResponse{UnavailableApplicationProblemPlusJSONResponse: h.unavailable(ctx, "regenerate secret failed", err, "device_id", request.DeviceId)}, nil
 	}
 	return RegenerateDeviceSecret200JSONResponse{DeviceSecret: secret}, nil
+}
+
+// ReportRunningConfig is device-facing: what the unit runs, sent at boot (RF-42).
+func (h *Server) ReportRunningConfig(ctx context.Context, request ReportRunningConfigRequestObject) (ReportRunningConfigResponseObject, error) {
+	if request.Body == nil {
+		return ReportRunningConfig401ApplicationProblemPlusJSONResponse(problem(401, "Unauthorized", "The device credentials are invalid.")), nil
+	}
+	err := h.devices.ReportRunningConfig(ctx, request.DeviceId, request.Params.XDeviceSecret, map[string]any(*request.Body))
+	switch {
+	case errors.Is(err, device.ErrUnauthorized), errors.Is(err, device.ErrNotFound):
+		return ReportRunningConfig401ApplicationProblemPlusJSONResponse(problem(401, "Unauthorized", "The device credentials are invalid.")), nil
+	case err != nil:
+		return ReportRunningConfig503ApplicationProblemPlusJSONResponse{UnavailableApplicationProblemPlusJSONResponse: h.unavailable(ctx, "report running config failed", err, "device_id", request.DeviceId)}, nil
+	}
+	return ReportRunningConfig204Response{}, nil
 }
 
 // GetDeviceConfig is device-facing: the unit fetches the desired document

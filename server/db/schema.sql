@@ -36,6 +36,9 @@ CREATE TABLE devices (
   pending_credential_digest bytea,
   desired_config jsonb,
   desired_config_version varchar,
+  -- What the unit reports it runs (RF-42), without secrets; sent at boot.
+  running_config jsonb,
+  running_config_at timestamptz,
   reported_config_version varchar,
   reported_firmware varchar,
   forgotten_at timestamptz,

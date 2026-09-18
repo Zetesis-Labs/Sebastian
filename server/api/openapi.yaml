@@ -243,6 +243,43 @@ paths:
                 $ref: "#/components/schemas/Problem"
         "503":
           $ref: "#/components/responses/Unavailable"
+  /v1/devices/{deviceId}/running-config:
+    put:
+      operationId: reportRunningConfig
+      summary: The device reports the configuration it runs (RF-42)
+      description: >-
+        Device-facing, authenticated with the device secret. Sent at boot (every
+        applied change reboots), without secrets or the WiFi password. The
+        ficha shows it as the "running" column and seeds its form from it.
+      tags: [devices]
+      security:
+        - DeviceSecret: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+        - name: X-Device-Secret
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 32
+            maxLength: 256
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceConfig"
+      responses:
+        "204":
+          description: Recorded.
+        "401":
+          description: Invalid device credentials.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/admin/control-room:
     get:
       operationId: getControlRoom
@@ -901,6 +938,11 @@ components:
           properties:
             hasDeviceSecret:
               type: boolean
+            runningConfig:
+              $ref: "#/components/schemas/DeviceConfig"
+            runningConfigAt:
+              type: string
+              format: date-time
             desiredConfig:
               $ref: "#/components/schemas/DeviceConfig"
             sessions:

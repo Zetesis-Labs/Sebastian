@@ -52,6 +52,9 @@ persistencia usa Bun con consultas SQL-first escritas en
   reconciliación del firmware; la cabecera `X-Desired-Config` lleva la versión
   de la configuración deseada. `GET /v1/devices/{id}/config` (secreto de
   dispositivo) la devuelve.
+- `PUT /v1/devices/{id}/running-config` (secreto de dispositivo): la unidad
+  reporta la configuración que ejecuta al arrancar (sin secretos); la ficha la
+  muestra frente a la deseada.
 - `GET`/`POST /v1/devices/{id}/enroll`: alta de una unidad cuyo control room
   aún no tiene su secreto (provisionada desde el instalador embebido, o tras un
   401): el `GET` da un nonce de un solo uso (60 s) y el `POST {nonce, mac,

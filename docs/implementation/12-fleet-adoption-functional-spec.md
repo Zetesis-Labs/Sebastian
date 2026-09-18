@@ -278,9 +278,13 @@ ejecución igual a la deseada, la ficha muestra "sincronizado".
 - *Aceptación:* cambiar de half-duplex a full-duplex en la ficha → en menos
   de 60 s el altavoz reporta full-duplex y el log de arranque lo confirma.
 
-**RF-42 Real frente a deseada.** La ficha muestra siempre las dos columnas y
-resalta las diferencias. Si el altavoz no aplica en 3 polls, la ficha lo marca
-como "no aplicada" con el motivo reportado por la unidad.
+**RF-42 Real frente a deseada.** El altavoz reporta la configuración que
+ejecuta (sin secretos ni contraseña) en cada arranque, con
+`PUT /v1/devices/{id}/running-config`; todo cambio aplicado reinicia, así que
+el reporte siempre refleja lo último. La ficha parte de la deseada si la hay y,
+si no, de la reportada; bajo cada campo que difiere muestra "En el altavoz
+ahora: …". Si el altavoz no aplica en 3 polls, la ficha lo marca como "no
+aplicada" con el motivo reportado por la unidad.
 
 **RF-43 Campos que exigen reflashear** se muestran en la ficha con su valor
 actual, deshabilitados y con la explicación ("canal del micro: requiere

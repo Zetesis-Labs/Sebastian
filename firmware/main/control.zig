@@ -52,6 +52,7 @@ var id_z: [13]u8 = undefined;
 var prof_z: [profile.NAME_MAX + 1]u8 = undefined;
 var cfg_body: ?[*]u8 = null; // PSRAM, allocated on first use
 var restart_pending = std.atomic.Value(bool).init(false);
+var config_reported = false;
 
 /// The unit's id everywhere (mDNS, control room, sessions): WiFi MAC, lowercase hex.
 pub fn deviceId(out: *[13]u8) bool {
@@ -156,8 +157,24 @@ fn enrollIfNeeded() void {
     log.info("enrolled with {s}: it holds our device secret now", .{origin});
 }
 
+/// RF-42: tell the control room what we run. Once per boot (every applied
+/// change reboots), retried on each poll until it lands.
+fn reportConfigIfNeeded() void {
+    if (config_reported) return;
+    const origin = originZ() orelse return;
+    const secret = secretZ() orelse return;
+    const rc = c.sebastian_report_running_config(origin, @ptrCast(&id_z), secret);
+    if (rc != 0) {
+        log.warn("running config not reported (rc={d}) — retrying on the next poll", .{rc});
+        return;
+    }
+    config_reported = true;
+    log.info("running config reported to {s}", .{origin});
+}
+
 fn pollOnce() void {
     enrollIfNeeded();
+    reportConfigIfNeeded();
     const origin = originZ() orelse return;
     const active_name = profile.nameOf(profile.active);
     const url = std.fmt.bufPrintZ(&url_buf, "{s}/v1/devices/{s}/desired-profile?current={s}&cfg={s}&fw={s}", .{
@@ -196,6 +213,7 @@ fn pollOnce() void {
 
 fn pollTask(_: ?*anyopaque) callconv(.c) void {
     enrollIfNeeded();
+    reportConfigIfNeeded();
     while (true) {
         c.vTaskDelay(POLL_PERIOD_MS);
         pollOnce();

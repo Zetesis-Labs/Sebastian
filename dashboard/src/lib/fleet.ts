@@ -192,6 +192,23 @@ export function formGroups(profile: string | undefined): FormGroup[] {
   ]
 }
 
+// Running vs desired, field by field (RF-42): what the unit says it runs when
+// it differs from what the form holds. Dotted path into both documents.
+export function runningValue(running: Record<string, unknown> | undefined, path: string): unknown {
+  if (!running) return undefined
+  const [section, key] = path.split('.')
+  const holder = running[section]
+  return holder && typeof holder === 'object' ? (holder as Record<string, unknown>)[key] : key ? undefined : holder
+}
+
+export function differsFromRunning(running: Record<string, unknown> | undefined, path: string, formValue: unknown): boolean {
+  if (!running || path === 'wifi.password') return false
+  const actual = runningValue(running, path)
+  if (actual === undefined) return false
+  if (path === 'wifi.ssid' && !formValue) return false // empty = keep the running network
+  return String(actual) !== String(formValue ?? '')
+}
+
 // An empty SSID in the ficha means "keep the stored network", not an error.
 export function fichaIssues<T extends { path: string }>(issues: T[], form: { wifi: { ssid: string } }): T[] {
   return issues.filter((i) => !(i.path === 'wifi.ssid' && !form.wifi.ssid))

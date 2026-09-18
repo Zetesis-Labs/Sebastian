@@ -59,6 +59,7 @@ type stubDevices struct {
 	job      device.Job
 	config   []byte
 	secret   string
+	running  map[string]any
 }
 
 func (s *stubDevices) Reconcile(_ context.Context, poll device.Poll) (device.PollResult, error) {
@@ -92,6 +93,13 @@ func (s *stubDevices) DeviceConfig(_ context.Context, _, secret string) (json.Ra
 		return nil, device.ErrNotFound
 	}
 	return s.config, s.err
+}
+func (s *stubDevices) ReportRunningConfig(_ context.Context, _, secret string, doc map[string]any) error {
+	if secret != s.secret {
+		return device.ErrUnauthorized
+	}
+	s.running = doc
+	return s.err
 }
 func (s *stubDevices) RegenerateSecret(context.Context, string) (string, error) {
 	return "new-secret", s.err
@@ -319,6 +327,20 @@ func TestEnrollDeviceMapsUnavailableAuthAndSuccess(t *testing.T) {
 	enrolled, _ = handler.EnrollDevice(context.Background(), EnrollDeviceRequestObject{DeviceId: "68ee", Body: &EnrollmentRequest{Nonce: "nonce", Mac: "proof", DeviceSecret: "unit"}})
 	if body, ok := enrolled.(EnrollDevice201JSONResponse); !ok || body.ControlRoom == "" {
 		t.Fatalf("expected the control room name, got %#v", enrolled)
+	}
+}
+
+func TestReportRunningConfigMapsAuthAndRecords(t *testing.T) {
+	devices := &stubDevices{secret: "s3cret-s3cret-s3cret-s3cret-s3cret"}
+	handler := NewHandler(nil, nil, devices, stubReadiness{}, testLogger(), false, time.Second)
+	body := DeviceConfig{"schema": "sebastian.config.v1", "mode": "half_duplex"}
+	response, _ := handler.ReportRunningConfig(context.Background(), ReportRunningConfigRequestObject{DeviceId: "68ee", Params: ReportRunningConfigParams{XDeviceSecret: "wrong"}, Body: &body})
+	if _, ok := response.(ReportRunningConfig401ApplicationProblemPlusJSONResponse); !ok {
+		t.Fatalf("expected 401, got %#v", response)
+	}
+	response, _ = handler.ReportRunningConfig(context.Background(), ReportRunningConfigRequestObject{DeviceId: "68ee", Params: ReportRunningConfigParams{XDeviceSecret: devices.secret}, Body: &body})
+	if _, ok := response.(ReportRunningConfig204Response); !ok || devices.running["mode"] != "half_duplex" {
+		t.Fatalf("expected 204 and the document recorded, got %#v", response)
 	}
 }
 

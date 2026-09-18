@@ -167,6 +167,8 @@ a.device-name:hover { color: var(--orange); }
 .config-group legend span { color: var(--ink); font-size: 15px; font-weight: 600; }
 .config-group legend small { color: var(--muted); font-size: 12px; }
 .config-toggle { grid-template-columns: 1fr auto; align-items: center; }
+.config-field.differs input:not([type=checkbox]), .config-field.differs select { border-color: rgba(242, 201, 76, .6); }
+.config-field small.differs { color: #f2c94c; }
 .config-toggle small { grid-column: 1 / -1; }
 .device-panel { padding-top: 44px; }
 .device-panel .section-heading { margin-bottom: 10px; }

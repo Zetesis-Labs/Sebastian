@@ -119,6 +119,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/devices/{deviceId}/running-config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * The device reports the configuration it runs (RF-42)
+         * @description Device-facing, authenticated with the device secret. Sent at boot (every applied change reboots), without secrets or the WiFi password. The ficha shows it as the "running" column and seeds its form from it.
+         */
+        put: operations["reportRunningConfig"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/control-room": {
         parameters: {
             query?: never;
@@ -456,6 +476,9 @@ export interface components {
         };
         DeviceDetail: components["schemas"]["Device"] & {
             hasDeviceSecret: boolean;
+            runningConfig?: components["schemas"]["DeviceConfig"];
+            /** Format: date-time */
+            runningConfigAt?: string;
             desiredConfig?: components["schemas"]["DeviceConfig"];
             sessions: components["schemas"]["DeviceSession"][];
         };
@@ -829,6 +852,42 @@ export interface operations {
             };
             /** @description Enrolment is not available on this control room. */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    reportRunningConfig: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Device-Secret": string;
+            };
+            path: {
+                deviceId: components["parameters"]["DeviceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceConfig"];
+            };
+        };
+        responses: {
+            /** @description Recorded. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid device credentials. */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

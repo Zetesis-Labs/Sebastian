@@ -38,6 +38,7 @@ type DeviceService interface {
 	SetDesiredConfig(ctx context.Context, id string, config map[string]any) (string, error)
 	ClearDesiredConfig(ctx context.Context, id string) error
 	DeviceConfig(ctx context.Context, id, secret string) (json.RawMessage, error)
+	ReportRunningConfig(ctx context.Context, id, secret string, doc map[string]any) error
 	RegenerateSecret(ctx context.Context, id string) (string, error)
 	EnrollChallenge(id string) (string, error)
 	Enroll(ctx context.Context, id, nonce, mac, deviceSecret string) error

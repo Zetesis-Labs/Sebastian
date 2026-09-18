@@ -12,7 +12,7 @@ import {
   type Json,
 } from '../lib/api'
 import { formatDate } from '../lib/format'
-import { GOVERNABLE_PATHS, STATE_HINT, STATE_LABEL, STATE_TONE, configSync, desiredDocument, fichaIssues, formGroups, seedFromRoom, shortRoom, timeline } from '../lib/fleet'
+import { GOVERNABLE_PATHS, STATE_HINT, STATE_LABEL, STATE_TONE, configSync, desiredDocument, differsFromRunning, fichaIssues, formGroups, runningValue, seedFromRoom, shortRoom, timeAgo, timeline } from '../lib/fleet'
 import { defaultConfig, mergeConfig, type DeviceConfig } from '@installer/config'
 import { MODES, SHARED, getField, setField, type FieldMeta } from '@installer/modes'
 import { validate } from '@installer/validate'
@@ -33,10 +33,12 @@ export const Route = createFileRoute('/devices/$deviceId')({
 
 const QUICK_PROFILES = ['agente', 'micro-usb']
 
-// The desired document the form edits: what this control room holds for the
-// unit (or wrote into it at adoption), never secrets, never a password.
+// The document the form edits: the desired one if this control room holds
+// one, otherwise what the unit reports it runs (RF-42), otherwise what an
+// adoption from here wrote. Never secrets, never a password.
 function seedForm(detail: DeviceDetail, room: ControlRoomPublic): DeviceConfig {
-  const base = detail.desiredConfig ? mergeConfig(detail.desiredConfig) : defaultConfig()
+  const source = detail.desiredConfig ?? detail.runningConfig
+  const base = source ? mergeConfig(source) : defaultConfig()
   return seedFromRoom({ ...base, wifi: { ...base.wifi, password: '' } }, room)
 }
 
@@ -184,6 +186,9 @@ function DevicePage() {
             {sync === 'applying' && `aplicando ${desired} (ejecuta ${running})…`}
             {sync === 'stale' && `no aplicada: pide ${desired}, ejecuta ${running}`}
             {sync === 'none' && `sin configuración deseada · ejecuta ${running}`}
+            {detail.runningConfigAt && now
+              ? ` · reportada ${timeAgo(detail.runningConfigAt, now)}`
+              : ' · el altavoz aún no ha reportado su configuración'}
           </span>
         </div>
         {formGroups(detail.desiredProfile ?? detail.reportedProfile).map((group) => (
@@ -206,7 +211,16 @@ function DevicePage() {
               )}
               {group.paths.map((path) => {
                 const f = FIELD_BY_PATH.get(path)
-                return f ? <Field key={f.path} f={f} form={form} onChange={update} issue={issues.find((i) => i.path === (f.issuePath ?? f.path))?.message} /> : null
+                return f ? (
+                  <Field
+                    key={f.path}
+                    f={f}
+                    form={form}
+                    onChange={update}
+                    issue={issues.find((i) => i.path === (f.issuePath ?? f.path))?.message}
+                    running={differsFromRunning(detail.runningConfig, f.path, getField(form, f.path)) ? String(runningValue(detail.runningConfig, f.path)) : undefined}
+                  />
+                ) : null
               })}
             </div>
           </fieldset>
@@ -268,12 +282,12 @@ function DevicePage() {
   )
 }
 
-function Field({ f, form, onChange, issue }: Readonly<{ f: FieldMeta; form: DeviceConfig; onChange: (path: string, value: unknown) => void; issue?: string }>) {
+function Field({ f, form, onChange, issue, running }: Readonly<{ f: FieldMeta; form: DeviceConfig; onChange: (path: string, value: unknown) => void; issue?: string; running?: string }>) {
   const value = getField(form, f.path)
-  const hint = issue ?? HINT[f.path] ?? f.help
+  const hint = issue ?? (running !== undefined ? `En el altavoz ahora: ${running}` : undefined) ?? HINT[f.path] ?? f.help
   if (f.type === 'toggle') {
     return (
-      <label className="config-field config-toggle">
+      <label className={`config-field config-toggle${running !== undefined ? ' differs' : ''}`}>
         <span>{f.label}</span>
         <input type="checkbox" checked={Boolean(value)} onChange={(e) => onChange(f.path, e.target.checked)} />
         {hint && <small>{hint}</small>}
@@ -282,7 +296,7 @@ function Field({ f, form, onChange, issue }: Readonly<{ f: FieldMeta; form: Devi
   }
   if (f.type === 'enum') {
     return (
-      <label className="config-field">
+      <label className={`config-field${running !== undefined ? ' differs' : ''}`}>
         <span>{f.label}</span>
         <select value={String(value)} onChange={(e) => onChange(f.path, e.target.value)}>
           {f.options?.map((o) => (
@@ -295,7 +309,7 @@ function Field({ f, form, onChange, issue }: Readonly<{ f: FieldMeta; form: Devi
   }
   const isNumber = f.type === 'number'
   return (
-    <label className="config-field">
+    <label className={`config-field${running !== undefined ? ' differs' : ''}`}>
       <span>{f.label}</span>
       <input
         type={f.type === 'password' ? 'password' : isNumber ? 'number' : 'text'}
@@ -304,7 +318,7 @@ function Field({ f, form, onChange, issue }: Readonly<{ f: FieldMeta; form: Devi
         autoComplete="off"
         onChange={(e) => onChange(f.path, isNumber ? Number(e.target.value) || 0 : e.target.value)}
       />
-      {hint && <small className={issue ? 'warn' : ''}>{hint}</small>}
+      {hint && <small className={issue ? 'warn' : running !== undefined ? 'differs' : ''}>{hint}</small>}
     </label>
   )
 }

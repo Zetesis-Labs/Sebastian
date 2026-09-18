@@ -145,6 +145,10 @@ Generalizes the existing desired-profile poll (`control.zig`, every 30 s).
 - Poll gains `?cfg=<hash>`; the response, besides the desired profile, can say
   `config: <hash>`; when it differs the device does
   `GET /v1/devices/{id}/config`, stores it through `provisioning.c`, restarts.
+- Firmware reports what it runs at every boot (RF-42): `PUT
+  /v1/devices/{id}/running-config` with the same dump `sebastian.config.get`
+  gives over USB, minus secrets (`config_dump(in_hand=false)`); the server keeps
+  it in `devices.running_config` and the ficha shows it field by field.
   Reboot is deliberate, as for profiles: the boot path is the one always tested.
 - Governable today without new NVS keys: mode (half/full duplex), fixed beam and
   azimuth, token server, syslog, profile. Session timing

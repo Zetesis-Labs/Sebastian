@@ -90,6 +90,23 @@ func enrollValid(ch enrollChallenge, nonce, mac, orgSecret, deviceID string, now
 	return hmac.Equal([]byte(strings.ToLower(mac)), []byte(enrollProof(orgSecret, nonce, deviceID)))
 }
 
+// withoutSecrets strips what a reported config must never carry.
+func withoutSecrets(doc map[string]any) map[string]any {
+	out := maps.Clone(doc)
+	if ad, ok := out["adoption"].(map[string]any); ok {
+		ad = maps.Clone(ad)
+		delete(ad, "orgSecret")
+		delete(ad, "deviceSecret")
+		out["adoption"] = ad
+	}
+	if wifi, ok := out["wifi"].(map[string]any); ok {
+		wifi = maps.Clone(wifi)
+		delete(wifi, "password")
+		out["wifi"] = wifi
+	}
+	return out
+}
+
 func forgetConfig() string {
 	return `{"schema":"sebastian.config.v1","livekit":{"tokenServerUrl":""},"adoption":{"orgSecret":"","deviceSecret":""},"configVersion":""}`
 }
