@@ -43,9 +43,9 @@ const InstallerControlRoomDotjsonRoute =
     getParentRoute: () => InstallerRoute,
   } as any)
 const DevicesDeviceIdRoute = DevicesDeviceIdRouteImport.update({
-  id: '/$deviceId',
-  path: '/$deviceId',
-  getParentRoute: () => DevicesRoute,
+  id: '/devices/$deviceId',
+  path: '/devices/$deviceId',
+  getParentRoute: () => rootRouteImport,
 } as any)
 
 export interface FileRoutesByFullPath {
@@ -103,6 +103,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   InstallerRoute: typeof InstallerRouteWithChildren
+  DevicesDeviceIdRoute: typeof DevicesDeviceIdRoute
   RecordingsRecordingIdRoute: typeof RecordingsRecordingIdRoute
   DevicesIndexRoute: typeof DevicesIndexRoute
 }
@@ -146,10 +147,10 @@ declare module '@tanstack/react-router' {
     }
     '/devices/$deviceId': {
       id: '/devices/$deviceId'
-      path: '/$deviceId'
+      path: '/devices/$deviceId'
       fullPath: '/devices/$deviceId'
       preLoaderRoute: typeof DevicesDeviceIdRouteImport
-      parentRoute: typeof DevicesRoute
+      parentRoute: typeof rootRouteImport
     }
   }
 }
@@ -169,6 +170,7 @@ const InstallerRouteWithChildren = InstallerRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   InstallerRoute: InstallerRouteWithChildren,
+  DevicesDeviceIdRoute: DevicesDeviceIdRoute,
   RecordingsRecordingIdRoute: RecordingsRecordingIdRoute,
   DevicesIndexRoute: DevicesIndexRoute,
 }
