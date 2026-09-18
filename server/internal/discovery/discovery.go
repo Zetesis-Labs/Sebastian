@@ -73,12 +73,24 @@ func (m *MDNS) Enabled() bool { return true }
 
 // Run blocks until ctx is done, restarting the browse every browseCycle.
 func (m *MDNS) Run(ctx context.Context) {
-	for ctx.Err() == nil {
-		cycle, cancel := context.WithTimeout(ctx, browseCycle)
-		err := dnssd.LookupType(cycle, serviceType, m.add, func(dnssd.BrowseEntry) {})
+	m.runCycles(ctx, browseCycle, -1)
+}
+
+// runCycles browses `count` times (negative = until ctx is done), each cycle
+// lasting `cycle`. Each cycle ends by explicit cancellation, never by a
+// deadline: dnssd's socket readers only stop on context.Canceled, so a cycle
+// that expired with DeadlineExceeded left two goroutines spinning on a closed
+// socket (550 % CPU after a day). LookupType then returns context.Canceled,
+// which is the normal way out.
+func (m *MDNS) runCycles(ctx context.Context, cycle time.Duration, count int) {
+	for ctx.Err() == nil && count != 0 {
+		count--
+		browse, cancel := context.WithCancel(ctx)
+		timer := time.AfterFunc(cycle, cancel)
+		err := dnssd.LookupType(browse, serviceType, m.add, func(dnssd.BrowseEntry) {})
+		timer.Stop()
 		cancel()
-		// The cycle ending on its own deadline is the normal way out of LookupType.
-		if err != nil && !errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+		if err != nil && !errors.Is(err, context.Canceled) && ctx.Err() == nil {
 			m.logger.Warn("mdns browse failed — LAN discovery off until it recovers", "error", err)
 			select {
 			case <-ctx.Done():
