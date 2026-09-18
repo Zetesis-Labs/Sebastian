@@ -190,8 +190,9 @@ describe('eventMessage (RF-36, RF-42)', () => {
     expect(m?.text).toContain('no aplicada')
     expect(m?.text).toContain('faltan datos de la WiFi')
   })
-  it('drops a rejected config once the unit runs the desired version', () => {
+  it('drops a rejected config once the unit runs the desired version or nothing is desired', () => {
     expect(eventMessage({ lastEvent: 'cfg-rejected:wifi', desiredConfigVersion: 'v2', reportedConfigVersion: 'v2' }, '')).toBeNull()
+    expect(eventMessage({ lastEvent: 'cfg-rejected:wifi', reportedConfigVersion: 'v1' }, '')).toBeNull()
   })
   it('is silent without an event and informative for boot errors', () => {
     expect(eventMessage({ lastEvent: '' }, '')).toBeNull()

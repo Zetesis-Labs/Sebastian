@@ -173,7 +173,7 @@ export function eventMessage(
     return { text: `Intento de adopción rechazado desde ${event.slice('adopt-denied:'.length)}${at}: el secreto no coincidía.`, tone: 'warn' }
   }
   if (event.startsWith('cfg-rejected:')) {
-    if (device.desiredConfigVersion && device.reportedConfigVersion === device.desiredConfigVersion) return null
+    if (!device.desiredConfigVersion || device.reportedConfigVersion === device.desiredConfigVersion) return null
     return { text: `Configuración no aplicada${at}: el altavoz la rechazó (${rejectionReason(event.slice('cfg-rejected:'.length))}).`, tone: 'warn' }
   }
   if (event === 'wifi-rollback') {
