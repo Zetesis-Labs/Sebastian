@@ -185,3 +185,31 @@ Dos trampas que costaron una vuelta cada una:
 - La respuesta llega **troceada por USB**: una regex sobre el buffer acepta la
   primera `}` (fin del bloque `wifi`) como fin del JSON. Solo vale una línea
   completa terminada en salto de línea que parsee.
+
+## Flota: adopción desde el control room (tarde del 18) — rama `feat/fleet-adoption`
+
+Diseño en `docs/implementation/11-…` y especificación funcional en `12-…`;
+implementado entero el mismo día (firmware, server, dashboard, instalador).
+Probado en Pizarro con tres placas:
+
+- `68ee8f4d8dd4` con el firmware nuevo: se anuncia por mDNS (`dns-sd -B
+  _sebastian._tcp`), contesta al `hello` de adopción, y el control room local
+  (`casa-mac`, `SEBASTIAN_PUBLIC_API_URL=http://10.0.0.188:8787`) la lista con
+  IP, firmware y `cr`.
+- `e072a1f96ef0` (tercera placa, provisionada contra cortes) reflasheada sin
+  tocar la NVS: aparece como **gestionada por otro control room**
+  (`http://10.0.100.10:8787`) con su IP.
+- La adopción de una unidad sin secreto de organización exige MUTE en 30 s
+  (anillo ámbar); sin pulsación caduca con `consent_timeout`, como manda
+  RF-34. Hay que pulsar el botón *mientras* parpadea.
+
+Trampas nuevas:
+- La tarea del listener UDP va con pila en RAM interna: escribe en NVS y las
+  operaciones de flash deshabilitan la caché de la PSRAM.
+- `dnssd` (Go) no reemite los cambios de TXT: el browser se reinicia cada 45 s
+  y las entradas caducan a los 90 s; por eso "desaparecer" tarda hasta 90 s.
+- En `vite dev` `/installer/` redirige a `/installer` y no hay índice de
+  directorio: el instalador embebido se sirve desde una ruta de servidor y se
+  construye con `--base /installer/`.
+- Los server functions de TanStack Start rechazan `unknown` en el payload: el
+  documento de configuración viaja tipado como JSON.
