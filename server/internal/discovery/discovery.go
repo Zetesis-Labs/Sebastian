@@ -19,9 +19,9 @@ const (
 	serviceType = "_sebastian._tcp.local."
 	// browseCycle restarts the browse so TXT updates (err, cfg, cr) are
 	// re-read: dnssd reports an instance once, not on every change.
-	browseCycle = 45 * time.Second
-	// expireAfter drops a unit that stopped answering.
-	expireAfter = 90 * time.Second
+	browseCycle = 15 * time.Second
+	// expireAfter drops a unit that stopped answering (spec RF-21: 60 s).
+	expireAfter = 60 * time.Second
 )
 
 // Seen is one announced unit.

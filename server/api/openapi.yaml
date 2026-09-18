@@ -841,13 +841,17 @@ components:
     DeviceState:
       type: string
       description: >-
-        adopted = bound here and polling; absent = bound here, silent for more
-        than three poll periods and not on the LAN; managed_elsewhere = seen on
-        the LAN, bound to another control room; unadopted = seen on the LAN,
-        bound to none; orphan = seen on the LAN, bound to a control room it
-        cannot reach; registered = polled this control room without being
-        adopted (legacy /token units).
-      enum: [adopted, absent, managed_elsewhere, unadopted, orphan, registered]
+        adopted = bound here and polling; joining = adopted here, waiting for
+        its first contact since the adoption (it is rebooting; up to 3 min);
+        absent = bound here, silent for more than three poll periods and not on
+        the LAN; moved = adopted here but the LAN announces it bound to another
+        control room after its last contact with us (someone took it);
+        leaving = forgotten here, the LAN still carries its old announce;
+        managed_elsewhere = seen on the LAN, bound to another control room;
+        unadopted = seen on the LAN, bound to none; orphan = seen on the LAN,
+        bound to a control room it cannot reach; registered = polled this
+        control room without being adopted (legacy /token units).
+      enum: [adopted, joining, absent, moved, leaving, managed_elsewhere, unadopted, orphan, registered]
     Device:
       type: object
       additionalProperties: false

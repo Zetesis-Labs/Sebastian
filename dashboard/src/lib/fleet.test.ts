@@ -9,6 +9,8 @@ import {
   isValidIPv4,
   jobMessage,
   sectionOf,
+  timeAgo,
+  timeline,
   type AdoptionJob,
   type Device,
 } from './fleet'
@@ -24,10 +26,22 @@ describe('fleet sections', () => {
       device('d', 'unadopted'),
       device('e', 'registered'),
       device('f', 'managed_elsewhere'),
+      device('g', 'joining'),
+      device('h', 'moved'),
+      device('i', 'leaving'),
     ])
-    expect(groups.mine.map((d) => d.id)).toEqual(['a', 'b'])
-    expect(groups.attention.map((d) => d.id)).toEqual(['c', 'd', 'e'])
+    expect(groups.mine.map((d) => d.id)).toEqual(['a', 'b', 'g', 'h'])
+    expect(groups.attention.map((d) => d.id)).toEqual(['c', 'd', 'e', 'i'])
     expect(groups.others.map((d) => d.id)).toEqual(['f'])
+  })
+
+  it('transitions allow only what makes sense (spec §3.2)', () => {
+    expect(canAdopt('joining')).toBe(false)
+    expect(canForget('joining')).toBe(true)
+    expect(canAdopt('moved')).toBe(true)
+    expect(canForget('moved')).toBe(true)
+    expect(canAdopt('leaving')).toBe(false)
+    expect(canForget('leaving')).toBe(false)
   })
 
   it('managed elsewhere is read-only except adopt (RF-13)', () => {
@@ -78,6 +92,20 @@ describe('desired document (RF-44)', () => {
   it('keeps a typed password and drops wifi without ssid', () => {
     expect(desiredDocument({ wifi: { ssid: 'A', password: 'p' } }).wifi).toEqual({ ssid: 'A', password: 'p' })
     expect(desiredDocument({ wifi: { ssid: '', password: 'p' } }).wifi).toBeUndefined()
+  })
+})
+
+describe('timeline', () => {
+  const now = new Date('2026-09-18T12:00:00Z')
+  it('reads the three clocks in the operator\'s words', () => {
+    expect(timeAgo('2026-09-18T11:59:48Z', now)).toBe('hace 12 s')
+    expect(timeAgo('2026-09-18T11:57:00Z', now)).toBe('hace 3 min')
+    expect(
+      timeline({ state: 'moved', profileReportedAt: '2026-09-18T11:59:00Z', adoptedAt: '2026-09-18T11:50:00Z', seenOnLanAt: '2026-09-18T11:59:30Z', controlRoom: 'http://10.0.0.188:8788' }, now),
+    ).toEqual(['último contacto hace 1 min', 'adoptado hace 10 min', 'en la red hace 30 s (vinculado a 10.0.0.188:8788)'])
+  })
+  it('says when a unit never contacted and is not on the LAN', () => {
+    expect(timeline({ state: 'joining', adoptedAt: '2026-09-18T11:59:40Z' }, now)).toEqual(['sin contacto todavía', 'adoptado hace 20 s', 'no se ve en la red'])
   })
 })
 

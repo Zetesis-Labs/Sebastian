@@ -13,7 +13,10 @@ export type ControlRoomInfo = components['schemas']['ControlRoom']
 
 export const STATE_LABEL: Record<DeviceState, string> = {
   adopted: 'Adoptado aquí',
+  joining: 'Adoptado aquí · esperando arranque',
   absent: 'Adoptado aquí · ausente',
+  moved: 'Se lo llevó otro control room',
+  leaving: 'Olvidado · reiniciando',
   managed_elsewhere: 'Gestionado por otro control room',
   unadopted: 'Sin adoptar',
   orphan: 'Huérfano',
@@ -22,12 +25,32 @@ export const STATE_LABEL: Record<DeviceState, string> = {
 
 export const STATE_HINT: Record<DeviceState, string> = {
   adopted: 'Vinculado a este control room y contactando.',
+  joining: 'Adoptado desde aquí; la placa se reinicia y contactará en menos de un minuto.',
   absent: 'Vinculado aquí, pero lleva más de 90 s sin contactar y no se ve en la red.',
+  moved: 'Sigue en el inventario, pero la red lo anuncia vinculado a otro control room desde después de su último contacto. Olvídalo para limpiar el inventario, o vuelve a adoptarlo.',
+  leaving: 'Olvidado desde aquí; la red aún lleva su anuncio antiguo. Desaparece solo cuando la placa arranca sin control room.',
   managed_elsewhere: 'Se ve en la red, vinculado a otro control room. Solo lectura.',
   unadopted: 'Se ve en la red y no tiene control room.',
   orphan: 'Se ve en la red; su control room le está fallando.',
   registered: 'Ha contactado con este control room sin secreto de altavoz: firmware antiguo, o aún no ha podido darse de alta (¿falta el secreto de organización aquí?).',
 }
+
+// Colour of the state badge and the row border.
+export type Tone = 'ok' | 'wait' | 'warn' | 'muted' | 'other' | 'info'
+export const STATE_TONE: Record<DeviceState, Tone> = {
+  adopted: 'ok',
+  joining: 'wait',
+  absent: 'muted',
+  moved: 'warn',
+  leaving: 'muted',
+  managed_elsewhere: 'other',
+  unadopted: 'warn',
+  orphan: 'warn',
+  registered: 'info',
+}
+
+// States in transition: the row says what is happening and what comes next.
+export const TRANSITIONAL = new Set<DeviceState>(['joining', 'moved', 'leaving'])
 
 export type Section = 'mine' | 'attention' | 'others'
 
@@ -40,7 +63,9 @@ export const SECTION_TITLE: Record<Section, string> = {
 export function sectionOf(state: DeviceState): Section {
   switch (state) {
     case 'adopted':
+    case 'joining':
     case 'absent':
+    case 'moved':
       return 'mine'
     case 'managed_elsewhere':
       return 'others'
@@ -57,11 +82,43 @@ export function groupDevices(devices: Device[]): Record<Section, Device[]> {
 
 // What the operator may do with a unit in each state (RF-13, RF-30, RF-37).
 export function canAdopt(state: DeviceState): boolean {
-  return state !== 'adopted' && state !== 'absent'
+  return state !== 'adopted' && state !== 'absent' && state !== 'joining' && state !== 'leaving'
 }
 
 export function canForget(state: DeviceState): boolean {
-  return state === 'adopted' || state === 'absent' || state === 'registered'
+  return state === 'adopted' || state === 'absent' || state === 'registered' || state === 'moved' || state === 'joining'
+}
+
+// "hace 12 s" / "hace 3 min" / "hace 2 h", or the day when older.
+export function timeAgo(iso: string, now: Date): string {
+  const seconds = Math.max(0, Math.round((now.getTime() - new Date(iso).getTime()) / 1000))
+  if (seconds < 60) return `hace ${seconds} s`
+  if (seconds < 3600) return `hace ${Math.round(seconds / 60)} min`
+  if (seconds < 86_400) return `hace ${Math.round(seconds / 3600)} h`
+  return new Intl.DateTimeFormat('es-ES', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Europe/Madrid' }).format(new Date(iso))
+}
+
+// A control room origin as the operator reads it: host:port.
+export function shortRoom(origin: string): string {
+  return origin.replace(/^[a-z]+:\/\//i, '').replace(/\/$/, '')
+}
+
+// The row's chronology (spec §3.2 transitions): what the unit told us, when we
+// adopted it and what the LAN says — the three clocks a transition depends on.
+export function timeline(
+  device: Pick<Device, 'profileReportedAt' | 'adoptedAt' | 'seenOnLanAt' | 'controlRoom' | 'state'>,
+  now: Date,
+): string[] {
+  const items: string[] = []
+  items.push(device.profileReportedAt ? `último contacto ${timeAgo(device.profileReportedAt, now)}` : 'sin contacto todavía')
+  if (device.adoptedAt) items.push(`adoptado ${timeAgo(device.adoptedAt, now)}`)
+  if (device.seenOnLanAt) {
+    const bound = device.controlRoom ? `vinculado a ${shortRoom(device.controlRoom)}` : 'sin control room'
+    items.push(`en la red ${timeAgo(device.seenOnLanAt, now)} (${bound})`)
+  } else if (device.state !== 'registered') {
+    items.push('no se ve en la red')
+  }
+  return items
 }
 
 // The one-line message for an adoption job (RF-35, spec §11).

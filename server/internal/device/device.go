@@ -38,7 +38,10 @@ type State string
 
 const (
 	StateAdopted          State = "adopted"
+	StateJoining          State = "joining"
 	StateAbsent           State = "absent"
+	StateMoved            State = "moved"
+	StateLeaving          State = "leaving"
 	StateManagedElsewhere State = "managed_elsewhere"
 	StateUnadopted        State = "unadopted"
 	StateOrphan           State = "orphan"
@@ -47,6 +50,10 @@ const (
 
 // absentAfter: bound here, silent for more than three poll periods (30 s each).
 const absentAfter = 90 * time.Second
+
+// joiningFor: after an adoption the unit reboots and polls within ~40 s; until
+// then (and at most this long) it is "joining", not "absent".
+const joiningFor = 3 * time.Minute
 
 type Device struct {
 	ID                string
@@ -167,6 +174,7 @@ type Service struct {
 	jobs           map[uuid.UUID]*Job
 	pendingSecrets map[string]string // device id → plaintext until the device confirms
 	enrolls        map[string]enrollChallenge
+	forgotten      map[string]time.Time // recently forgotten: their stale announce is "leaving", not "registered"
 }
 
 func NewService(store Store, lan discovery.Browser, adopter Adopter, room ControlRoom, logger *slog.Logger) *Service {
@@ -185,6 +193,7 @@ func NewService(store Store, lan discovery.Browser, adopter Adopter, room Contro
 		jobs:           map[uuid.UUID]*Job{},
 		pendingSecrets: map[string]string{},
 		enrolls:        map[string]enrollChallenge{},
+		forgotten:      map[string]time.Time{},
 	}
 }
 
@@ -213,7 +222,18 @@ func (s *Service) view(rows []Device) []Device {
 	if s.lan != nil {
 		seen = s.lan.Snapshot()
 	}
-	return fleetView(rows, seen, s.room.origin(), s.now())
+	now := s.now()
+	s.mu.Lock()
+	leaving := map[string]bool{}
+	for id, at := range s.forgotten {
+		if now.Sub(at) > joiningFor {
+			delete(s.forgotten, id)
+			continue
+		}
+		leaving[id] = true
+	}
+	s.mu.Unlock()
+	return fleetView(rows, seen, s.room.origin(), leaving, now)
 }
 
 func (s *Service) List(ctx context.Context) ([]Device, error) {
@@ -510,6 +530,7 @@ func (s *Service) Forget(ctx context.Context, id string, req AdoptRequest) (Job,
 		}
 		s.mu.Lock()
 		delete(s.pendingSecrets, id)
+		s.forgotten[id] = s.now()
 		s.mu.Unlock()
 		s.updateJob(job, func(j *Job) {
 			j.Phase = "forgotten"

@@ -227,3 +227,16 @@ Trampas nuevas:
 - Pendiente de probar en placa: hace falta una unidad con secreto de
   organización y sin secreto de altavoz (provisionar desde `/installer` del
   dashboard, o `Olvidar` + re-provisionar por USB).
+
+### Transiciones visibles (noche del 18)
+
+- Estados derivados nuevos en `fleet_view.go`: `joining` (adoptado, sin poll
+  desde la adopción, ≤ 3 min), `moved` (la red lo anuncia vinculado a otro tras
+  nuestro último poll; acciones Olvidar / Recuperar), `leaving` (olvidado hace
+  < 3 min, anuncio viejo). Un poll más reciente que el anuncio manda.
+- Descubrimiento: browse cada 15 s, caducidad 60 s (antes 45/90).
+- Dashboard: badge por tono, chips (ip/fw/perfil), cronología "último contacto
+  · adoptado · en la red (vinculado a X)" en fila y ficha; refresco cada 5 s.
+- Prueba de secretos distintos: `server2.env` (casa-2) lleva
+  `otra-organizacion-2026`; el campo de secreto de altavoz está en "Adoptar
+  aquí" y "Adoptar por IP".

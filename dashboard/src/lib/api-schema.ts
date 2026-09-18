@@ -95,6 +95,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/devices/{deviceId}/enroll": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Challenge for a device to enrol with the organization secret
+         * @description Device-facing, first step of the enrolment (RF-03/RF-51): a unit provisioned from the embedded installer holds the organization secret but no device secret yet, so it asks this control room for one. The nonce is single-use and expires after 60 s. 404 when this control room has no organization secret (enrolment is not possible).
+         */
+        get: operations["getEnrollmentChallenge"];
+        put?: never;
+        /**
+         * Enrol a device that proves it holds the organization secret
+         * @description Second step: `mac` = hex HMAC-SHA256(organization secret, nonce + "." + deviceId), the same construction the LAN adoption uses. On success the unit is adopted by this control room and receives its device secret, which it stores and uses from then on for `POST /v1/sessions`.
+         */
+        post: operations["enrollDevice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/control-room": {
         parameters: {
             query?: never;
@@ -404,10 +428,10 @@ export interface components {
             items: components["schemas"]["Recording"][];
         };
         /**
-         * @description adopted = bound here and polling; absent = bound here, silent for more than three poll periods and not on the LAN; managed_elsewhere = seen on the LAN, bound to another control room; unadopted = seen on the LAN, bound to none; orphan = seen on the LAN, bound to a control room it cannot reach; registered = polled this control room without being adopted (legacy /token units).
+         * @description adopted = bound here and polling; joining = adopted here, waiting for its first contact since the adoption (it is rebooting; up to 3 min); absent = bound here, silent for more than three poll periods and not on the LAN; moved = adopted here but the LAN announces it bound to another control room after its last contact with us (someone took it); leaving = forgotten here, the LAN still carries its old announce; managed_elsewhere = seen on the LAN, bound to another control room; unadopted = seen on the LAN, bound to none; orphan = seen on the LAN, bound to a control room it cannot reach; registered = polled this control room without being adopted (legacy /token units).
          * @enum {string}
          */
-        DeviceState: "adopted" | "absent" | "managed_elsewhere" | "unadopted" | "orphan" | "registered";
+        DeviceState: "adopted" | "joining" | "absent" | "moved" | "leaving" | "managed_elsewhere" | "unadopted" | "orphan" | "registered";
         Device: {
             id: string;
             displayName: string;
@@ -499,6 +523,17 @@ export interface components {
         };
         DeviceList: {
             items: components["schemas"]["Device"][];
+        };
+        EnrollmentChallenge: {
+            nonce: string;
+        };
+        EnrollmentRequest: {
+            nonce: string;
+            /** @description hex HMAC-SHA256(organization secret, nonce + "." + deviceId) */
+            mac: string;
+        };
+        EnrollmentResponse: {
+            deviceSecret: string;
         };
         DesiredProfile: {
             /** @description Firmware profile name. Empty or absent clears the desired state. */
@@ -714,6 +749,82 @@ export interface operations {
                 };
             };
             /** @description No desired config for this device. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    getEnrollmentChallenge: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deviceId: components["parameters"]["DeviceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The challenge. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrollmentChallenge"];
+                };
+            };
+            /** @description Enrolment is not available on this control room. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    enrollDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deviceId: components["parameters"]["DeviceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnrollmentRequest"];
+            };
+        };
+        responses: {
+            /** @description Enrolled; the device secret, delivered once. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrollmentResponse"];
+                };
+            };
+            /** @description The nonce is unknown, expired or the proof does not match. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Enrolment is not available on this control room. */
             404: {
                 headers: {
                     [name: string]: unknown;
