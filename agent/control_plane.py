@@ -37,7 +37,6 @@ load_dotenv()
 log = logging.getLogger("sebastian.control-plane")
 
 ANNOUNCE_TOPIC = "sebastian.announce"
-DEVICE_IDENTITY = os.getenv("SEBASTIAN_DEVICE_IDENTITY", "esp32-respeaker")
 ROOM_PREFIX = "sebastian"
 
 HOST = os.getenv("SEBASTIAN_CONTROL_HOST", "127.0.0.1")
@@ -62,7 +61,11 @@ async def _device_room(lk: api.LiveKitAPI) -> str | None:
         parts = await lk.room.list_participants(
             api.ListParticipantsRequest(room=room.name)
         )
-        has_device = any(p.identity == DEVICE_IDENTITY for p in parts.participants)
+        # Units join under their own id (their MAC, RF-12): the device is any
+        # standard participant, the agent the AGENT-kind one.
+        has_device = any(
+            p.kind == api.ParticipantInfo.Kind.STANDARD for p in parts.participants
+        )
         has_agent = any(
             p.kind == api.ParticipantInfo.Kind.AGENT for p in parts.participants
         )

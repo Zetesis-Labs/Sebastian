@@ -37,7 +37,6 @@ def _bvc_if_available():
 
 PREROLL_PATH = "/tmp/sebastian_preroll.wav"
 PREROLL_TOPIC = "sebastian.preroll"
-DEVICE_IDENTITY = os.getenv("SEBASTIAN_DEVICE_IDENTITY", "esp32-respeaker")
 LIVE_SAMPLE_RATE = 24000
 LIVE_FRAME_MS = 50
 PREROLL_WAIT_TIMEOUT = 6.0
@@ -96,7 +95,7 @@ async def _record_track(track: rtc.Track, path: str) -> None:
 def setup_recorder(ctx: agents.JobContext) -> None:
     @ctx.room.on("track_subscribed")
     def _on_track(track: rtc.Track, publication: rtc.TrackPublication, participant: rtc.RemoteParticipant) -> None:
-        if track.kind == rtc.TrackKind.KIND_AUDIO and "esp32" in participant.identity:
+        if track.kind == rtc.TrackKind.KIND_AUDIO and participant.kind != rtc.ParticipantKind.PARTICIPANT_KIND_AGENT:
             os.makedirs(RECORD_DIR, exist_ok=True)
             stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
             path = os.path.join(RECORD_DIR, f"{stamp}_{ctx.room.name}_mic.wav")
@@ -168,9 +167,10 @@ def setup_output_recorder(session: agents.AgentSession, room_name: str) -> Recor
 
 
 class SebastianAudioInput(agents.io.AudioInput):
-    def __init__(self, room: rtc.Room, vad: agents_vad.VAD | None = None) -> None:
+    def __init__(self, room: rtc.Room, vad: agents_vad.VAD | None = None, device_identity: str = "esp32-respeaker") -> None:
         super().__init__(label="SebastianMic")
         self._room = room
+        self._device_identity = device_identity
         self._model_wav: wave.Wave_write | None = None
         self._model_frames = 0
         # Talk-over detector: with turn_detection="realtime_llm" the framework
@@ -212,7 +212,7 @@ class SebastianAudioInput(agents.io.AudioInput):
         # device's mic track was subscribed — that event already fired, so
         # attach to any existing device audio track now.
         for participant in room.remote_participants.values():
-            if participant.identity != DEVICE_IDENTITY:
+            if participant.identity != self._device_identity:
                 continue
             for pub in participant.track_publications.values():
                 track = pub.track
@@ -372,7 +372,7 @@ class SebastianAudioInput(agents.io.AudioInput):
     def _on_track_subscribed(self, track: rtc.Track, publication: rtc.TrackPublication, participant: rtc.RemoteParticipant) -> None:
         if (
             track.kind != rtc.TrackKind.KIND_AUDIO
-            or participant.identity != DEVICE_IDENTITY
+            or participant.identity != self._device_identity
         ):
             return
 
