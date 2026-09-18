@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { defaultConfig, mergeConfig, serialize, type DeviceConfig } from "./lib/config";
-import { hasBlockingErrors, validate } from "./lib/validate";
-import { sendConfig } from "./lib/serial";
+import { hasBlockingErrors, validate, type FieldIssue } from "./lib/validate";
+import { HOLD_AFTER_LOAD_MS, linkAgeMs, linkOpen, loadConfig, sendConfig } from "./lib/serial";
 import { ConfigForm } from "./components/ConfigForm";
 import { Btn, Card, Eyebrow, SectionTitle, cx } from "./components/ui";
 import { Bolt, Check, Chevron, Copy, Download, Github, Upload, Wifi } from "./components/icons";
@@ -14,12 +14,17 @@ export default function App() {
   const [sendMsg, setSendMsg] = useState("With the board flashed and connected via USB, click send and choose the port.");
   const [sendTone, setSendTone] = useState<Tone>("");
   const [sending, setSending] = useState(false);
+  const [loading, setLoading] = useState(false);
+  // Set by "load from device": the board has a WiFi password we never see. It is
+  // kept (key omitted from the payload) until the operator explicitly edits it.
+  const [storedPassword, setStoredPassword] = useState<"keep" | "edit" | undefined>();
+  const [holdLeft, setHoldLeft] = useState<number | null>(null);
   const [sourceMsg, setSourceMsg] = useState("Checking published firmware…");
   const [installReady, setInstallReady] = useState(false);
   const [log, setLog] = useState<string[]>([]);
 
   const fileRef = useRef<HTMLInputElement>(null);
-  const issues = useMemo(() => validate(config), [config]);
+  const issues = useMemo<FieldIssue[]>(() => validate(config), [config]);
   const blocked = hasBlockingErrors(issues);
 
   useEffect(() => {
@@ -53,12 +58,70 @@ export default function App() {
     })();
   }, []);
 
+  // Countdown of the firmware's held window while the port stays open after a load.
+  useEffect(() => {
+    if (holdLeft === null) return;
+    const id = setInterval(() => {
+      if (!linkOpen()) {
+        setHoldLeft(null);
+        return;
+      }
+      const left = Math.max(0, Math.round((HOLD_AFTER_LOAD_MS - linkAgeMs()) / 1000));
+      setHoldLeft(left);
+      if (left === 0) {
+        setSendTone("warn");
+        setSendMsg("La placa ha cerrado el puerto. Desenchufa y enchufa el USB y vuelve a cargar o enviar.");
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, [holdLeft]);
+
+  async function load() {
+    setLoading(true);
+    setSendTone("");
+    setSendMsg("Leyendo la config guardada en la placa…");
+    setLog([]);
+    const result = await loadConfig((line) => setLog((prev) => [...prev, line]));
+    setLoading(false);
+    switch (result.status) {
+      case "ok": {
+        const { dump } = result;
+        setConfig(dump.config);
+        setStoredPassword(dump.passwordSet ? "keep" : undefined);
+        setHoldLeft(Math.round(HOLD_AFTER_LOAD_MS / 1000));
+        setSendTone("ok");
+        setSendMsg(
+          dump.provisioned
+            ? `✓ Config cargada de la placa (SSID "${dump.config.wifi.ssid}"). Edita lo que quieras y envía: el puerto sigue abierto.`
+            : "✓ La placa contestó pero aún no está provisionada: rellena el formulario y envía.",
+        );
+        break;
+      }
+      case "no-reply":
+        setSendTone("warn");
+        setSendMsg("La placa no contesta. ¿Lleva más de 5 s enchufada? Desenchufa, enchufa y pulsa cargar en cuanto aparezca el puerto.");
+        break;
+      case "unsupported":
+        setSendTone("warn");
+        setSendMsg("This browser does not support Web Serial. Use Chrome, Edge, Opera, or Brave.");
+        break;
+      case "cancelled":
+        setSendTone("");
+        setSendMsg("Carga cancelada.");
+        break;
+      default:
+        setSendTone("warn");
+        setSendMsg(`No se pudo cargar: ${result.message}`);
+    }
+  }
+
   function importJson(file: File | undefined) {
     if (!file) return;
     file
       .text()
       .then((text) => {
         setConfig(mergeConfig(JSON.parse(text)));
+        setStoredPassword(undefined);
         setSendTone("ok");
         setSendMsg(`Config importada desde ${file.name}.`);
       })
@@ -94,12 +157,14 @@ export default function App() {
     setSendTone("");
     setSendMsg("Sending and waiting for board reply…");
     setLog([]);
-    const result = await sendConfig(config, (line) => setLog((prev) => [...prev, line]));
+    const result = await sendConfig(config, storedPassword === "keep", (line) => setLog((prev) => [...prev, line]));
     setSending(false);
+    setHoldLeft(null);
     switch (result.status) {
       case "ok":
         setSendTone("ok");
         setSendMsg("✓ Config accepted. The board will restart and connect.");
+        setStoredPassword(undefined);
         break;
       case "rejected":
         setSendTone("warn");
@@ -202,7 +267,13 @@ export default function App() {
               </>
             }
           />
-          <ConfigForm config={config} onChange={setConfig} issues={issues} />
+          <ConfigForm
+            config={config}
+            onChange={setConfig}
+            issues={issues}
+            storedPassword={storedPassword}
+            onStoredPassword={setStoredPassword}
+          />
 
           <details className="group mt-7 rounded-xl border border-line bg-black/20">
             <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-semibold text-fg-soft">
@@ -221,10 +292,18 @@ export default function App() {
             step={3}
             eyebrow="Provisioning"
             title="Send the config to the board"
-            hint="No flashing required: it talks to the firmware already running."
+            hint="No flashing required: it talks to the firmware already running. Load first to edit what the board already has (WiFi, token server…) instead of retyping it."
           />
           <div className="mt-6 flex flex-wrap items-center gap-4">
-            <Btn variant="primary" onClick={send} disabled={sending} className="px-5 py-3 text-[15px]">
+            <Btn onClick={load} disabled={loading || sending} className="px-5 py-3 text-[15px]">
+              {loading ? (
+                <span className="size-4 animate-[spin-ring_0.8s_linear_infinite] rounded-full border-2 border-white/30 border-t-white/70" />
+              ) : (
+                <Download className="size-4" />
+              )}
+              Load from device
+            </Btn>
+            <Btn variant="primary" onClick={send} disabled={sending || loading} className="px-5 py-3 text-[15px]">
               {sending ? (
                 <span className="size-4 animate-[spin-ring_0.8s_linear_infinite] rounded-full border-2 border-black/30 border-t-black/70" />
               ) : (
@@ -235,6 +314,11 @@ export default function App() {
             <p className={cx("flex items-center gap-2 text-sm", toneCls(sendTone))}>
               {sendTone === "ok" && <Check className="size-4" />}
               {sendMsg}
+              {holdLeft !== null && holdLeft > 0 && (
+                <span className="rounded-full border border-line px-2 py-0.5 font-mono text-[11px] text-fg-muted">
+                  puerto abierto {holdLeft}s
+                </span>
+              )}
             </p>
           </div>
           {log.length > 0 && (
@@ -351,6 +435,8 @@ function Advanced({ installReady }: { installReady: boolean }) {
 function Notes() {
   const items = [
     "The firmware is a factory image: WiFi and token-server live in NVS, not in the binary. They are injected via Web Serial in step 3.",
+    "The board only listens on USB during the first 5 s after power-up (then the USB becomes the microphone interface). Plug it in and click within that window; after a reset or a crash, re-plug it.",
+    "Load from device asks the firmware for the stored config (sebastian.config.get) and keeps the port open for 2 minutes so you can edit and send on the same connection. The WiFi password is never read back: the field stays locked and is kept unless you press Cambiar.",
     "When accepting the config, the firmware responds sebastian.config.ok and restarts itself to connect.",
     "The image must be merged at offset 0 for ESP Web Tools.",
     "If the serial connection fails, close any open monitor/bridge/esptool and retry.",

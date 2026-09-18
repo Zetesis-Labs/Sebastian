@@ -10,13 +10,17 @@ import {
   type Lock,
   type SharedIcon,
 } from "../lib/modes";
-import { SelectField, Switch, TextField, ToggleField, cx, type HelpMeta } from "./ui";
+import { LockedField, SelectField, Switch, TextField, ToggleField, cx, type HelpMeta } from "./ui";
 import { Check } from "./icons";
 
 interface Props {
   config: DeviceConfig;
   onChange: (next: DeviceConfig) => void;
   issues: FieldIssue[];
+  // "keep": the board has a password we never see and the form keeps it (field
+  // locked). "edit": the operator chose to replace it. undefined: no stored one.
+  storedPassword?: "keep" | "edit";
+  onStoredPassword?: (mode: "keep" | "edit") => void;
 }
 
 const GROUP_ICON: Record<SharedIcon, React.ReactNode> = {
@@ -73,7 +77,7 @@ function Locks({ locks }: { locks: Lock[] }) {
   );
 }
 
-export function ConfigForm({ config, onChange, issues }: Props) {
+export function ConfigForm({ config, onChange, issues, storedPassword, onStoredPassword }: Props) {
   const [advanced, setAdvanced] = useState(false);
 
   const issueFor = (path?: string) => (path ? issues.find((i) => i.path === path) : undefined);
@@ -104,8 +108,34 @@ export function ConfigForm({ config, onChange, issues }: Props) {
       );
     }
 
+    if (f.path === "wifi.password" && storedPassword === "keep") {
+      return (
+        <LockedField
+          {...common}
+          status="Guardada en la placa. Se conserva al enviar."
+          action="Cambiar"
+          onAction={() => onStoredPassword?.("edit")}
+        />
+      );
+    }
+
     const issue = issueFor(f.issuePath);
-    const hint = issue ? (
+    const passwordEditing = f.path === "wifi.password" && storedPassword === "edit";
+    const hint = passwordEditing ? (
+      <span className="flex flex-wrap items-center gap-x-2">
+        <span className="text-warn">Sustituirá a la guardada en la placa (vacío = red abierta).</span>
+        <button
+          type="button"
+          className="font-semibold text-brand hover:underline"
+          onClick={() => {
+            onChange(setField(config, "wifi.password", ""));
+            onStoredPassword?.("keep");
+          }}
+        >
+          Conservar la guardada
+        </button>
+      </span>
+    ) : issue ? (
       <span className={issue.severity === "error" ? "text-danger" : "text-warn"}>{issue.message}</span>
     ) : undefined;
     const isNumber = f.type === "number";

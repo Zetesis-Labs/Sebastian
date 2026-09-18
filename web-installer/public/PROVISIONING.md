@@ -14,13 +14,46 @@ The firmware-side receiver is implemented in `firmware/main/provisioning.c`. It:
 3. Parses the JSON payload (cJSON).
 4. Checks `schema == "sebastian.config.v1"`.
 5. Stores into NVS (namespace `sebastian`): WiFi (`ssid`/`password`), and when
-   present `livekit.tokenServerUrl`, the operating `mode`, and the audio
-   behaviour it implies — `audio.fullDuplex`, `audio.fixedBeam`,
-   `audio.fixedBeamAzimuthDeg`.
+   present `livekit.tokenServerUrl`, `telemetry.syslogIp`/`syslogPort`, the
+   operating `mode`, and the audio behaviour it implies — `audio.fullDuplex`,
+   `audio.fixedBeam`, `audio.fixedBeamAzimuthDeg`. A payload **without**
+   `wifi.password` keeps the password already stored (an empty string means an
+   open network).
 6. Replies `sebastian.config.ok` and restarts. On next boot the device reads
    NVS: `sebastian_net_connect()` uses the WiFi creds, `token.zig` reads
    `tokenServerUrl`, and `config.zig::load()` overrides its compiled defaults
    with the stored audio/mode values **before** the XVF/AEC config is applied.
+
+## The USB window and reading the config back
+
+The board only has a serial port during the **first 5 s after power-up**: the
+ESP32-S3 has one USB PHY and the firmware hands it to the USB microphone
+interface (TinyUSB) once the boot is done. After a crash or a firmware-initiated
+restart the port does not come back until the board is re-plugged.
+
+An already provisioned unit can be edited instead of retyped. The installer's
+"Load from device" sends
+
+```text
+sebastian.config.get
+```
+
+and the firmware answers with the stored config in the same shape (only the
+keys present in NVS, so the installer merges them over its defaults):
+
+```text
+sebastian.config.dump {"schema":"sebastian.config.v1","provisioned":true,"wifi":{"ssid":"Home","passwordSet":true},"livekit":{"tokenServerUrl":"http://192.168.1.10:8787/token"},"telemetry":{"syslogIp":"192.168.1.10","syslogPort":514},"mode":"half_duplex","audio":{"fullDuplex":false,"fixedBeam":true,"fixedBeamAzimuthDeg":0},"profiles":[...],"activeProfile":"agent"}
+```
+
+Two extras: `provisioned` (there is a WiFi SSID in NVS) and `wifi.passwordSet`.
+**The WiFi password never leaves the device**; the installer shows the field
+empty and omits the key on send unless the operator types a new one.
+
+A `config.get` also **holds the USB window open for 120 s** (`HOLD_AFTER_GET_US`
+in `provisioning.c`; `app.zig` polls `sebastian_provisioning_hold()` before
+handing the PHY to TinyUSB), so the edited config can come back on the same
+port. The installer keeps the port open between load and send and shows the
+countdown; past it, re-plug the board.
 
 Not stored on-device (still compile-time — a reflash, not a re-provision):
 `audio.micChannel` (it feeds comptime slot/shift selection in `xvf_pcm.zig`),
@@ -29,10 +62,6 @@ Not stored on-device (still compile-time — a reflash, not a re-provision):
 flags they defeat dead-code elimination and keep ~15 KB of static probe buffers in
 internal RAM, which starves the TLS hardware-AES DMA and kills the LiveKit
 connection. Enabling one is a reflash.
-
-Still pending before public distribution: blank the factory
-`CONFIG_LK_EXAMPLE_WIFI_*` so no secrets are baked in, and have CI build +
-publish that factory image.
 
 Suggested acknowledgement:
 
@@ -68,6 +97,8 @@ valid for `schema = "sebastian.config.v1"`.
     "agentName": "sebastian"
   },
   "telemetry": {
+    "syslogIp": "192.168.1.10",
+    "syslogPort": 514,
     "otlpEndpoint": "https://otel.example.com",
     "grafanaUrl": "https://grafana.example.com/d/sebastian-device"
   },
@@ -92,6 +123,7 @@ valid for `schema = "sebastian.config.v1"`.
 | `wifi.hidden` | — | ❌ not consumed yet |
 | `livekit.tokenServerUrl` | NVS, read by `token.zig` | ✅ per-session token fetch |
 | `livekit.deviceIdentity` / `room` / `agentName` | `agent/token_server.py` constants | ❌ token server owns these |
+| `telemetry.syslogIp` / `syslogPort` | NVS, read by `syslog_sink.c` | ✅ UDP syslog sink from boot |
 | `telemetry.otlpEndpoint` / `grafanaUrl` | `tools/telemetry/bridge.py` / env | ❌ device-side OTLP is future work |
 | `mode`, `audio.fullDuplex`, `audio.fixedBeam`, `audio.fixedBeamAzimuthDeg` | NVS → `config.zig::load()` | ✅ applied at boot |
 | `audio.micChannel` | `config.zig` comptime → `xvf_pcm.zig` slot/shift | ❌ reflash only |

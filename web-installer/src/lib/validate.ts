@@ -37,6 +37,14 @@ export function validate(config: DeviceConfig): FieldIssue[] {
       severity: "error",
     });
   }
+  const ip = config.telemetry.syslogIp.trim();
+  if (ip && !/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) {
+    issues.push({ path: "telemetry.syslogIp", message: "Debe ser una IPv4 (el firmware no resuelve nombres).", severity: "error" });
+  }
+  const port = config.telemetry.syslogPort;
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    issues.push({ path: "telemetry.syslogPort", message: "Puerto fuera de rango.", severity: "error" });
+  }
   for (const [name, value] of Object.entries({
     otlpEndpoint: config.telemetry.otlpEndpoint,
     grafanaUrl: config.telemetry.grafanaUrl,

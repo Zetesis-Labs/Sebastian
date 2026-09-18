@@ -2,7 +2,7 @@
 
 // Minimal Web Serial types (not in the default TS DOM lib).
 interface SerialPort {
-  open(options: { baudRate: number }): Promise<void>;
+  open(options: { baudRate: number; bufferSize?: number }): Promise<void>;
   close(): Promise<void>;
   setSignals(signals: { dataTerminalReady?: boolean; requestToSend?: boolean }): Promise<void>;
   readable: ReadableStream<Uint8Array> | null;

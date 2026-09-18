@@ -17,7 +17,7 @@ export interface DeviceConfig {
     room: string;
     agentName: string;
   };
-  telemetry: { otlpEndpoint: string; grafanaUrl: string };
+  telemetry: { syslogIp: string; syslogPort: number; otlpEndpoint: string; grafanaUrl: string };
   audio: {
     micChannel: "right" | "left";
     fixedBeam: boolean;
@@ -54,7 +54,7 @@ export const defaultConfig = (): DeviceConfig => ({
     room: "sebastian",
     agentName: "sebastian",
   },
-  telemetry: { otlpEndpoint: "", grafanaUrl: "" },
+  telemetry: { syslogIp: "", syslogPort: 514, otlpEndpoint: "", grafanaUrl: "" },
   audio: {
     micChannel: "right",
     fixedBeam: true,
@@ -72,12 +72,43 @@ export const APPLIED_FIELDS = [
   "wifi.ssid",
   "wifi.password",
   "livekit.tokenServerUrl",
+  "telemetry.syslogIp",
+  "telemetry.syslogPort",
   "audio.fullDuplex",
   "audio.fixedBeam",
   "audio.fixedBeamAzimuthDeg",
 ];
 
 export const serialize = (config: DeviceConfig): string => JSON.stringify(config, null, 2);
+
+// What the firmware answers to `sebastian.config.get`: the stored config in the
+// v1 shape (only the keys present in NVS) plus two facts the form needs. The
+// WiFi password never leaves the device; `passwordSet` says whether there is one.
+export interface DeviceDump {
+  provisioned: boolean;
+  passwordSet: boolean;
+  config: DeviceConfig;
+}
+
+export function parseDump(input: unknown): DeviceDump {
+  const src = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
+  const wifi = (src.wifi && typeof src.wifi === "object" ? src.wifi : {}) as Record<string, unknown>;
+  return {
+    provisioned: src.provisioned === true,
+    passwordSet: wifi.passwordSet === true,
+    config: mergeConfig(src),
+  };
+}
+
+// The line sent to the board. While the loaded password stays locked in the
+// form, the key is omitted so the firmware keeps the stored one (an explicit ""
+// would turn it into an open network).
+export function payloadFor(config: DeviceConfig, keepStoredPassword: boolean): string {
+  const out: DeviceConfig = keepStoredPassword
+    ? { ...config, wifi: { ssid: config.wifi.ssid, hidden: config.wifi.hidden } as DeviceConfig["wifi"] }
+    : config;
+  return JSON.stringify(out);
+}
 
 // Deep-merge a partial (imported) config onto the defaults so missing keys are
 // filled and unknown keys dropped — keeps the form + payload well-formed.

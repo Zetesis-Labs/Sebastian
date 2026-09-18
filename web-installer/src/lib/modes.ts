@@ -183,7 +183,7 @@ export const SHARED: SharedGroup[] = [
         label: "Password",
         type: "password",
         applied: true,
-        help: "Stored in the device's NVS, never leaves it. Leave empty only for an open network.",
+        help: "Stored in the device's NVS, never leaves it: after a load from the device the field is locked and the stored password is kept unless you press Cambiar. Empty = open network.",
       },
       {
         path: "wifi.hidden",
@@ -238,6 +238,25 @@ export const SHARED: SharedGroup[] = [
     title: "Telemetry",
     sub: "optional",
     fields: [
+      {
+        path: "telemetry.syslogIp",
+        label: "Syslog receiver IP",
+        type: "text",
+        applied: true,
+        placeholder: "192.168.1.10",
+        issuePath: "telemetry.syslogIp",
+        help: "Where the device ships its logs over UDP syslog (the telemetry bridge or Alloy). Empty = logs stay on the device.",
+      },
+      {
+        path: "telemetry.syslogPort",
+        label: "Syslog port",
+        type: "number",
+        applied: true,
+        min: 1,
+        max: 65535,
+        issuePath: "telemetry.syslogPort",
+        help: "UDP port of the syslog receiver. 514 unless the bridge says otherwise.",
+      },
       {
         path: "telemetry.otlpEndpoint",
         label: "OTLP endpoint",

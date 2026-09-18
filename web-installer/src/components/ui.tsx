@@ -244,6 +244,36 @@ export function TextField({
   );
 }
 
+// A value the page knows exists but must not show (the WiFi password stored on
+// the board). Editing it is an explicit action, not a click into the input.
+export function LockedField({
+  label,
+  applied,
+  pending,
+  advanced,
+  help,
+  hint,
+  status,
+  action,
+  onAction,
+}: FieldLabelProps & { status: string; action: string; onAction: () => void }) {
+  return (
+    <div className="grid gap-1.5">
+      <Label applied={applied} pending={pending} advanced={advanced} help={help}>
+        {label}
+      </Label>
+      <div className="flex items-center gap-2 rounded-xl border border-dashed border-line-strong bg-white/[0.02] py-1.5 pl-3.5 pr-1.5">
+        <span className="font-mono tracking-[0.2em] text-fg-muted">••••••••</span>
+        <span className="min-w-0 flex-1 truncate text-[12.5px] text-fg-soft">{status}</span>
+        <Btn variant="ghost" type="button" onClick={onAction} className="shrink-0 px-3 py-1.5 text-[12.5px]">
+          {action}
+        </Btn>
+      </div>
+      {hint && <p className="text-xs text-fg-muted">{hint}</p>}
+    </div>
+  );
+}
+
 export function SelectField({
   label,
   applied,

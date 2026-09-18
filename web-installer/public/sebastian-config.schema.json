@@ -4,18 +4,32 @@
   "title": "Sebastian device provisioning config",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "mode", "wifi", "livekit", "telemetry", "audio", "session"],
+  "required": [
+    "schema",
+    "mode",
+    "wifi",
+    "livekit",
+    "telemetry",
+    "audio",
+    "session"
+  ],
   "properties": {
     "schema": {
       "const": "sebastian.config.v1"
     },
     "mode": {
-      "enum": ["full_duplex", "half_duplex"]
+      "enum": [
+        "full_duplex",
+        "half_duplex"
+      ]
     },
     "wifi": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["ssid", "password", "hidden"],
+      "required": [
+        "ssid",
+        "hidden"
+      ],
       "properties": {
         "ssid": {
           "type": "string",
@@ -24,7 +38,8 @@
         },
         "password": {
           "type": "string",
-          "maxLength": 64
+          "maxLength": 64,
+          "description": "Omit the key to keep the password already stored on the device"
         },
         "hidden": {
           "type": "boolean"
@@ -34,7 +49,12 @@
     "livekit": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["tokenServerUrl", "deviceIdentity", "room", "agentName"],
+      "required": [
+        "tokenServerUrl",
+        "deviceIdentity",
+        "room",
+        "agentName"
+      ],
       "properties": {
         "tokenServerUrl": {
           "type": "string",
@@ -62,8 +82,22 @@
     "telemetry": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["otlpEndpoint", "grafanaUrl"],
+      "required": [
+        "syslogIp",
+        "syslogPort",
+        "otlpEndpoint",
+        "grafanaUrl"
+      ],
       "properties": {
+        "syslogIp": {
+          "type": "string",
+          "description": "IPv4 of the UDP syslog receiver; empty disables the sink"
+        },
+        "syslogPort": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
         "otlpEndpoint": {
           "$ref": "#/$defs/optionalUrl"
         },
@@ -83,7 +117,10 @@
       ],
       "properties": {
         "micChannel": {
-          "enum": ["left", "right"]
+          "enum": [
+            "left",
+            "right"
+          ]
         },
         "fixedBeam": {
           "type": "boolean"
@@ -101,7 +138,10 @@
     "session": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["silenceTimeoutMs", "voiceLevel"],
+      "required": [
+        "silenceTimeoutMs",
+        "voiceLevel"
+      ],
       "properties": {
         "silenceTimeoutMs": {
           "type": "integer",
