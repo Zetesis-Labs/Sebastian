@@ -291,7 +291,9 @@ en main. Lo que quedaba de la spec 12, todo hecho salvo hardware:
 - mDNS: el fin de ciclo (`DeadlineExceeded`) ya no se loguea como fallo ni
   añade 10 s de pausa.
 
-Pendiente de hardware (no había placas enchufadas al cerrar): flashear
-`e072a1f96ef0` con este firmware y probar ámbar fijo, `adopt-denied` desde
-casa-2 con secreto distinto, y un `cfg-rejected` (p. ej. WiFi sin SSID).
-Las placas `68ee8f4d8dd4` y `e072a1f895f4` siguen con firmware anterior.
+Probado en `e072a1f96ef0` (flasheada 18:15; el puerto solo asoma al
+reenchufar el USB del XIAO, el flasher se arma antes): `adopt-denied:10.0.0.188`
+desde casa-2 y `cfg-rejected:schema` (desired-config con `sebastian.config.v2`)
+llegaron por el poll con su hora y se leen en fila y ficha; el rechazo se
+oculta al retirar la deseada. Sin probar a ojo: el ámbar fijo 2 s (nadie
+miraba el anillo). `68ee8f4d8dd4` y `e072a1f895f4` siguen con firmware anterior.

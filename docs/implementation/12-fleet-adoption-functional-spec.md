@@ -288,7 +288,7 @@ si no, de la reportada; bajo cada campo que difiere muestra "En el altavoz
 ahora: …". Si el altavoz no aplica en 3 polls, la ficha lo marca como "no
 aplicada"; si la unidad rechazó el documento, lo dice con su motivo (evento
 `cfg-rejected:<motivo>` en el poll y en el anuncio), y el aviso desaparece en
-cuanto la unidad ejecuta la versión deseada.
+cuanto la unidad ejecuta la versión deseada o se retira la deseada.
 
 **RF-43 Campos que exigen reflashear** se muestran en la ficha con su valor
 actual, deshabilitados y con la explicación ("canal del micro: requiere
