@@ -79,13 +79,16 @@ el altavoz (gesto), desde la ficha del altavoz en el dashboard, o por voz. Las
 tres producen exactamente la misma grabación; solo cambia el campo "iniciada
 por".
 
-**RM-02 Gesto en el altavoz.** Una **pulsación larga de MUTE** (≥ 1,5 s) en un
+**RM-02 Gesto en el altavoz.** Una **pulsación corta seguida de una larga**
+de MUTE (corta ≤ 0,5 s, larga ≥ 1,5 s, con menos de 1 s entre ambas) en un
 altavoz en perfil agente y sin grabación en curso inicia la grabación. Una
-pulsación corta sigue siendo el mute de siempre.
+pulsación corta sola sigue siendo el mute de siempre; una larga sola no hace
+nada (así una pulsación torpe no dispara una grabación). La corta inicial no
+cambia el estado de mute.
 
-- *Aceptación:* pulsar 1,5 s → el anillo pasa a rojo en menos de 1 s y la
-  ficha muestra "Grabando" en menos de 5 s. Pulsar 0,3 s → mute normal, sin
-  grabación.
+- *Aceptación:* corta + larga → el anillo pasa a rojo en menos de 1 s desde
+  que se completa la larga y la ficha muestra "Grabando" en menos de 5 s.
+  Corta sola → mute normal, sin grabación. Larga sola → nada.
 
 **RM-03 Desde la ficha.** En la ficha de un altavoz adoptado aquí, en perfil
 agente y contactando, un botón **Grabar reunión** inicia la grabación. Mientras
@@ -96,7 +99,7 @@ la ficha lo dice y ofrece reintentar.
 "empieza a grabar", "graba esto") inicia la grabación si el altavoz está en
 perfil agente. El agente entiende la orden, la traslada al control room y
 **confirma en voz alta** ("Grabando. Para parar, di 'Sebastián, para la
-grabación' o mantén pulsado el botón"). Si no puede iniciarla, lo dice
+grabación' o pulsa el botón: corta y luego larga"). Si no puede iniciarla, lo dice
 ("No puedo grabar ahora: …").
 
 **RM-05 Una sola grabación por altavoz.** Si ya hay una en curso, un nuevo
@@ -141,7 +144,7 @@ el altavoz o la red caen, lo grabado hasta ese momento no se pierde (RM-24).
 
 ## 6. Parar y redes de seguridad
 
-**RM-20 Parar con el gesto.** Una pulsación larga de MUTE con grabación en
+**RM-20 Parar con el gesto.** El mismo gesto (corta + larga) con grabación en
 curso la para. El anillo deja el rojo en menos de 1 s.
 
 **RM-21 Parar por voz.** "Sebastián, para la grabación" (y variantes: "deja de
@@ -235,8 +238,8 @@ públicos.
 
 ## 9. Comportamiento del altavoz (resumen)
 
-**RM-50** Pulsación larga de MUTE alterna grabar/parar (RM-02, RM-20);
-pulsación corta = mute (RM-13).
+**RM-50** Corta + larga de MUTE alterna grabar/parar (RM-02, RM-20); corta
+sola = mute (RM-13); larga sola = nada.
 **RM-51** Anillo: rojo fijo grabando; rojo parpadeo lento = va a cortar por
 silencio; rojo parpadeo rápido = sin control room; nunca rojo fuera de una
 grabación.
@@ -260,8 +263,7 @@ por el poll; las confirma al control room.
    pago, el audio sale fuera) o Whisper + diarización autoalojado en cortes
    (sin coste por minuto, GPU o paciencia, el audio no sale). Propuesta:
    empezar con OpenAI y dejar el autoalojado como opción.
-2. **Gesto** (RM-02): pulsación larga o doble pulsación de MUTE. Propuesta:
-   larga, más difícil de disparar sin querer.
+2. **Gesto** (RM-02): decidido el 2026-09-18, corta + larga.
 3. **Resumen** (RM-32): activado por defecto o no. Propuesta: desactivado por
    defecto; se activa por control room.
 4. **Formato del audio** (RM-11): lo dice el diseño; la retención (RM-45) y
