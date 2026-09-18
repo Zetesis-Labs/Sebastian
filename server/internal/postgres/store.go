@@ -11,7 +11,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/uptrace/bun"
-	"github.com/zetesis-labs/sebastian/server/internal/device"
 	"github.com/zetesis-labs/sebastian/server/internal/outbox"
 	"github.com/zetesis-labs/sebastian/server/internal/recording"
 	"github.com/zetesis-labs/sebastian/server/internal/session"
@@ -85,6 +84,7 @@ type deviceRow struct {
 	ID               string          `bun:"id"`
 	Identity         string          `bun:"livekit_identity"`
 	CredentialDigest []byte          `bun:"credential_digest"`
+	PendingDigest    []byte          `bun:"pending_credential_digest"`
 	ProfileID        uuid.UUID       `bun:"profile_id"`
 	AgentName        string          `bun:"agent_name"`
 	AgentConfig      json.RawMessage `bun:"agent_config"`
@@ -94,10 +94,11 @@ func (s *Store) FindDevice(ctx context.Context, id string) (session.Device, erro
 	var row deviceRow
 	err := s.db.NewSelect().
 		TableExpr("devices AS d").
-		ColumnExpr("d.id, d.livekit_identity, d.credential_digest, p.id AS profile_id, p.agent_name, p.config AS agent_config").
+		ColumnExpr("d.id, d.livekit_identity, d.credential_digest, d.pending_credential_digest, p.id AS profile_id, p.agent_name, p.config AS agent_config").
 		Join("JOIN agent_profiles AS p ON p.id = d.agent_profile_id").
 		Where("d.id = ?", id).
 		Where("d.enabled = TRUE").
+		Where("d.forgotten_at IS NULL").
 		Scan(ctx, &row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return session.Device{}, session.ErrUnauthorized
@@ -109,90 +110,11 @@ func (s *Store) FindDevice(ctx context.Context, id string) (session.Device, erro
 		ID:               row.ID,
 		Identity:         row.Identity,
 		CredentialDigest: row.CredentialDigest,
+		PendingDigest:    row.PendingDigest,
 		ProfileID:        row.ProfileID,
 		AgentName:        row.AgentName,
 		AgentConfig:      row.AgentConfig,
 	}, nil
-}
-
-// TouchProfile upserts the device row on every reconciliation poll:
-// first contact auto-registers the unit (no agent profile — it cannot open
-// LiveKit sessions until an operator assigns one), later polls refresh the
-// reported profile and its timestamp. Returns the desired profile ("" unset).
-func (s *Store) TouchProfile(ctx context.Context, id, reported string) (string, error) {
-	var desired string
-	now := time.Now().UTC()
-	err := s.db.NewRaw(`
-		INSERT INTO devices (id, display_name, livekit_identity, enabled, created_at, updated_at,
-		                     reported_device_profile, profile_reported_at)
-		VALUES (?, ?, ?, TRUE, ?, ?, NULLIF(?, ''), ?)
-		ON CONFLICT (id) DO UPDATE SET
-			reported_device_profile = EXCLUDED.reported_device_profile,
-			profile_reported_at = EXCLUDED.profile_reported_at,
-			updated_at = EXCLUDED.updated_at
-		RETURNING COALESCE(desired_device_profile, '')`,
-		id, id, id, now, now, reported, now,
-	).Scan(ctx, &desired)
-	if err != nil {
-		return "", fmt.Errorf("touch device profile: %w", err)
-	}
-	return desired, nil
-}
-
-type adminDeviceRow struct {
-	ID                string     `bun:"id"`
-	DisplayName       string     `bun:"display_name"`
-	Enabled           bool       `bun:"enabled"`
-	DesiredProfile    *string    `bun:"desired_device_profile"`
-	ReportedProfile   *string    `bun:"reported_device_profile"`
-	ProfileReportedAt *time.Time `bun:"profile_reported_at"`
-}
-
-func (s *Store) List(ctx context.Context) ([]device.Device, error) {
-	var rows []adminDeviceRow
-	err := s.db.NewSelect().
-		TableExpr("devices").
-		ColumnExpr("id, display_name, enabled, desired_device_profile, reported_device_profile, profile_reported_at").
-		OrderExpr("id").
-		Scan(ctx, &rows)
-	if err != nil {
-		return nil, fmt.Errorf("list devices: %w", err)
-	}
-	devices := make([]device.Device, 0, len(rows))
-	for _, row := range rows {
-		item := device.Device{ID: row.ID, DisplayName: row.DisplayName, Enabled: row.Enabled}
-		if row.DesiredProfile != nil {
-			item.DesiredProfile = *row.DesiredProfile
-		}
-		if row.ReportedProfile != nil {
-			item.ReportedProfile = *row.ReportedProfile
-		}
-		if row.ProfileReportedAt != nil {
-			item.ProfileReportedAt = *row.ProfileReportedAt
-		}
-		devices = append(devices, item)
-	}
-	return devices, nil
-}
-
-func (s *Store) SetDesiredProfile(ctx context.Context, id, name string) error {
-	result, err := s.db.NewUpdate().
-		Table("devices").
-		Set("desired_device_profile = NULLIF(?, '')", name).
-		Set("updated_at = ?", time.Now().UTC()).
-		Where("id = ?", id).
-		Exec(ctx)
-	if err != nil {
-		return fmt.Errorf("set desired profile: %w", err)
-	}
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("set desired profile: %w", err)
-	}
-	if affected == 0 {
-		return device.ErrNotFound
-	}
-	return nil
 }
 
 func (s *Store) RecordSession(ctx context.Context, record session.Record) error {

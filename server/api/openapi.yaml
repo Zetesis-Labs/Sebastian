@@ -102,9 +102,26 @@ paths:
           schema:
             type: string
             maxLength: 63
+        - name: cfg
+          in: query
+          description: Version of the config the device is running (empty = none).
+          schema:
+            type: string
+            maxLength: 32
+        - name: fw
+          in: query
+          description: Firmware version the device is running.
+          schema:
+            type: string
+            maxLength: 64
       responses:
         "200":
           description: Desired profile name; empty when none is set.
+          headers:
+            X-Desired-Config:
+              description: Version of the desired config; the device fetches it when different from `cfg`.
+              schema:
+                type: string
           content:
             text/plain:
               schema:
@@ -115,10 +132,77 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/Problem"
+  /v1/devices/{deviceId}/config:
+    get:
+      operationId: getDeviceConfig
+      summary: The desired sebastian.config.v1 document for this device
+      description: >-
+        Device-facing, authenticated with the per-device secret. Returned only
+        when the control room holds a desired config; the document carries
+        `configVersion` so the device echoes it in its next poll.
+      tags: [devices]
+      security:
+        - DeviceSecret: []
+      parameters:
+        - name: deviceId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+        - name: X-Device-Secret
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 32
+            maxLength: 256
+      responses:
+        "200":
+          description: The desired config.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceConfig"
+        "401":
+          description: Invalid device credentials.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          description: No desired config for this device.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/admin/control-room:
+    get:
+      operationId: getControlRoom
+      summary: This control room's identity and provisioning defaults
+      description: >-
+        What the embedded installer pre-fills and what adoption writes into a
+        device. The organization secret is included: this endpoint is behind
+        the administration secret and must only be called server-side.
+      tags: [administration]
+      security:
+        - AdminSecret: []
+      responses:
+        "200":
+          description: Control room settings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ControlRoom"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
   /v1/admin/devices:
     get:
       operationId: listDevices
-      summary: List known devices with profile state
+      summary: The fleet view — known devices joined with what mDNS sees on the LAN
       tags: [administration, devices]
       security:
         - AdminSecret: []
@@ -131,6 +215,227 @@ paths:
                 $ref: "#/components/schemas/DeviceList"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/admin/devices/{deviceId}:
+    get:
+      operationId: getDevice
+      summary: One device with its desired config and recent sessions
+      tags: [administration, devices]
+      security:
+        - AdminSecret: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+      responses:
+        "200":
+          description: Device detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/DeviceNotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    patch:
+      operationId: updateDevice
+      summary: Rename a device
+      tags: [administration, devices]
+      security:
+        - AdminSecret: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceUpdate"
+      responses:
+        "204":
+          description: Updated.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/DeviceNotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/admin/devices/{deviceId}/adopt:
+    post:
+      operationId: adoptDevice
+      summary: Adopt a device over the network (discovered, or by IP)
+      description: >-
+        Starts an adoption job: hello/nonce, then the control room's config
+        signed with the organization secret (or the device secret supplied in
+        the body). The job reports progress (waiting for the MUTE button on a
+        factory unit, queued behind a conversation) and, once adopted, the
+        per-device secret — shown once.
+      tags: [administration, devices, adoption]
+      security:
+        - AdminSecret: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdoptionRequest"
+      responses:
+        "202":
+          description: Adoption started.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdoptionJob"
+        "400":
+          description: No address for the device (not seen on the LAN and no `ip` given).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/admin/devices/{deviceId}/forget:
+    post:
+      operationId: forgetDevice
+      summary: Return a device to factory (unadopted) and drop it from the inventory
+      tags: [administration, devices, adoption]
+      security:
+        - AdminSecret: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdoptionRequest"
+      responses:
+        "202":
+          description: Forget started (the device is told over the network, then removed).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdoptionJob"
+        "400":
+          description: No address for the device.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/DeviceNotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/admin/adoptions/{jobId}:
+    get:
+      operationId: getAdoptionJob
+      summary: Progress of an adoption or forget job
+      tags: [administration, adoption]
+      security:
+        - AdminSecret: []
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Job state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdoptionJob"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown or expired job.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /v1/admin/devices/{deviceId}/desired-config:
+    put:
+      operationId: setDesiredConfig
+      summary: Set the desired sebastian.config.v1 for a device
+      description: >-
+        Stored with a version; the device picks it up on its next poll, stores
+        it and restarts. WiFi changes are applied by the device as a trial with
+        automatic rollback.
+      tags: [administration, devices]
+      security:
+        - AdminSecret: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceConfig"
+      responses:
+        "200":
+          description: Stored; returns the assigned version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DesiredConfigVersion"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/DeviceNotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    delete:
+      operationId: clearDesiredConfig
+      summary: Clear the desired config
+      tags: [administration, devices]
+      security:
+        - AdminSecret: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+      responses:
+        "204":
+          description: Cleared.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/DeviceNotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/admin/devices/{deviceId}/secret:
+    post:
+      operationId: regenerateDeviceSecret
+      summary: Issue a new per-device secret (shown once)
+      description: >-
+        The new secret reaches the device inside its next desired config; the
+        old one keeps working until the device first authenticates with the new
+        one.
+      tags: [administration, devices, adoption]
+      security:
+        - AdminSecret: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+      responses:
+        "200":
+          description: The new secret.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceSecret"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/DeviceNotFound"
         "503":
           $ref: "#/components/responses/Unavailable"
   /v1/admin/devices/{deviceId}/desired-profile:
@@ -313,7 +618,22 @@ components:
       type: apiKey
       in: header
       name: X-Admin-Secret
+  parameters:
+    DeviceId:
+      name: deviceId
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
   responses:
+    DeviceNotFound:
+      description: Device not found.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
     Unauthorized:
       description: The administration secret is invalid.
       content:
@@ -454,10 +774,20 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Recording"
+    DeviceState:
+      type: string
+      description: >-
+        adopted = bound here and polling; absent = bound here, silent for more
+        than three poll periods and not on the LAN; managed_elsewhere = seen on
+        the LAN, bound to another control room; unadopted = seen on the LAN,
+        bound to none; orphan = seen on the LAN, bound to a control room it
+        cannot reach; registered = polled this control room without being
+        adopted (legacy /token units).
+      enum: [adopted, absent, managed_elsewhere, unadopted, orphan, registered]
     Device:
       type: object
       additionalProperties: false
-      required: [id, displayName, enabled]
+      required: [id, displayName, enabled, state]
       properties:
         id:
           type: string
@@ -465,11 +795,162 @@ components:
           type: string
         enabled:
           type: boolean
+        state:
+          $ref: "#/components/schemas/DeviceState"
+        adoptedAt:
+          type: string
+          format: date-time
         desiredProfile:
           type: string
         reportedProfile:
           type: string
         profileReportedAt:
+          type: string
+          format: date-time
+        firmware:
+          type: string
+        ip:
+          type: string
+        controlRoom:
+          type: string
+          description: Origin the device announces it is bound to (may be another control room).
+        lastError:
+          type: string
+          description: What the device reports about its last control-room contact (empty = ok).
+        reportedConfigVersion:
+          type: string
+        desiredConfigVersion:
+          type: string
+        seenOnLanAt:
+          type: string
+          format: date-time
+    DeviceDetail:
+      allOf:
+        - $ref: "#/components/schemas/Device"
+        - type: object
+          additionalProperties: false
+          required: [hasDeviceSecret, sessions]
+          properties:
+            hasDeviceSecret:
+              type: boolean
+            desiredConfig:
+              $ref: "#/components/schemas/DeviceConfig"
+            sessions:
+              type: array
+              items:
+                $ref: "#/components/schemas/DeviceSession"
+    DeviceSession:
+      type: object
+      additionalProperties: false
+      required: [id, room, createdAt, expiresAt, recordingCount]
+      properties:
+        id:
+          type: string
+          format: uuid
+        room:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        recordingCount:
+          type: integer
+          format: int64
+          minimum: 0
+    DeviceUpdate:
+      type: object
+      additionalProperties: false
+      required: [displayName]
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 64
+    DeviceConfig:
+      type: object
+      description: A sebastian.config.v1 document (see web-installer/public/PROVISIONING.md). Validated by the firmware.
+      additionalProperties: true
+    DesiredConfigVersion:
+      type: object
+      additionalProperties: false
+      required: [version]
+      properties:
+        version:
+          type: string
+    DeviceSecret:
+      type: object
+      additionalProperties: false
+      required: [deviceSecret]
+      properties:
+        deviceSecret:
+          type: string
+    ControlRoom:
+      type: object
+      additionalProperties: false
+      required: [name, apiUrl, discoveryEnabled, adoptPort, orgSecretConfigured]
+      properties:
+        name:
+          type: string
+        apiUrl:
+          type: string
+          description: The URL devices use to reach this control room (token server).
+        syslogIp:
+          type: string
+        syslogPort:
+          type: integer
+        discoveryEnabled:
+          type: boolean
+        adoptPort:
+          type: integer
+        orgSecretConfigured:
+          type: boolean
+        orgSecret:
+          type: string
+          description: Present only for server-side callers; never ship to a browser.
+    AdoptionRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        ip:
+          type: string
+          description: Address of the device when it was not discovered (adopt by IP).
+        deviceSecret:
+          type: string
+          description: Sign with this device secret instead of the organization secret (handover of a single unit).
+        config:
+          $ref: "#/components/schemas/DeviceConfig"
+    AdoptionPhase:
+      type: string
+      enum: [starting, waiting_consent, queued, adopted, forgotten, failed]
+    AdoptionJob:
+      type: object
+      additionalProperties: false
+      required: [id, deviceId, kind, phase, startedAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        deviceId:
+          type: string
+        kind:
+          type: string
+          enum: [adopt, forget]
+        ip:
+          type: string
+        phase:
+          $ref: "#/components/schemas/AdoptionPhase"
+        error:
+          type: string
+          description: Why it failed — auth, nonce, no_reply, consent_timeout, wifi, json…
+        deviceSecret:
+          type: string
+          description: The per-device secret issued by this adoption. Shown once; the job expires.
+        startedAt:
+          type: string
+          format: date-time
+        updatedAt:
           type: string
           format: date-time
     DeviceList:

@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -29,9 +30,20 @@ type RecordingService interface {
 }
 
 type DeviceService interface {
-	Reconcile(ctx context.Context, id, reported string) (string, error)
+	Reconcile(ctx context.Context, poll device.Poll) (device.PollResult, error)
 	List(context.Context) ([]device.Device, error)
-	SetDesired(ctx context.Context, id, name string) error
+	Get(ctx context.Context, id string) (device.Detail, error)
+	SetDesiredProfile(ctx context.Context, id, name string) error
+	Rename(ctx context.Context, id, name string) error
+	SetDesiredConfig(ctx context.Context, id string, config map[string]any) (string, error)
+	ClearDesiredConfig(ctx context.Context, id string) error
+	DeviceConfig(ctx context.Context, id, secret string) (json.RawMessage, error)
+	RegenerateSecret(ctx context.Context, id string) (string, error)
+	Adopt(ctx context.Context, id string, req device.AdoptRequest) (device.Job, error)
+	Forget(ctx context.Context, id string, req device.AdoptRequest) (device.Job, error)
+	Job(id uuid.UUID) (device.Job, error)
+	ControlRoom() device.ControlRoom
+	DiscoveryEnabled() bool
 }
 
 type Server struct {
@@ -65,18 +77,28 @@ func NewHandler(
 }
 
 func (h *Server) GetDesiredProfile(ctx context.Context, request GetDesiredProfileRequestObject) (GetDesiredProfileResponseObject, error) {
-	reported := ""
+	poll := device.Poll{ID: request.DeviceId}
 	if request.Params.Current != nil {
-		reported = *request.Params.Current
+		poll.Reported = *request.Params.Current
 	}
-	desired, err := h.devices.Reconcile(ctx, request.DeviceId, reported)
+	if request.Params.Cfg != nil {
+		poll.ConfigVersion = *request.Params.Cfg
+	}
+	if request.Params.Fw != nil {
+		poll.Firmware = *request.Params.Fw
+	}
+	result, err := h.devices.Reconcile(ctx, poll)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "device reconcile failed", "device_id", request.DeviceId, "error", err)
 		return GetDesiredProfile503ApplicationProblemPlusJSONResponse(problem(
 			503, "Devices unavailable", "The device state could not be read.",
 		)), nil
 	}
-	return GetDesiredProfile200TextResponse(desired), nil
+	response := GetDesiredProfile200TextResponse{Body: result.DesiredProfile}
+	if result.DesiredConfigVersion != "" {
+		response.Headers.XDesiredConfig = &result.DesiredConfigVersion
+	}
+	return response, nil
 }
 
 func (h *Server) ListDevices(ctx context.Context, _ ListDevicesRequestObject) (ListDevicesResponseObject, error) {
@@ -101,7 +123,7 @@ func (h *Server) SetDesiredProfile(ctx context.Context, request SetDesiredProfil
 	if request.Body != nil && request.Body.Name != nil {
 		name = *request.Body.Name
 	}
-	err := h.devices.SetDesired(ctx, request.DeviceId, name)
+	err := h.devices.SetDesiredProfile(ctx, request.DeviceId, name)
 	if errors.Is(err, device.ErrNotFound) {
 		return SetDesiredProfile404ApplicationProblemPlusJSONResponse(problem(
 			404, "Device not found", "The device has never contacted this server.",
@@ -118,18 +140,38 @@ func (h *Server) SetDesiredProfile(ctx context.Context, request SetDesiredProfil
 	return SetDesiredProfile204Response{}, nil
 }
 
+func optional(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
+}
+
+func optionalTime(value time.Time) *time.Time {
+	if value.IsZero() {
+		return nil
+	}
+	return &value
+}
+
 func deviceResponse(item device.Device) Device {
-	response := Device{Id: item.ID, DisplayName: item.DisplayName, Enabled: item.Enabled}
-	if item.DesiredProfile != "" {
-		response.DesiredProfile = &item.DesiredProfile
+	return Device{
+		Id:                    item.ID,
+		DisplayName:           item.DisplayName,
+		Enabled:               item.Enabled,
+		State:                 DeviceState(item.State),
+		AdoptedAt:             optionalTime(item.AdoptedAt),
+		DesiredProfile:        optional(item.DesiredProfile),
+		ReportedProfile:       optional(item.ReportedProfile),
+		ProfileReportedAt:     optionalTime(item.ProfileReportedAt),
+		Firmware:              optional(item.Firmware),
+		Ip:                    optional(item.IP),
+		ControlRoom:           optional(item.ControlRoom),
+		LastError:             optional(item.LastError),
+		ReportedConfigVersion: optional(item.ReportedConfig),
+		DesiredConfigVersion:  optional(item.DesiredConfig),
+		SeenOnLanAt:           optionalTime(item.SeenOnLanAt),
 	}
-	if item.ReportedProfile != "" {
-		response.ReportedProfile = &item.ReportedProfile
-	}
-	if !item.ProfileReportedAt.IsZero() {
-		response.ProfileReportedAt = &item.ProfileReportedAt
-	}
-	return response
 }
 
 func (h *Server) ListRecordings(ctx context.Context, request ListRecordingsRequestObject) (ListRecordingsResponseObject, error) {
@@ -311,3 +353,5 @@ func problem(status int, title, detail string) Problem {
 		Detail: &detail,
 	}
 }
+
+func jsonUnmarshal(data []byte, v any) error { return json.Unmarshal(data, v) }

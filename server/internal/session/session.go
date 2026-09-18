@@ -20,6 +20,7 @@ type Device struct {
 	ID               string
 	Identity         string
 	CredentialDigest []byte
+	PendingDigest    []byte // regenerated secret not yet confirmed by the device
 	ProfileID        uuid.UUID
 	AgentName        string
 	AgentConfig      json.RawMessage
@@ -52,6 +53,8 @@ type Record struct {
 type Store interface {
 	FindDevice(context.Context, string) (Device, error)
 	RecordSession(context.Context, Record) error
+	// ConfirmSecret promotes a regenerated secret the first time the device uses it.
+	ConfirmSecret(ctx context.Context, id string, digest []byte) error
 }
 
 type LiveKit interface {
@@ -95,7 +98,13 @@ func (s *Service) Create(ctx context.Context, credentials Credentials) (Created,
 	}
 	if !credentials.Legacy {
 		digest := DigestSecret(credentials.Secret)
-		if len(device.CredentialDigest) == 0 || subtle.ConstantTimeCompare(digest, device.CredentialDigest) != 1 {
+		switch {
+		case len(device.CredentialDigest) > 0 && subtle.ConstantTimeCompare(digest, device.CredentialDigest) == 1:
+		case len(device.PendingDigest) > 0 && subtle.ConstantTimeCompare(digest, device.PendingDigest) == 1:
+			if err := s.store.ConfirmSecret(ctx, device.ID, digest); err != nil {
+				return Created{}, fmt.Errorf("confirm secret: %w: %w", ErrUnavailable, err)
+			}
+		default:
 			return Created{}, ErrUnauthorized
 		}
 	}

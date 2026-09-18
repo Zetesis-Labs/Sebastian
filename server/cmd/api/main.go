@@ -9,10 +9,12 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/zetesis-labs/sebastian/server/internal/adoption"
 	apihttp "github.com/zetesis-labs/sebastian/server/internal/api"
 	"github.com/zetesis-labs/sebastian/server/internal/config"
 	"github.com/zetesis-labs/sebastian/server/internal/database"
 	"github.com/zetesis-labs/sebastian/server/internal/device"
+	"github.com/zetesis-labs/sebastian/server/internal/discovery"
 	"github.com/zetesis-labs/sebastian/server/internal/httpserver"
 	livekitgateway "github.com/zetesis-labs/sebastian/server/internal/livekit"
 	postgresstore "github.com/zetesis-labs/sebastian/server/internal/postgres"
@@ -50,7 +52,21 @@ func run(logger *slog.Logger) error {
 	livekit := livekitgateway.NewGateway(cfg.LiveKitURL, cfg.LiveKitAPIKey, cfg.LiveKitAPISecret)
 	sessions := session.NewService(store, livekit, cfg.LiveKitURL, cfg.RoomPrefix, cfg.TokenTTL, cfg.LegacyDeviceID)
 	recordings := recording.NewService(store)
-	devices := device.NewService(store)
+	var lan discovery.Browser = discovery.Static{}
+	if cfg.DiscoveryEnabled {
+		browser := discovery.NewMDNS(logger)
+		go browser.Run(ctx)
+		lan = browser
+	}
+	room := device.ControlRoom{
+		Name:       cfg.ControlRoomName,
+		APIURL:     cfg.PublicAPIURL,
+		SyslogIP:   cfg.SyslogIP,
+		SyslogPort: cfg.SyslogPort,
+		OrgSecret:  cfg.OrgSecret,
+		AdoptPort:  adoption.Port,
+	}
+	devices := device.NewService(store, lan, adoption.NewClient(), room, logger)
 	handler := apihttp.NewHandler(sessions, recordings, devices, store, logger, cfg.LegacyTokenEnabled, cfg.DatabasePingTimeout)
 	server, err := httpserver.New(cfg.Address, handler, logger, cfg.AdminSecret)
 	if err != nil {
@@ -62,6 +78,10 @@ func run(logger *slog.Logger) error {
 		logger.Info("sebastian server listening",
 			"address", cfg.Address,
 			"legacy_token_enabled", cfg.LegacyTokenEnabled,
+			"control_room", cfg.ControlRoomName,
+			"public_api_url", cfg.PublicAPIURL,
+			"discovery", cfg.DiscoveryEnabled,
+			"org_secret_configured", cfg.OrgSecret != "",
 		)
 		errorsCh <- server.ListenAndServe()
 	}()

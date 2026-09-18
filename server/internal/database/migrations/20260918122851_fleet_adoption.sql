@@ -1,0 +1,2 @@
+-- Modify "devices" table
+ALTER TABLE "devices" ADD COLUMN "adopted_at" timestamptz NULL, ADD COLUMN "pending_credential_digest" bytea NULL, ADD COLUMN "desired_config" jsonb NULL, ADD COLUMN "desired_config_version" character varying NULL, ADD COLUMN "reported_config_version" character varying NULL, ADD COLUMN "reported_firmware" character varying NULL, ADD COLUMN "forgotten_at" timestamptz NULL;

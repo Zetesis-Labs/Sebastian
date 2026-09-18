@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -54,20 +55,63 @@ type stubDevices struct {
 	items    []device.Device
 	err      error
 	reported string
+	poll     device.Poll
+	job      device.Job
+	config   []byte
+	secret   string
 }
 
-func (s *stubDevices) Reconcile(_ context.Context, _, reported string) (string, error) {
-	s.reported = reported
-	return s.desired, s.err
+func (s *stubDevices) Reconcile(_ context.Context, poll device.Poll) (device.PollResult, error) {
+	s.reported = poll.Reported
+	s.poll = poll
+	return device.PollResult{DesiredProfile: s.desired, DesiredConfigVersion: "v1"}, s.err
 }
 
 func (s *stubDevices) List(context.Context) ([]device.Device, error) {
 	return s.items, s.err
 }
 
-func (s *stubDevices) SetDesired(context.Context, string, string) error {
-	return s.err
+func (s *stubDevices) Get(context.Context, string) (device.Detail, error) {
+	if len(s.items) == 0 {
+		return device.Detail{}, device.ErrNotFound
+	}
+	return device.Detail{Device: s.items[0], Sessions: []device.Session{}}, s.err
 }
+
+func (s *stubDevices) SetDesiredProfile(context.Context, string, string) error { return s.err }
+func (s *stubDevices) Rename(context.Context, string, string) error            { return s.err }
+func (s *stubDevices) SetDesiredConfig(context.Context, string, map[string]any) (string, error) {
+	return "abc123", s.err
+}
+func (s *stubDevices) ClearDesiredConfig(context.Context, string) error { return s.err }
+func (s *stubDevices) DeviceConfig(_ context.Context, _, secret string) (json.RawMessage, error) {
+	if s.secret != "" && secret != s.secret {
+		return nil, device.ErrUnauthorized
+	}
+	if s.config == nil {
+		return nil, device.ErrNotFound
+	}
+	return s.config, s.err
+}
+func (s *stubDevices) RegenerateSecret(context.Context, string) (string, error) {
+	return "new-secret", s.err
+}
+func (s *stubDevices) Adopt(context.Context, string, device.AdoptRequest) (device.Job, error) {
+	return s.job, s.err
+}
+func (s *stubDevices) Forget(context.Context, string, device.AdoptRequest) (device.Job, error) {
+	return s.job, s.err
+}
+func (s *stubDevices) Job(uuid.UUID) (device.Job, error) {
+	if s.job.ID == (uuid.UUID{}) {
+		return device.Job{}, device.ErrJobNotFound
+	}
+	return s.job, nil
+}
+func (s *stubDevices) ControlRoom() device.ControlRoom {
+	return device.ControlRoom{Name: "test", APIURL: "http://cr:8787"}
+}
+func (s *stubDevices) DiscoveryEnabled() bool { return false }
 
 func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -157,7 +201,7 @@ func TestGetDesiredProfileReturnsPlaintextAndReportsCurrent(t *testing.T) {
 		t.Fatalf("GetDesiredProfile() error = %v", err)
 	}
 	value, ok := response.(GetDesiredProfile200TextResponse)
-	if !ok || string(value) != "agente" {
+	if !ok || value.Body != "agente" {
 		t.Fatalf("response = %#v, want plaintext 'agente'", response)
 	}
 	if devices.reported != "micro-usb" {
@@ -200,5 +244,69 @@ func TestListDevicesOmitsUnsetProfileFields(t *testing.T) {
 	}
 	if item.ReportedProfile == nil || *item.ReportedProfile != "micro-usb" {
 		t.Fatalf("reportedProfile = %v, want micro-usb", item.ReportedProfile)
+	}
+}
+
+func TestGetDesiredProfileCarriesTheDesiredConfigHeaderAndReportsFirmware(t *testing.T) {
+	devices := &stubDevices{desired: "agente"}
+	handler := NewHandler(nil, nil, devices, stubReadiness{}, testLogger(), false, time.Second)
+	cfg, fw := "abc", "v1.2"
+	response, err := handler.GetDesiredProfile(context.Background(), GetDesiredProfileRequestObject{
+		DeviceId: "68ee", Params: GetDesiredProfileParams{Cfg: &cfg, Fw: &fw},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, ok := response.(GetDesiredProfile200TextResponse)
+	if !ok || text.Body != "agente" || text.Headers.XDesiredConfig == nil || *text.Headers.XDesiredConfig != "v1" {
+		t.Fatalf("unexpected response %#v", response)
+	}
+	if devices.poll.ConfigVersion != "abc" || devices.poll.Firmware != "v1.2" {
+		t.Fatalf("poll not forwarded: %+v", devices.poll)
+	}
+}
+
+func TestGetDeviceConfigMapsAuthAndAbsence(t *testing.T) {
+	devices := &stubDevices{secret: "s3cret-s3cret-s3cret-s3cret-s3cret"}
+	handler := NewHandler(nil, nil, devices, stubReadiness{}, testLogger(), false, time.Second)
+	response, _ := handler.GetDeviceConfig(context.Background(), GetDeviceConfigRequestObject{DeviceId: "68ee", Params: GetDeviceConfigParams{XDeviceSecret: "wrong"}})
+	if _, ok := response.(GetDeviceConfig401ApplicationProblemPlusJSONResponse); !ok {
+		t.Fatalf("expected 401, got %#v", response)
+	}
+	response, _ = handler.GetDeviceConfig(context.Background(), GetDeviceConfigRequestObject{DeviceId: "68ee", Params: GetDeviceConfigParams{XDeviceSecret: devices.secret}})
+	if _, ok := response.(GetDeviceConfig404ApplicationProblemPlusJSONResponse); !ok {
+		t.Fatalf("expected 404 without a desired config, got %#v", response)
+	}
+	devices.config = []byte(`{"schema":"sebastian.config.v1","configVersion":"v1"}`)
+	response, _ = handler.GetDeviceConfig(context.Background(), GetDeviceConfigRequestObject{DeviceId: "68ee", Params: GetDeviceConfigParams{XDeviceSecret: devices.secret}})
+	body, ok := response.(GetDeviceConfig200JSONResponse)
+	if !ok || body["configVersion"] != "v1" {
+		t.Fatalf("expected the document, got %#v", response)
+	}
+}
+
+func TestAdoptDeviceMapsNoAddressAndStartsAJob(t *testing.T) {
+	devices := &stubDevices{err: device.ErrNoAddress}
+	handler := NewHandler(nil, nil, devices, stubReadiness{}, testLogger(), false, time.Second)
+	response, _ := handler.AdoptDevice(context.Background(), AdoptDeviceRequestObject{DeviceId: "dddd"})
+	if _, ok := response.(AdoptDevice400ApplicationProblemPlusJSONResponse); !ok {
+		t.Fatalf("expected 400, got %#v", response)
+	}
+	devices.err = nil
+	devices.job = device.Job{ID: uuid.New(), DeviceID: "dddd", Kind: "adopt", Phase: "starting"}
+	response, _ = handler.AdoptDevice(context.Background(), AdoptDeviceRequestObject{DeviceId: "dddd"})
+	job, ok := response.(AdoptDevice202JSONResponse)
+	if !ok || job.Phase != "starting" || job.DeviceSecret != nil {
+		t.Fatalf("expected a started job without secret, got %#v", response)
+	}
+}
+
+func TestListDevicesExposesTheFleetState(t *testing.T) {
+	devices := &stubDevices{items: []device.Device{{ID: "cccc", DisplayName: "cccc", Enabled: true, State: device.StateOrphan, IP: "10.0.0.130", ControlRoom: "http://10.0.100.10:8787", LastError: "timeout"}}}
+	handler := NewHandler(nil, nil, devices, stubReadiness{}, testLogger(), false, time.Second)
+	response, _ := handler.ListDevices(context.Background(), ListDevicesRequestObject{})
+	list := response.(ListDevices200JSONResponse)
+	if len(list.Items) != 1 || list.Items[0].State != "orphan" || *list.Items[0].Ip != "10.0.0.130" || *list.Items[0].LastError != "timeout" {
+		t.Fatalf("unexpected %#v", list.Items)
 	}
 }
