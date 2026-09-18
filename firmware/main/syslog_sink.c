@@ -3,7 +3,7 @@
 // hook never blocks the caller, and a dropped datagram just drops a log line — the
 // device keeps running regardless of the receiver's health.
 //
-// A small C shim (like token_http.c / provisioning.c) so Zig avoids binding
+// A small C shim (like session_http.c / provisioning.c) so Zig avoids binding
 // esp_log_set_vprintf's va_list and the BSD socket structs.
 
 #include <stdint.h>

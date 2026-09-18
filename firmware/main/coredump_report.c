@@ -5,7 +5,7 @@
 // TinyUSB after boot): nothing reads it in the field. Decode the addresses on
 // the host with:
 //   xtensa-esp32s3-elf-addr2line -pfiaC -e build/sebastian.elf <pc> <bt...>
-// A small C shim (like token_http.c) so Zig avoids the coredump structs.
+// A small C shim (like session_http.c) so Zig avoids the coredump structs.
 
 #include <stdio.h>
 #include <stdlib.h>

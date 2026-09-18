@@ -57,7 +57,7 @@ func TestCreateDispatchesAndRecordsOutboxEvent(t *testing.T) {
 		AgentName: "sebastian", AgentConfig: json.RawMessage(`{"language":"es"}`),
 	}}
 	livekit := &fakeLiveKit{}
-	service := NewService(store, livekit, "ws://livekit:7880", "sebastian", time.Hour, "esp32-respeaker")
+	service := NewService(store, livekit, "ws://livekit:7880", "sebastian", time.Hour)
 	service.now = func() time.Time { return time.Date(2026, 7, 14, 10, 0, 0, 0, time.UTC) }
 
 	created, err := service.Create(context.Background(), Credentials{DeviceID: "esp32-respeaker", Secret: "correct"})
@@ -81,7 +81,7 @@ func TestCreateDispatchesAndRecordsOutboxEvent(t *testing.T) {
 func TestCreateRejectsInvalidSecretBeforeDispatch(t *testing.T) {
 	store := &fakeStore{device: Device{CredentialDigest: DigestSecret("correct")}}
 	livekit := &fakeLiveKit{}
-	service := NewService(store, livekit, "ws://livekit:7880", "sebastian", time.Hour, "esp32-respeaker")
+	service := NewService(store, livekit, "ws://livekit:7880", "sebastian", time.Hour)
 
 	_, err := service.Create(context.Background(), Credentials{DeviceID: "esp32-respeaker", Secret: "wrong"})
 	if !errors.Is(err, ErrUnauthorized) {
@@ -102,7 +102,7 @@ func TestCreateDoesNotDispatchWhenRecordFails(t *testing.T) {
 		recordErr: errors.New("db down"),
 	}
 	livekit := &fakeLiveKit{}
-	service := NewService(store, livekit, "ws://livekit:7880", "sebastian", time.Hour, "esp32-respeaker")
+	service := NewService(store, livekit, "ws://livekit:7880", "sebastian", time.Hour)
 
 	_, err := service.Create(context.Background(), Credentials{DeviceID: "esp32-respeaker", Secret: "correct"})
 	if !errors.Is(err, ErrUnavailable) {
@@ -120,7 +120,7 @@ func TestCreateDoesNotDispatchWhenMintFails(t *testing.T) {
 		AgentName: "sebastian",
 	}}
 	livekit := &fakeLiveKit{mintErr: errors.New("bad signing key")}
-	service := NewService(store, livekit, "ws://livekit:7880", "sebastian", time.Hour, "esp32-respeaker")
+	service := NewService(store, livekit, "ws://livekit:7880", "sebastian", time.Hour)
 
 	_, err := service.Create(context.Background(), Credentials{DeviceID: "esp32-respeaker", Secret: "correct"})
 	if !errors.Is(err, ErrUnavailable) {
@@ -134,7 +134,7 @@ func TestCreateDoesNotDispatchWhenMintFails(t *testing.T) {
 func TestCreateAcceptsThePendingSecretAndConfirmsIt(t *testing.T) {
 	store := &fakeStore{device: Device{ID: "68ee", Identity: "68ee", CredentialDigest: DigestSecret("old"), PendingDigest: DigestSecret("new"), ProfileID: uuid.New()}}
 	livekit := &fakeLiveKit{}
-	service := NewService(store, livekit, "ws://lk", "sebastian", time.Hour, "legacy")
+	service := NewService(store, livekit, "ws://lk", "sebastian", time.Hour)
 
 	if _, err := service.Create(context.Background(), Credentials{DeviceID: "68ee", Secret: "new"}); err != nil {
 		t.Fatalf("pending secret must open a session: %v", err)

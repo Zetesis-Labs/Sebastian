@@ -14,6 +14,7 @@ import (
 	"github.com/uptrace/bun"
 	"github.com/zetesis-labs/sebastian/server/internal/database"
 	"github.com/zetesis-labs/sebastian/server/internal/database/migrations"
+	"github.com/zetesis-labs/sebastian/server/internal/device"
 	"github.com/zetesis-labs/sebastian/server/internal/outbox"
 	"github.com/zetesis-labs/sebastian/server/internal/recording"
 	"github.com/zetesis-labs/sebastian/server/internal/session"
@@ -316,4 +317,79 @@ func getOutboxEvent(ctx context.Context, db *bun.DB, eventID uuid.UUID) (outboxE
 		&event.PublishedAt,
 	)
 	return event, err
+}
+
+// Spec 12 §12 observability: adoption, forget, secret regeneration and a new
+// desired config each leave a domain event in the outbox; RF-36/42: the event
+// a unit reports in its poll is kept with the time it was first seen.
+func TestDeviceLifecycleLeavesDomainEventsAndKeepsTheLastEvent(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not set")
+	}
+	ctx := context.Background()
+	db, err := database.Open(databaseURL)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	store := NewStore(db)
+	id := "test" + strings.ReplaceAll(uuid.NewString(), "-", "")[:8]
+	t.Cleanup(func() {
+		_, _ = db.ExecContext(ctx, `DELETE FROM outbox_events WHERE event_id IN (SELECT id FROM domain_events WHERE aggregate_type = 'device' AND aggregate_id = ?)`, id)
+		_, _ = db.ExecContext(ctx, `DELETE FROM domain_events WHERE aggregate_type = 'device' AND aggregate_id = ?`, id)
+		_, _ = db.ExecContext(ctx, `DELETE FROM devices WHERE id = ?`, id)
+	})
+
+	if err := store.MarkAdopted(ctx, id, []byte("digest")); err != nil {
+		t.Fatalf("MarkAdopted: %v", err)
+	}
+	if _, err := store.TouchPoll(ctx, device.Poll{ID: id, Event: "adopt-denied:10.0.0.77"}); err != nil {
+		t.Fatalf("TouchPoll: %v", err)
+	}
+	first, err := store.Get(ctx, id)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if first.LastEvent != "adopt-denied:10.0.0.77" || first.LastEventAt.IsZero() {
+		t.Fatalf("the poll event was not stored: %+v", first)
+	}
+	time.Sleep(10 * time.Millisecond)
+	if _, err := store.TouchPoll(ctx, device.Poll{ID: id, Event: "adopt-denied:10.0.0.77"}); err != nil {
+		t.Fatalf("TouchPoll: %v", err)
+	}
+	if _, err := store.TouchPoll(ctx, device.Poll{ID: id}); err != nil {
+		t.Fatalf("TouchPoll: %v", err)
+	}
+	again, _ := store.Get(ctx, id)
+	if again.LastEvent != first.LastEvent || !again.LastEventAt.Equal(first.LastEventAt) {
+		t.Fatalf("repeating or omitting the event must keep the first sighting: %+v vs %+v", again, first)
+	}
+	if _, err := store.TouchPoll(ctx, device.Poll{ID: id, Event: "cfg-rejected:wifi"}); err != nil {
+		t.Fatalf("TouchPoll: %v", err)
+	}
+	changed, _ := store.Get(ctx, id)
+	if changed.LastEvent != "cfg-rejected:wifi" || !changed.LastEventAt.After(first.LastEventAt) {
+		t.Fatalf("a new event must replace the old one with a new time: %+v", changed)
+	}
+
+	if err := store.SetDesiredConfig(ctx, id, []byte(`{"schema":"sebastian.config.v1"}`), "v1"); err != nil {
+		t.Fatalf("SetDesiredConfig: %v", err)
+	}
+	if err := store.SetPendingSecret(ctx, id, []byte("pending")); err != nil {
+		t.Fatalf("SetPendingSecret: %v", err)
+	}
+	if err := store.Forget(ctx, id); err != nil {
+		t.Fatalf("Forget: %v", err)
+	}
+	var subjects []string
+	if err := db.NewRaw(`
+		SELECT o.subject FROM outbox_events o JOIN domain_events d ON d.id = o.event_id
+		WHERE d.aggregate_type = 'device' AND d.aggregate_id = ? ORDER BY d.occurred_at, o.subject`, id).Scan(ctx, &subjects); err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	want := "evt.sebastian.v1.device.adopted,evt.sebastian.v1.device.config_desired,evt.sebastian.v1.device.secret_regenerated,evt.sebastian.v1.device.forgotten"
+	if strings.Join(subjects, ",") != want {
+		t.Fatalf("outbox subjects = %v", subjects)
+	}
 }

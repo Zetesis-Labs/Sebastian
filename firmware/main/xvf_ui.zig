@@ -89,6 +89,11 @@ fn renderConsent(frame: u32) void {
     xvf.setLeds(.{if (on) USB_BEAM else OFF} ** 12);
 }
 
+/// Adoption accepted (RF-64): solid amber for the 2 s before the restart.
+fn renderAccepted() void {
+    xvf.setLeds(.{USB_BEAM} ** 12);
+}
+
 /// WAKING: one blue pixel orbiting with a dim trail — "heard you, connecting".
 fn renderWaking(frame: u32) void {
     const idx: u8 = @intCast((frame / 2) % 12); // ~2s per revolution
@@ -146,7 +151,10 @@ fn uiTask(_: ?*anyopaque) callconv(.c) void {
             log.info("mute: {s}", .{if (muted) "on" else "off"});
         }
 
-        if (consent) {
+        if (c.sebastian_adopt_accepted()) {
+            renderAccepted();
+            speaking = false;
+        } else if (consent) {
             renderConsent(frame);
             speaking = false;
         } else if (muted) {

@@ -96,9 +96,6 @@ server:
   # existingSecret keys: DATABASE_URL, LIVEKIT_URL, LIVEKIT_API_KEY,
   # LIVEKIT_API_SECRET, SEBASTIAN_ADMIN_SECRET.
   existingSecret: ""
-  # Transitional route used by the current firmware. Disable after devices use
-  # POST /v1/sessions with per-device credentials.
-  legacyTokenEnabled: true
   # Fleet adoption (docs/implementation/11-fleet-adoption-control-room.md).
   fleet:
     # Name shown to operators; defaults to publicApiURL.

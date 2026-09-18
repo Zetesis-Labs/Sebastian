@@ -159,6 +159,33 @@ export function failureMessage(error: string, ip: string): string {
 
 export const JOB_DONE = new Set(['adopted', 'forgotten', 'failed'])
 
+// The unit's last event as the owner reads it (RF-36, RF-42, §11). `when` is
+// the already formatted moment this control room first saw it. A rejected
+// config stops being news once the unit runs the desired version.
+export function eventMessage(
+  device: Pick<Device, 'lastEvent' | 'reportedConfigVersion' | 'desiredConfigVersion'>,
+  when: string,
+): { text: string; tone: 'warn' | 'info' } | null {
+  const event = device.lastEvent ?? ''
+  if (!event) return null
+  const at = when ? ` a las ${when}` : ''
+  if (event.startsWith('adopt-denied:')) {
+    return { text: `Intento de adopción rechazado desde ${event.slice('adopt-denied:'.length)}${at}: el secreto no coincidía.`, tone: 'warn' }
+  }
+  if (event.startsWith('cfg-rejected:')) {
+    if (device.desiredConfigVersion && device.reportedConfigVersion === device.desiredConfigVersion) return null
+    return { text: `Configuración no aplicada${at}: el altavoz la rechazó (${rejectionReason(event.slice('cfg-rejected:'.length))}).`, tone: 'warn' }
+  }
+  if (event === 'wifi-rollback') {
+    return { text: `La WiFi nueva no conectó${at}: el altavoz volvió a la anterior.`, tone: 'warn' }
+  }
+  return { text: `Último arranque${at}: ${event}.`, tone: 'info' }
+}
+
+function rejectionReason(why: string): string {
+  return ({ json_parse: 'JSON inválido', schema: 'esquema desconocido', wifi: 'faltan datos de la WiFi', store: 'no pudo guardarla' } as Record<string, string>)[why] ?? why
+}
+
 // Running vs desired (RF-42): "sincronizado" when the device runs the version
 // we want, "aplicando" while it differs, "no aplicada" after ~3 polls.
 export function configSync(device: Pick<Device, 'reportedConfigVersion' | 'desiredConfigVersion' | 'profileReportedAt'>, now: Date): 'none' | 'synced' | 'applying' | 'stale' {

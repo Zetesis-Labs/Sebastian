@@ -50,7 +50,7 @@ func run(logger *slog.Logger) error {
 
 	store := postgresstore.NewStore(db)
 	livekit := livekitgateway.NewGateway(cfg.LiveKitURL, cfg.LiveKitAPIKey, cfg.LiveKitAPISecret)
-	sessions := session.NewService(store, livekit, cfg.LiveKitURL, cfg.RoomPrefix, cfg.TokenTTL, cfg.LegacyDeviceID)
+	sessions := session.NewService(store, livekit, cfg.LiveKitURL, cfg.RoomPrefix, cfg.TokenTTL)
 	recordings := recording.NewService(store)
 	var lan discovery.Browser = discovery.Static{}
 	if cfg.DiscoveryEnabled {
@@ -67,7 +67,7 @@ func run(logger *slog.Logger) error {
 		AdoptPort:  adoption.Port,
 	}
 	devices := device.NewService(store, lan, adoption.NewClient(), room, logger)
-	handler := apihttp.NewHandler(sessions, recordings, devices, store, logger, cfg.LegacyTokenEnabled, cfg.DatabasePingTimeout)
+	handler := apihttp.NewHandler(sessions, recordings, devices, store, logger, cfg.DatabasePingTimeout)
 	server, err := httpserver.New(cfg.Address, handler, logger, cfg.AdminSecret)
 	if err != nil {
 		return err
@@ -77,7 +77,6 @@ func run(logger *slog.Logger) error {
 	go func() {
 		logger.Info("sebastian server listening",
 			"address", cfg.Address,
-			"legacy_token_enabled", cfg.LegacyTokenEnabled,
 			"control_room", cfg.ControlRoomName,
 			"public_api_url", cfg.PublicAPIURL,
 			"discovery", cfg.DiscoveryEnabled,

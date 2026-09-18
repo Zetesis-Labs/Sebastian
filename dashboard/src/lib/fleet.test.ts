@@ -4,6 +4,7 @@ import {
   canForget,
   configSync,
   desiredDocument,
+  eventMessage,
   failureMessage,
   differsFromRunning,
   fichaIssues,
@@ -174,5 +175,28 @@ describe('ip validation', () => {
     expect(isValidIPv4('10.0.100')).toBe(false)
     expect(isValidIPv4('300.1.1.1')).toBe(false)
     expect(isValidIPv4('sebastian.local')).toBe(false)
+  })
+})
+
+describe('eventMessage (RF-36, RF-42)', () => {
+  it('names the peer and the time of a denied adoption', () => {
+    const m = eventMessage({ lastEvent: 'adopt-denied:10.0.0.77' }, '12:31')
+    expect(m?.tone).toBe('warn')
+    expect(m?.text).toContain('10.0.0.77')
+    expect(m?.text).toContain('a las 12:31')
+  })
+  it('explains a rejected config with the reason the unit gave', () => {
+    const m = eventMessage({ lastEvent: 'cfg-rejected:wifi', desiredConfigVersion: 'v2', reportedConfigVersion: 'v1' }, '')
+    expect(m?.text).toContain('no aplicada')
+    expect(m?.text).toContain('faltan datos de la WiFi')
+  })
+  it('drops a rejected config once the unit runs the desired version', () => {
+    expect(eventMessage({ lastEvent: 'cfg-rejected:wifi', desiredConfigVersion: 'v2', reportedConfigVersion: 'v2' }, '')).toBeNull()
+  })
+  it('is silent without an event and informative for boot errors', () => {
+    expect(eventMessage({ lastEvent: '' }, '')).toBeNull()
+    expect(eventMessage({}, '')).toBeNull()
+    expect(eventMessage({ lastEvent: 'wifi-rollback' }, '09:00')?.text).toContain('volvió a la anterior')
+    expect(eventMessage({ lastEvent: 'brownout' }, '')?.tone).toBe('info')
   })
 })

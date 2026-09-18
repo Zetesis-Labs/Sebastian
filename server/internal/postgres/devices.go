@@ -25,11 +25,13 @@ type adminDeviceRow struct {
 	ReportedFirmware      *string    `bun:"reported_firmware"`
 	ReportedConfigVersion *string    `bun:"reported_config_version"`
 	DesiredConfigVersion  *string    `bun:"desired_config_version"`
+	LastEvent             *string    `bun:"last_event"`
+	LastEventAt           *time.Time `bun:"last_event_at"`
 }
 
 const adminDeviceColumns = `id, display_name, enabled, desired_device_profile, reported_device_profile,
 	profile_reported_at, credential_digest IS NOT NULL AS adopted, adopted_at, reported_firmware,
-	reported_config_version, desired_config_version`
+	reported_config_version, desired_config_version, last_event, last_event_at`
 
 func (r adminDeviceRow) toDomain() device.Device {
 	item := device.Device{ID: r.ID, DisplayName: r.DisplayName, Enabled: r.Enabled, Adopted: r.Adopted}
@@ -54,13 +56,21 @@ func (r adminDeviceRow) toDomain() device.Device {
 	if r.DesiredConfigVersion != nil {
 		item.DesiredConfig = *r.DesiredConfigVersion
 	}
+	if r.LastEvent != nil {
+		item.LastEvent = *r.LastEvent
+	}
+	if r.LastEventAt != nil {
+		item.LastEventAt = *r.LastEventAt
+	}
 	return item
 }
 
 // TouchPoll upserts the device row on every reconciliation poll: first contact
 // auto-registers the unit (no agent profile — it cannot open LiveKit sessions
 // until adopted or assigned one), later polls refresh what it reports. A
-// forgotten unit that polls again is simply re-registered.
+// forgotten unit that polls again is simply re-registered. The event the unit
+// reports (RF-36/42) replaces the stored one only when it carries one; its
+// timestamp is the first poll that carried that value.
 func (s *Store) TouchPoll(ctx context.Context, poll device.Poll) (device.PollResult, error) {
 	var row struct {
 		DesiredProfile string `bun:"desired_profile"`
@@ -69,18 +79,23 @@ func (s *Store) TouchPoll(ctx context.Context, poll device.Poll) (device.PollRes
 	now := time.Now().UTC()
 	err := s.db.NewRaw(`
 		INSERT INTO devices (id, display_name, livekit_identity, enabled, created_at, updated_at,
-		                     reported_device_profile, profile_reported_at, reported_config_version, reported_firmware)
-		VALUES (?, ?, ?, TRUE, ?, ?, NULLIF(?, ''), ?, NULLIF(?, ''), NULLIF(?, ''))
+		                     reported_device_profile, profile_reported_at, reported_config_version, reported_firmware,
+		                     last_event, last_event_at)
+		VALUES (?, ?, ?, TRUE, ?, ?, NULLIF(?, ''), ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?)
 		ON CONFLICT (id) DO UPDATE SET
 			reported_device_profile = EXCLUDED.reported_device_profile,
 			profile_reported_at = EXCLUDED.profile_reported_at,
 			reported_config_version = EXCLUDED.reported_config_version,
 			reported_firmware = COALESCE(EXCLUDED.reported_firmware, devices.reported_firmware),
+			last_event = COALESCE(EXCLUDED.last_event, devices.last_event),
+			last_event_at = CASE
+				WHEN EXCLUDED.last_event IS NULL OR EXCLUDED.last_event IS NOT DISTINCT FROM devices.last_event
+				THEN devices.last_event_at ELSE EXCLUDED.last_event_at END,
 			forgotten_at = NULL,
 			updated_at = EXCLUDED.updated_at
 		RETURNING COALESCE(desired_device_profile, '') AS desired_profile,
 		          COALESCE(desired_config_version, '') AS desired_config`,
-		poll.ID, poll.ID, poll.ID, now, now, poll.Reported, now, poll.ConfigVersion, poll.Firmware,
+		poll.ID, poll.ID, poll.ID, now, now, poll.Reported, now, poll.ConfigVersion, poll.Firmware, poll.Event, now,
 	).Scan(ctx, &row)
 	if err != nil {
 		return device.PollResult{}, fmt.Errorf("touch device poll: %w", err)
@@ -149,7 +164,11 @@ func (s *Store) Sessions(ctx context.Context, id string) ([]device.Session, erro
 }
 
 func (s *Store) updateDevice(ctx context.Context, id string, apply func(*bun.UpdateQuery) *bun.UpdateQuery) error {
-	q := s.db.NewUpdate().Table("devices").Set("updated_at = ?", time.Now().UTC()).Where("id = ?", id).Where("forgotten_at IS NULL")
+	return s.updateDeviceIn(ctx, s.db, id, apply)
+}
+
+func (s *Store) updateDeviceIn(ctx context.Context, db bun.IDB, id string, apply func(*bun.UpdateQuery) *bun.UpdateQuery) error {
+	q := db.NewUpdate().Table("devices").Set("updated_at = ?", time.Now().UTC()).Where("id = ?", id).Where("forgotten_at IS NULL")
 	result, err := apply(q).Exec(ctx)
 	if err != nil {
 		return err
@@ -198,8 +217,13 @@ func (s *Store) DesiredConfig(ctx context.Context, id string) (json.RawMessage, 
 }
 
 func (s *Store) SetDesiredConfig(ctx context.Context, id string, config json.RawMessage, version string) error {
-	err := s.updateDevice(ctx, id, func(q *bun.UpdateQuery) *bun.UpdateQuery {
-		return q.Set("desired_config = ?::jsonb", string(config)).Set("desired_config_version = ?", version)
+	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		if err := s.updateDeviceIn(ctx, tx, id, func(q *bun.UpdateQuery) *bun.UpdateQuery {
+			return q.Set("desired_config = ?::jsonb", string(config)).Set("desired_config_version = ?", version)
+		}); err != nil {
+			return err
+		}
+		return appendEvent(ctx, tx, deviceEvent("device.config_desired", id, map[string]any{"device_id": id, "version": version}, time.Now().UTC()))
 	})
 	if err != nil && !errors.Is(err, device.ErrNotFound) {
 		return fmt.Errorf("set desired config: %w", err)
@@ -263,16 +287,16 @@ func (s *Store) CredentialDigests(ctx context.Context, id string) ([]byte, []byt
 }
 
 // MarkAdopted upserts the unit as adopted by this control room. The agent
-// profile — required to open LiveKit sessions — defaults to the one the
-// legacy device uses, else the oldest profile, unless already assigned.
+// profile — required to open LiveKit sessions — defaults to the oldest
+// profile unless already assigned.
 func (s *Store) MarkAdopted(ctx context.Context, id string, digest []byte) error {
 	now := time.Now().UTC()
-	_, err := s.db.NewRaw(`
+	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		if _, err := tx.NewRaw(`
 		INSERT INTO devices (id, display_name, livekit_identity, enabled, created_at, updated_at,
 		                     credential_digest, adopted_at, agent_profile_id)
 		VALUES (?, ?, ?, TRUE, ?, ?, ?, ?,
-		        COALESCE((SELECT agent_profile_id FROM devices WHERE id = 'esp32-respeaker'),
-		                 (SELECT id FROM agent_profiles ORDER BY created_at LIMIT 1)))
+		        (SELECT id FROM agent_profiles ORDER BY created_at LIMIT 1))
 		ON CONFLICT (id) DO UPDATE SET
 			credential_digest = EXCLUDED.credential_digest,
 			pending_credential_digest = NULL,
@@ -281,8 +305,12 @@ func (s *Store) MarkAdopted(ctx context.Context, id string, digest []byte) error
 			forgotten_at = NULL,
 			enabled = TRUE,
 			updated_at = EXCLUDED.updated_at`,
-		id, id, id, now, now, digest, now,
-	).Exec(ctx)
+			id, id, id, now, now, digest, now,
+		).Exec(ctx); err != nil {
+			return err
+		}
+		return appendEvent(ctx, tx, deviceEvent("device.adopted", id, map[string]any{"device_id": id}, now))
+	})
 	if err != nil {
 		return fmt.Errorf("mark adopted: %w", err)
 	}
@@ -290,8 +318,13 @@ func (s *Store) MarkAdopted(ctx context.Context, id string, digest []byte) error
 }
 
 func (s *Store) SetPendingSecret(ctx context.Context, id string, digest []byte) error {
-	err := s.updateDevice(ctx, id, func(q *bun.UpdateQuery) *bun.UpdateQuery {
-		return q.Set("pending_credential_digest = ?", digest)
+	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		if err := s.updateDeviceIn(ctx, tx, id, func(q *bun.UpdateQuery) *bun.UpdateQuery {
+			return q.Set("pending_credential_digest = ?", digest)
+		}); err != nil {
+			return err
+		}
+		return appendEvent(ctx, tx, deviceEvent("device.secret_regenerated", id, map[string]any{"device_id": id}, time.Now().UTC()))
 	})
 	if err != nil && !errors.Is(err, device.ErrNotFound) {
 		return fmt.Errorf("set pending secret: %w", err)
@@ -313,11 +346,17 @@ func (s *Store) ConfirmSecret(ctx context.Context, id string, digest []byte) err
 // Forget hides the unit from the inventory and drops its credentials; its
 // sessions and recordings stay (history).
 func (s *Store) Forget(ctx context.Context, id string) error {
-	err := s.updateDevice(ctx, id, func(q *bun.UpdateQuery) *bun.UpdateQuery {
-		return q.Set("forgotten_at = ?", time.Now().UTC()).
-			Set("credential_digest = NULL").Set("pending_credential_digest = NULL").
-			Set("desired_config = NULL").Set("desired_config_version = NULL").
-			Set("desired_device_profile = NULL").Set("adopted_at = NULL")
+	now := time.Now().UTC()
+	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		if err := s.updateDeviceIn(ctx, tx, id, func(q *bun.UpdateQuery) *bun.UpdateQuery {
+			return q.Set("forgotten_at = ?", now).
+				Set("credential_digest = NULL").Set("pending_credential_digest = NULL").
+				Set("desired_config = NULL").Set("desired_config_version = NULL").
+				Set("desired_device_profile = NULL").Set("adopted_at = NULL")
+		}); err != nil {
+			return err
+		}
+		return appendEvent(ctx, tx, deviceEvent("device.forgotten", id, map[string]any{"device_id": id}, now))
 	})
 	if err != nil && !errors.Is(err, device.ErrNotFound) {
 		return fmt.Errorf("forget device: %w", err)

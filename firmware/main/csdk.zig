@@ -365,6 +365,9 @@ pub extern fn sebastian_session_create(base_url: [*:0]const u8, device_id: [*:0]
 pub extern fn sebastian_http_get_auth(url: [*:0]const u8, device_id: ?[*:0]const u8, secret: ?[*:0]const u8, capture_header: ?[*:0]const u8, hdr_out: ?[*]u8, hdr_size: usize, out: [*]u8, out_size: usize, status: ?*c_int) c_int;
 pub extern fn sebastian_announce_start(id: [*:0]const u8, prof: [*:0]const u8, cr: [*:0]const u8) void;
 pub extern fn sebastian_announce_set(key: [*:0]const u8, value: [*:0]const u8) void;
+pub extern fn sebastian_announce_event(event: [*:0]const u8) void;
+pub extern fn sebastian_announce_last_event() [*:0]const u8;
+pub extern fn sebastian_adopt_accepted() bool;
 pub extern fn sebastian_adopt_start() void;
 pub extern fn sebastian_adopt_session_active(active: bool) void;
 pub extern fn sebastian_adopt_consent_pending() bool;

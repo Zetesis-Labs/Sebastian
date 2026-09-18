@@ -8,7 +8,7 @@
 // a factory image (those blanked) waits to be provisioned. See PROVISIONING.md.
 //
 // The esp_wifi/nvs/cJSON/usb_serial_jtag APIs are far easier in C than through
-// hand-written Zig bindings, so this lives here like token_http.c.
+// hand-written Zig bindings, so this lives here like session_http.c.
 
 #include <stdio.h>
 #include <stdlib.h>

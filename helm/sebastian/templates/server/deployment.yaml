@@ -56,8 +56,6 @@ spec:
                   key: DATABASE_URL
             - name: SEBASTIAN_SERVER_ADDRESS
               value: ":{{ .Values.server.service.targetPort }}"
-            - name: SEBASTIAN_LEGACY_TOKEN_ENABLED
-              value: {{ .Values.server.legacyTokenEnabled | quote }}
             - name: SEBASTIAN_CONTROL_ROOM_NAME
               value: {{ .Values.server.fleet.controlRoomName | quote }}
             - name: SEBASTIAN_PUBLIC_API_URL

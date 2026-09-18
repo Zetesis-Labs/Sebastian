@@ -184,3 +184,5 @@ a.device-name:hover { color: var(--orange); }
 .secret-value { display: block; padding: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; font: 400 13px 'DM Mono', monospace; word-break: break-all; }
 .secret-qr { justify-self: center; border-radius: 8px; }
 @media (max-width: 720px) { .config-form { grid-template-columns: 1fr; } }
+.danger-zone { border-color: rgba(255, 107, 53, .35); }
+.danger-zone .eyebrow { color: #ffb597; }

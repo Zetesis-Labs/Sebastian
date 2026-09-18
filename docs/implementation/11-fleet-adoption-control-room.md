@@ -67,13 +67,13 @@ speaker flashed and provisioned from there is born adopted.
 
 ### Block 1 — per-device credentials and `/v1/sessions` (foundation)
 
-Today the firmware fetches tokens from the unauthenticated legacy `/token`, so
-every session is attributed to the fixed id `esp32-respeaker` while the real
-units (`68ee8f4d8dd4`, `e072a1f895f4`) only exist through the profile poll.
+Every session is attributed to the unit that opened it. The unauthenticated
+legacy `/token` (fixed id `esp32-respeaker`) was retired on 2026-09-18 (RF-12):
+the server no longer serves it and the firmware has no fallback to it.
 
 - Firmware: `token.zig` calls `POST /v1/sessions` with `X-Device-Id` = MAC and
-  `X-Device-Secret` from NVS (new key `dev_secret`); falls back to `/token`
-  only when no secret is stored (unadopted unit on a legacy server).
+  `X-Device-Secret` from NVS (key `dev_secret`). Without a secret the unit
+  cannot open sessions until adopted.
 - Server: `TouchProfile`'s auto-registration stays; a device without a secret
   is "registered, not adopted". Sessions and recordings hang off the real id.
 - Born adopted (RF-03): a unit provisioned from the embedded installer holds
@@ -88,7 +88,7 @@ units (`68ee8f4d8dd4`, `e072a1f895f4`) only exist through the profile poll.
   first boot). Adoption over the LAN does not write one: the unit hands its
   own in the `ok` reply (`{"t":"ok","dev":"…"}`), and the config document only
   carries `adoption.deviceSecret` to rotate it (RF-53) or to erase it (forget).
-- Retire `SEBASTIAN_LEGACY_DEVICE_ID` once both units run the new firmware.
+- `SEBASTIAN_LEGACY_TOKEN_ENABLED` / `SEBASTIAN_LEGACY_DEVICE_ID` are gone.
 
 ### Block 2 — announce and the "on the network" view
 

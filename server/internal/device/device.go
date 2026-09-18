@@ -68,6 +68,12 @@ type Device struct {
 	ReportedConfig    string // config version the device runs (from its poll)
 	DesiredConfig     string // version of the stored desired config
 
+	// The last event the unit reported (RF-36/42): "adopt-denied:<ip>",
+	// "cfg-rejected:<why>" or an error from its previous boot, with the moment
+	// this control room first saw it. From the poll or the LAN, whichever is newer.
+	LastEvent   string
+	LastEventAt time.Time
+
 	// Derived / from the LAN announce.
 	State       State
 	IP          string
@@ -100,6 +106,7 @@ type Poll struct {
 	Reported      string // running profile
 	ConfigVersion string
 	Firmware      string
+	Event         string // last event worth telling the owner; "" = none
 }
 
 type PollResult struct {

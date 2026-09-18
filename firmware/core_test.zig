@@ -8,7 +8,6 @@ const pre_roll = @import("main/core/pre_roll_core.zig");
 const reducer = @import("main/core/session_reducer.zig");
 const selector = @import("main/core/selector_core.zig");
 const session = @import("main/core/session_core.zig");
-const token = @import("main/core/token_core.zig");
 
 fn rawSample(sample: i32) i32 {
     const scale: i32 = @as(i32, 1) << pcm.SHIFT;
@@ -848,138 +847,6 @@ test "decimator saturated raw input keeps metrics bounded" {
     }
 }
 
-test "token parser accepts trimmed two-line response and nul-terminates fields" {
-    var url_buf = [_]u8{0xaa} ** 32;
-    var token_buf = [_]u8{0xaa} ** 64;
-
-    const parsed = try token.parseResponse(" wss://lk.example \r\n jwt.token \r\n", &url_buf, &token_buf);
-
-    try std.testing.expectEqualSlices(u8, "wss://lk.example", parsed.url);
-    try std.testing.expectEqualSlices(u8, "jwt.token", parsed.token);
-    try std.testing.expectEqual(@as(u8, 0), url_buf[parsed.url.len]);
-    try std.testing.expectEqual(@as(u8, 0), token_buf[parsed.token.len]);
-}
-
-test "token parser rejects malformed and oversized responses" {
-    var url_buf = [_]u8{0} ** 8;
-    var token_buf = [_]u8{0} ** 8;
-
-    try std.testing.expectError(error.MalformedResponse, token.parseResponse("wss://lk.example", &url_buf, &token_buf));
-    try std.testing.expectError(error.MalformedResponse, token.parseResponse("\nabc", &url_buf, &token_buf));
-    try std.testing.expectError(error.MalformedResponse, token.parseResponse("wss://x\n", &url_buf, &token_buf));
-    try std.testing.expectError(error.MalformedResponse, token.parseResponse("wss://too-long\njwt", &url_buf, &token_buf));
-    try std.testing.expectError(error.MalformedResponse, token.parseResponse("wss://x\njwt-too-long", &url_buf, &token_buf));
-}
-
-test "token parser accepts exact buffer limits before nul" {
-    var url_buf = [_]u8{0xaa} ** 7;
-    var token_buf = [_]u8{0xaa} ** 4;
-
-    const parsed = try token.parseResponse("ws://x\nxyz", &url_buf, &token_buf);
-
-    try std.testing.expectEqualSlices(u8, "ws://x", parsed.url);
-    try std.testing.expectEqualSlices(u8, "xyz", parsed.token);
-    try std.testing.expectEqual(@as(u8, 0), url_buf[6]);
-    try std.testing.expectEqual(@as(u8, 0), token_buf[3]);
-
-    try std.testing.expectError(error.MalformedResponse, token.parseResponse("ws://xy\nxyz", &url_buf, &token_buf));
-    try std.testing.expectError(error.MalformedResponse, token.parseResponse("ws://x\nxyzz", &url_buf, &token_buf));
-}
-
-test "token parser enforces websocket URL and visible token fields" {
-    var url_buf = [_]u8{0} ** 32;
-    var token_buf = [_]u8{0} ** 32;
-
-    const ws = try token.parseResponse("ws://x\njwt", &url_buf, &token_buf);
-    try std.testing.expectEqualSlices(u8, "ws://x", ws.url);
-    try std.testing.expectEqualSlices(u8, "jwt", ws.token);
-
-    const cases = [_][]const u8{
-        "http://x\njwt",
-        "file://x\njwt",
-        "wss://\njwt",
-        "ws://\njwt",
-        "wss://x y\njwt",
-        "wss://x\njwt token",
-    };
-
-    for (cases) |body| {
-        var case_url_buf = [_]u8{0x55} ** 32;
-        var case_token_buf = [_]u8{0xaa} ** 32;
-
-        try std.testing.expectError(error.MalformedResponse, token.parseResponse(body, &case_url_buf, &case_token_buf));
-
-        for (case_url_buf) |byte| {
-            try std.testing.expectEqual(@as(u8, 0x55), byte);
-        }
-        for (case_token_buf) |byte| {
-            try std.testing.expectEqual(@as(u8, 0xaa), byte);
-        }
-    }
-}
-
-test "token parser rejects embedded line breaks but accepts trailing blanks" {
-    var url_buf = [_]u8{0} ** 32;
-    var token_buf = [_]u8{0} ** 32;
-
-    const parsed = try token.parseResponse("wss://x\njwt\n\n", &url_buf, &token_buf);
-    try std.testing.expectEqualSlices(u8, "wss://x", parsed.url);
-    try std.testing.expectEqualSlices(u8, "jwt", parsed.token);
-
-    try std.testing.expectError(error.MalformedResponse, token.parseResponse("wss://x\rmore\njwt", &url_buf, &token_buf));
-    try std.testing.expectError(error.MalformedResponse, token.parseResponse("wss://x\njwt\rmore", &url_buf, &token_buf));
-    try std.testing.expectError(error.MalformedResponse, token.parseResponse("wss://x\njwt\nextra", &url_buf, &token_buf));
-}
-
-test "token parser accepts CRLF delimiter" {
-    var url_buf = [_]u8{0} ** 32;
-    var token_buf = [_]u8{0} ** 32;
-
-    const parsed = try token.parseResponse("wss://x\r\njwt", &url_buf, &token_buf);
-
-    try std.testing.expectEqualSlices(u8, "wss://x", parsed.url);
-    try std.testing.expectEqualSlices(u8, "jwt", parsed.token);
-}
-
-test "token parser leaves buffers untouched on malformed response" {
-    var url_buf = [_]u8{0x55} ** 8;
-    var token_buf = [_]u8{0xaa} ** 8;
-
-    try std.testing.expectError(error.MalformedResponse, token.parseResponse("wss://x\njwt\nextra", &url_buf, &token_buf));
-
-    for (url_buf) |byte| {
-        try std.testing.expectEqual(@as(u8, 0x55), byte);
-    }
-    for (token_buf) |byte| {
-        try std.testing.expectEqual(@as(u8, 0xaa), byte);
-    }
-}
-
-test "token parser rejects embedded control bytes before copying" {
-    const cases = [_][]const u8{
-        "wss://x\x00truncated\njwt",
-        "wss://x\njwt\x00truncated",
-        "wss://x\t\njwt",
-        "wss://x\njwt\t",
-        "wss://x\x7f\njwt",
-        "wss://x\njwt\x7f",
-    };
-
-    for (cases) |body| {
-        var url_buf = [_]u8{0x55} ** 32;
-        var token_buf = [_]u8{0xaa} ** 32;
-
-        try std.testing.expectError(error.MalformedResponse, token.parseResponse(body, &url_buf, &token_buf));
-
-        for (url_buf) |byte| {
-            try std.testing.expectEqual(@as(u8, 0x55), byte);
-        }
-        for (token_buf) |byte| {
-            try std.testing.expectEqual(@as(u8, 0xaa), byte);
-        }
-    }
-}
-
 test "aec scaled telemetry math never panics on bad floats" {
     try std.testing.expectEqual(@as(i32, -1), aec.scaled(null, 1000.0));
     try std.testing.expectEqual(@as(i32, -2), aec.scaled(std.math.nan(f32), 1000.0));
@@ -1439,6 +1306,16 @@ test "url origin strips the path keeping scheme, host and port" {
 test "url origin passes through inputs without scheme or path" {
     try std.testing.expectEqualStrings("http://host:9000", url_core.origin("http://host:9000"));
     try std.testing.expectEqualStrings("host/no-scheme", url_core.origin("host/no-scheme"));
+}
+
+test "query-safe events travel verbatim in the poll, anything else is dropped" {
+    try std.testing.expect(url_core.isQuerySafe(""));
+    try std.testing.expect(url_core.isQuerySafe("adopt-denied:10.0.0.77"));
+    try std.testing.expect(url_core.isQuerySafe("cfg-rejected:wifi"));
+    try std.testing.expect(url_core.isQuerySafe("wifi-rollback"));
+    try std.testing.expect(!url_core.isQuerySafe("bad value"));
+    try std.testing.expect(!url_core.isQuerySafe("a&b=c"));
+    try std.testing.expect(!url_core.isQuerySafe("100%"));
 }
 
 // ── USB↔agent mic arbitration (modo convivencia) ─────────────────────────────

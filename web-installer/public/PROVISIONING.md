@@ -66,8 +66,8 @@ countdown; past it, re-plug the board.
   handing the secret over: that is how a unit provisioned from the embedded
   installer is born adopted. Stored as
   `org_secret` / `dev_secret`; an empty string erases them (that is what the
-  control room's *forget* sends). With a device secret the firmware opens
-  sessions through `POST /v1/sessions` instead of the legacy `/token`.
+  control room's *forget* sends). The firmware opens sessions through
+  `POST /v1/sessions` with the device secret; without one it cannot open any.
 - `session.silenceTimeoutMs` / `session.voiceLevel`: now stored (`silence_ms`,
   `voice_lvl`) and read at boot — no longer compile-time.
 - `configVersion`: the control room's desired-config version this document

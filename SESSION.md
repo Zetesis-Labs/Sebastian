@@ -261,3 +261,37 @@ Trampas nuevas:
   cada poll; el server lo guarda en `devices.running_config(_at)` (migración
   `20260918145510_running_config`). La ficha parte de la deseada o, si no
   hay, de la reportada, y marca en ámbar los campos que difieren.
+
+### Cierre de la funcional de flota (tarde-noche del 18) — rama `feat/fleet-pending`
+
+PR #46 mergeado a main por rebase; la spec 13 (grabaciones de reuniones) está
+en main. Lo que quedaba de la spec 12, todo hecho salvo hardware:
+
+- RF-67 (reset físico) descartado: el rescate es el USB.
+- Eventos de la placa (RF-36/42): nueva clave TXT `ev` y parámetro `ev=` en el
+  poll (`adopt-denied:<ip>`, `cfg-rejected:<why>`, `wifi-rollback`); antes el
+  `err` del anuncio lo pisaba el `ok` del siguiente poll. El server lo guarda
+  en `devices.last_event(_at)` (migración `20260918160146_last_event`; la
+  hora es el primer contacto que lo trajo) y lo funde con la LAN (gana el más
+  nuevo). Fila y ficha lo cuentan con `eventMessage`; el `cfg-rejected`
+  desaparece cuando la placa ejecuta la versión deseada.
+- RF-64: `sebastian_adopt_accepted()` → anillo ámbar fijo 2 s antes del
+  reinicio (`ACCEPTED_SHOW_MS`).
+- Olvidar en la ficha (RF-37): panel "Devolver el altavoz a fábrica" con
+  confirmación tecleando la MAC, sin diálogo del navegador.
+- RF-52: la línea del trabajo de adopción abre `SecretDialog` (copiar + QR).
+- RF-04: el instalador enseña "Firmware <versión>" del manifest; el workflow
+  `dashboard-publish` estampa `project_version` del build en el manifest.
+- RF-12: `/token` legado retirado en server (contrato, handler, config
+  `SEBASTIAN_LEGACY_*`, helm, devcontainer, README) y firmware (`token.zig`
+  solo `POST /v1/sessions`; borrados `token_http.c/.h` y `token_core.zig`).
+- Outbox: `appendEvent` en `postgres/store.go` unifica sesión/grabación y
+  añade `device.adopted`, `device.forgotten`, `device.secret_regenerated`,
+  `device.config_desired` (test de integración `TestDeviceLifecycle…`).
+- mDNS: el fin de ciclo (`DeadlineExceeded`) ya no se loguea como fallo ni
+  añade 10 s de pausa.
+
+Pendiente de hardware (no había placas enchufadas al cerrar): flashear
+`e072a1f96ef0` con este firmware y probar ámbar fijo, `adopt-denied` desde
+casa-2 con secreto distinto, y un `cfg-rejected` (p. ej. WiFi sin SSID).
+Las placas `68ee8f4d8dd4` y `e072a1f895f4` siguen con firmware anterior.

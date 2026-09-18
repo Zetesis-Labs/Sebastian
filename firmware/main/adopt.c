@@ -37,6 +37,7 @@ static const char *TAG = "adopt";
 #define NONCE_TTL_US (30LL * 1000 * 1000)
 #define CONSENT_WAIT_MS (30 * 1000)
 #define SESSION_WAIT_MS (120 * 1000)
+#define ACCEPTED_SHOW_MS 2000 // solid amber before the restart (RF-64)
 
 static uint8_t nonce[NONCE_BYTES];
 static int64_t nonce_issued_us; // 0 = none outstanding
@@ -45,13 +46,13 @@ static struct sockaddr_in nonce_peer;
 static volatile bool session_active;
 static volatile bool consent_pending;
 static volatile bool consent_granted;
-static char last_denied[40];
+static volatile bool accepted;
 
 void sebastian_adopt_session_active(bool active) { session_active = active; }
 bool sebastian_adopt_session_is_active(void) { return session_active; }
 bool sebastian_adopt_consent_pending(void) { return consent_pending; }
 void sebastian_adopt_consent_grant(void) { if (consent_pending) consent_granted = true; }
-const char *sebastian_adopt_last_denied(void) { return last_denied; }
+bool sebastian_adopt_accepted(void) { return accepted; }
 
 static void hex_encode(const uint8_t *in, size_t n, char *out) {
     static const char hex[] = "0123456789abcdef";
@@ -189,8 +190,9 @@ static void handle_adopt(int sock, const struct sockaddr_in *peer, const cJSON *
     inet_ntoa_r(peer->sin_addr, ip, sizeof(ip));
     switch (authorize(n->valuestring, cfg->valuestring, expected)) {
     case AUTH_DENIED:
-        snprintf(last_denied, sizeof(last_denied), "adopt-denied:%s", ip);
-        sebastian_announce_set("err", last_denied);
+        char denied[40];
+        snprintf(denied, sizeof(denied), "adopt-denied:%s", ip);
+        sebastian_announce_event(denied);
         ESP_LOGW(TAG, "adoption from %s denied: secret does not match", ip);
         send_err(sock, peer, "auth");
         return;
@@ -225,7 +227,8 @@ static void handle_adopt(int sock, const struct sockaddr_in *peer, const cJSON *
     snprintf(ok, sizeof(ok), "{\"t\":\"ok\",\"dev\":\"%s\"}", dev);
     ESP_LOGI(TAG, "adopted from %s — restarting into the new control room", ip);
     send_json(sock, peer, ok);
-    vTaskDelay(pdMS_TO_TICKS(400)); // let the reply and the log leave
+    accepted = true; // the ring turns solid amber (RF-64)
+    vTaskDelay(pdMS_TO_TICKS(ACCEPTED_SHOW_MS)); // let the reply, the log and the ring say it
     esp_restart();
 }
 

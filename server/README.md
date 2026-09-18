@@ -67,12 +67,9 @@ persistencia usa Bun con consultas SQL-first escritas en
   /v1/admin/devices/{id}`, `POST …/adopt` y `POST …/forget` (202 + job en
   `GET /v1/admin/adoptions/{jobId}`), `PUT/DELETE …/desired-config`,
   `POST …/secret`, `GET /v1/admin/control-room`.
-- `GET /token`: adaptador transitorio compatible con el firmware actual.
 
-`/token` solamente existe cuando `SEBASTIAN_LEGACY_TOKEN_ENABLED=true`. No debe
-exponerse públicamente: omite autenticación para mantener la compatibilidad con
-el firmware desplegado. El endpoint v1 requiere `X-Device-Id` y
-`X-Device-Secret`.
+El `/token` legado sin autenticación se retiró (RF-12): las sesiones se abren
+solo con `POST /v1/sessions` y requieren `X-Device-Id` y `X-Device-Secret`.
 
 ## Variables
 
@@ -85,8 +82,6 @@ el firmware desplegado. El endpoint v1 requiere `X-Device-Id` y
 | `SEBASTIAN_SERVER_ADDRESS` | no | `:8787` |
 | `SEBASTIAN_ROOM_PREFIX` | no | `sebastian` |
 | `SEBASTIAN_TOKEN_TTL` | no | `1h` |
-| `SEBASTIAN_LEGACY_TOKEN_ENABLED` | no | `false` |
-| `SEBASTIAN_LEGACY_DEVICE_ID` | no | `esp32-respeaker` |
 | `SEBASTIAN_ADMIN_SECRET` | sí | — |
 | `SEBASTIAN_PUBLIC_API_URL` | para adoptar | — (la URL con la que los devices llegan a este control room) |
 | `SEBASTIAN_CONTROL_ROOM_NAME` | no | `SEBASTIAN_PUBLIC_API_URL` |

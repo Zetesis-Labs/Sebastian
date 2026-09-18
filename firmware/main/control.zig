@@ -84,6 +84,14 @@ fn cfgVersion() []const u8 {
     return std.mem.sliceTo(&cfg_ver, 0);
 }
 
+/// The last event as a query value: only the characters our events use
+/// ("adopt-denied:10.0.0.7", "cfg-rejected:wifi", "wifi-rollback") travel;
+/// anything else would need escaping and is dropped instead.
+fn pollEvent() []const u8 {
+    const event = std.mem.span(c.sebastian_announce_last_event());
+    return if (url_core.isQuerySafe(event)) event else "";
+}
+
 fn announceResult(status: c_int, n: c_int) void {
     var buf: [16]u8 = undefined;
     const text = if (n >= 0) "ok" else if (status > 0)
@@ -131,7 +139,7 @@ fn fetchAndApplyConfig(origin: [*:0]const u8, version: []const u8) void {
         log.err("desired config {s} rejected: {s}", .{ version, std.mem.sliceTo(&why, 0) });
         var err: [48]u8 = undefined;
         const text = std.fmt.bufPrintZ(&err, "cfg-rejected:{s}", .{std.mem.sliceTo(&why, 0)}) catch return;
-        c.sebastian_announce_set("err", text.ptr);
+        c.sebastian_announce_event(text.ptr);
         return;
     }
     c.sebastian_announce_set("cfg", @ptrCast(cfgVersion().ptr));
@@ -177,8 +185,8 @@ fn pollOnce() void {
     reportConfigIfNeeded();
     const origin = originZ() orelse return;
     const active_name = profile.nameOf(profile.active);
-    const url = std.fmt.bufPrintZ(&url_buf, "{s}/v1/devices/{s}/desired-profile?current={s}&cfg={s}&fw={s}", .{
-        origin, std.mem.sliceTo(&id_z, 0), active_name, cfgVersion(), sebastian_fw_version(),
+    const url = std.fmt.bufPrintZ(&url_buf, "{s}/v1/devices/{s}/desired-profile?current={s}&cfg={s}&fw={s}&ev={s}", .{
+        origin, std.mem.sliceTo(&id_z, 0), active_name, cfgVersion(), sebastian_fw_version(), pollEvent(),
     }) catch return;
 
     var status: c_int = 0;

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"time"
 
@@ -55,7 +54,6 @@ type Server struct {
 	devices          DeviceService
 	readiness        ReadinessChecker
 	logger           *slog.Logger
-	legacyEnabled    bool
 	readinessTimeout time.Duration
 }
 
@@ -65,7 +63,6 @@ func NewHandler(
 	devices DeviceService,
 	readiness ReadinessChecker,
 	logger *slog.Logger,
-	legacyEnabled bool,
 	readinessTimeout time.Duration,
 ) *Server {
 	return &Server{
@@ -74,7 +71,6 @@ func NewHandler(
 		devices:          devices,
 		readiness:        readiness,
 		logger:           logger,
-		legacyEnabled:    legacyEnabled,
 		readinessTimeout: readinessTimeout,
 	}
 }
@@ -89,6 +85,9 @@ func (h *Server) GetDesiredProfile(ctx context.Context, request GetDesiredProfil
 	}
 	if request.Params.Fw != nil {
 		poll.Firmware = *request.Params.Fw
+	}
+	if request.Params.Ev != nil {
+		poll.Event = *request.Params.Ev
 	}
 	result, err := h.devices.Reconcile(ctx, poll)
 	if err != nil {
@@ -171,6 +170,8 @@ func deviceResponse(item device.Device) Device {
 		Ip:                    optional(item.IP),
 		ControlRoom:           optional(item.ControlRoom),
 		LastError:             optional(item.LastError),
+		LastEvent:             optional(item.LastEvent),
+		LastEventAt:           optionalTime(item.LastEventAt),
 		ReportedConfigVersion: optional(item.ReportedConfig),
 		DesiredConfigVersion:  optional(item.DesiredConfig),
 		SeenOnLanAt:           optionalTime(item.SeenOnLanAt),
@@ -297,26 +298,6 @@ func (h *Server) GetReadiness(ctx context.Context, _ GetReadinessRequestObject) 
 		)), nil
 	}
 	return GetReadiness200JSONResponse{Status: Ok}, nil
-}
-
-func (h *Server) GetLegacyToken(ctx context.Context, _ GetLegacyTokenRequestObject) (GetLegacyTokenResponseObject, error) {
-	if !h.legacyEnabled {
-		return GetLegacyToken404ApplicationProblemPlusJSONResponse(problem(
-			404,
-			"Not found",
-			"The legacy token endpoint is disabled.",
-		)), nil
-	}
-	created, err := h.sessions.Create(ctx, session.Credentials{Legacy: true})
-	if err != nil {
-		h.logger.ErrorContext(ctx, "legacy session creation failed", "error", err)
-		return GetLegacyToken503ApplicationProblemPlusJSONResponse(problem(
-			503,
-			"Session unavailable",
-			"The session could not be created.",
-		)), nil
-	}
-	return GetLegacyToken200TextResponse(fmt.Sprintf("%s\n%s", created.ServerURL, created.Token)), nil
 }
 
 func (h *Server) CreateSession(ctx context.Context, request CreateSessionRequestObject) (CreateSessionResponseObject, error) {
