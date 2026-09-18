@@ -120,7 +120,7 @@ cleanup:
 int sebastian_report_running_config(const char *base_url, const char *device_id, const char *secret) {
     char *body = sebastian_config_dump_json();
     if (!body) return -7;
-    char url[300];
+    static char url[300]; // static: called from the 4 KB poll task
     snprintf(url, sizeof(url), "%s/v1/devices/%s/running-config", base_url, device_id);
     esp_http_client_handle_t client = open_client(url, HTTP_METHOD_PUT, device_id, secret, NULL);
     int result;

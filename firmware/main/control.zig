@@ -230,8 +230,9 @@ pub fn start() void {
     const cr: [*:0]const u8 = originZ() orelse "";
     c.sebastian_announce_start(@ptrCast(&id_z), @ptrCast(&prof_z), cr);
     c.sebastian_adopt_start();
-    // esp_http_client runs on this task: 4KB is the measured floor for a plain
-    // HTTP GET (internal RAM is the scarce pool — see usb_mic/convivencia).
-    _ = c.xTaskCreatePinnedToCore(pollTask, "ctl_poll", 4096, null, 2, null, 0);
+    // esp_http_client runs on this task: 4KB was the measured floor for a plain
+    // HTTP GET; the enrolment and the RF-42 report (cJSON build + PUT) need
+    // the extra KB (internal RAM is the scarce pool — see usb_mic/convivencia).
+    _ = c.xTaskCreatePinnedToCore(pollTask, "ctl_poll", 5120, null, 2, null, 0);
     log.info("control-plane poll every {d}s", .{POLL_PERIOD_MS / 1000});
 }
