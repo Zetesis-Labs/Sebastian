@@ -65,6 +65,7 @@ var (
 const (
 	CmdStart = "record-start"
 	CmdStop  = "record-stop"
+	CmdWarn  = "record-warn"
 	// agenteProfile is the only profile that records (spec §3.4).
 	agenteProfile = "agente"
 	// audioFlushEvery bounds how often a streaming upload touches the DB.
@@ -145,6 +146,21 @@ func (s *Service) Stop(ctx context.Context, id uuid.UUID, reason EndReason) (Mee
 		return Meeting{}, ErrNotRecording
 	}
 	return s.apply(ctx, m, Event{Kind: EvStop, At: s.now().UTC(), Reason: reason})
+}
+
+// Warn tells the unit the silence net is about to fire (RM-13/23): the agent
+// calls it ~30 s before its stop. Best effort over the LAN; a warning the
+// poll would carry later is worthless, so it is never kept pending.
+func (s *Service) Warn(ctx context.Context, id uuid.UUID) error {
+	m, err := s.store.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if m.State != StateRecording {
+		return ErrNotRecording
+	}
+	s.deliver(ctx, m, CmdWarn)
+	return nil
 }
 
 // Report is the unit's confirmation (RM-52): "recording" or "stopped" + why.
@@ -228,20 +244,21 @@ func (s *Service) Audio(ctx context.Context, id uuid.UUID, offset int64, r io.Re
 	if offset != info.Size() {
 		return info.Size(), ErrOffset
 	}
-	if m.AudioPath == "" {
-		m.AudioPath = filepath.Base(path)
-	}
-
 	total := info.Size()
 	buf := make([]byte, copyChunk)
 	lastFlush := s.now()
-	flush := func(at time.Time) error {
-		m2, err := s.apply(ctx, m, Event{Kind: EvAudio, At: at, Bytes: total})
+	// The upload outlives stops and ticks: every event applies to the meeting
+	// as it is now, never to the copy read when the stream opened.
+	flush := func(kind EventKind, at time.Time) error {
+		cur, err := s.store.Get(ctx, id)
 		if err != nil {
 			return err
 		}
-		m = m2
-		return nil
+		if cur.AudioPath == "" {
+			cur.AudioPath = filepath.Base(path)
+		}
+		_, err = s.apply(ctx, cur, Event{Kind: kind, At: at, Bytes: total})
+		return err
 	}
 	for {
 		n, readErr := r.Read(buf)
@@ -251,22 +268,25 @@ func (s *Service) Audio(ctx context.Context, id uuid.UUID, offset int64, r io.Re
 			}
 			total += int64(n)
 			if now := s.now(); now.Sub(lastFlush) >= audioFlushEvery {
-				if err := flush(now.UTC()); err != nil {
+				if err := flush(EvAudio, now.UTC()); err != nil {
 					return total, err
 				}
 				lastFlush = now
 			}
 		}
 		if readErr == io.EOF {
-			if err := flush(s.now().UTC()); err != nil {
+			if total == info.Size() {
+				// An empty body is a probe or a client's blind retry, never a close.
+				return total, nil
+			}
+			if err := flush(EvAudio, s.now().UTC()); err != nil {
 				return total, err
 			}
-			_, err := s.apply(ctx, m, Event{Kind: EvAudioClosed, At: s.now().UTC()})
-			return total, err
+			return total, flush(EvAudioClosed, s.now().UTC())
 		}
 		if readErr != nil {
 			// The connection dropped: keep what we have; the audio clock decides.
-			if err := flush(s.now().UTC()); err != nil {
+			if err := flush(EvAudio, s.now().UTC()); err != nil {
 				return total, err
 			}
 			return total, readErr

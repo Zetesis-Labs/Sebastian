@@ -345,3 +345,25 @@ miraba el anillo). `68ee8f4d8dd4` y `e072a1f895f4` siguen con firmware anterior.
 - Siguiente: bloque B (firmware): `gesture_core.zig` sobre `GPI_READ_VALUES`
   (resid 36; spike 0: qué bit es el botón), orden `cmd` en `adopt.c`,
   `X-Meeting` en `control.zig`, sesión modo reunión, anillo rojo.
+
+## Reuniones, bloques B y C (madrugada del 19) — rama `feat/meetings-b`, todo el spec 13 en un solo PR
+
+- B (firmware) probado en `68ee`: orden LAN `cmd` firmada, `X-Meeting` del
+  poll, gesto corta+larga (POST `/meetings` desde la placa), anillo rojo
+  fijo/atenuado/aviso, sesión de reunión con `mode:"meeting"`; pila del
+  main 3584 → 8192 (desbordó al abrir la sesión). Spike: `GPI_READ_VALUES`
+  solo responde a lecturas de 4 bytes; botón = byte 0 bit 0, activo a bajo.
+- C (agente): `agent/meeting_mode.py` — sin `AgentSession` (RM-12), captura
+  48 kHz → `ffmpeg` Ogg/Opus 48k → spool local → `PUT …/audio` reanudable
+  (`HEAD …/audio` da byte y estado); `SilenceNet` pura + VAD silero →
+  `POST …/warn` y `…/stop {silence}`. Server: rutas crudas `HEAD/stop/warn`
+  con `X-Agent-Secret`, `Service.Warn` (`record-warn` solo por LAN), EOF sin
+  bytes no cierra, y los eventos de la subida se aplican a la reunión actual
+  (bug: la parada desde la ficha acababa en `cut`). `tasks.spawn` ya loguea
+  las excepciones de tareas de fondo. Imagen del agente con `ffmpeg`; chart:
+  `SEBASTIAN_API_URL` (servicio del server) y `SEBASTIAN_MEETING_SILENCE_S`.
+- Env local: `agent/.env` lleva `SEBASTIAN_API_URL` y `SEBASTIAN_AGENT_SECRET`.
+- Trampa: `aiohttp` reintenta un `PUT` con cuerpo vacío si el server cierra la
+  conexión; `_retry_connection = False`.
+- Siguiente: bloque D (transcripción por piezas WebM ≤ 20 MB con
+  `gpt-4o-transcribe-diarize`, resumen, retención, borrado) y E (control room).

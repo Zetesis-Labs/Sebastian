@@ -39,6 +39,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# ffmpeg encodes the meeting audio (Ogg/Opus, design 14 block C).
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ffmpeg \
+ && rm -rf /var/lib/apt/lists/*
+
 COPY --from=builder /app /app
 
 # Which service this image runs by default. Overridable at build time, and the

@@ -144,9 +144,16 @@ transcripción, emitir evento). Tests de tabla contra §3.3, RM-05, RM-23…26.
   server↔agente, `SEBASTIAN_AGENT_SECRET`), `Transfer-Encoding: chunked`,
   `Content-Type: audio/ogg`. El server **añade al fichero según llega**
   (RM-15) y actualiza `audio_bytes`; si el cuerpo se corta, lo que hay queda
-  (RM-25). Una sola conexión abierta durante toda la reunión.
-- `POST /v1/admin/meetings/{id}/stop` también lo usa el agente para la parada
-  por voz (RM-21), con `X-Agent-Secret`.
+  (RM-25). Una sola conexión abierta durante toda la reunión. Un cuerpo
+  vacío no cierra nada: es una sonda o un reintento ciego del cliente.
+- `HEAD /v1/meetings/{id}/audio` → `X-Audio-Bytes` y `X-Meeting-State`: el
+  agente pregunta antes de cada (re)envío desde dónde seguir; con la reunión
+  ya cerrada deja de subir y conserva el spool local.
+- `POST /v1/meetings/{id}/stop {reason:"silence"|"voice"}` y
+  `POST /v1/meetings/{id}/warn` (sin cuerpo), con `X-Agent-Secret`: la red de
+  silencio (RM-23) y la parada por voz (RM-21) del agente. El aviso viaja
+  solo por LAN (`record-warn`); un aviso que llegara con el siguiente poll ya
+  no serviría, así que nunca queda pendiente.
 
 ## 4. Bloques verticales y sus suites
 
@@ -192,17 +199,35 @@ Tests (Zig, host):
 
 ### Bloque C — el agente captura y entrega
 
-Alcance: `meeting_mode.py` (modo reunión: sin LLM, sin TTS salvo las dos
-frases de confirmación; `ffmpeg` subproceso PCM→Ogg/Opus 48k mono; envío
-chunked al server con reconexión que **no** reinicia el fichero: si la
-conexión cae, el agente reintenta con `Content-Range` desde `audio_bytes`);
-`ffmpeg` en la imagen; `SEBASTIAN_AGENT_SECRET`.
+Alcance: `meeting_mode.py` (modo reunión: sin `AgentSession`, sin LLM, sin
+TTS, nada por el altavoz — RM-12 manda y el anillo rojo ya confirma;
+captura directa de la pista del altavoz a 48 kHz mono; `ffmpeg` subproceso
+PCM→Ogg/Opus 48 kbit/s con una página por segundo; spool local del flujo
+codificado que el uploader sigue y del que se reanuda: antes de cada envío
+`HEAD …/audio` dice el byte y el estado, y el `PUT` lleva `Content-Range`
+desde ahí; el VAD de silero alimenta la red de silencio, `SilenceNet` pura);
+`ffmpeg` en la imagen; `SEBASTIAN_API_URL`, `SEBASTIAN_AGENT_SECRET` y
+`SEBASTIAN_MEETING_SILENCE_S` (600; el ajuste por altavoz llega con E).
 
-Tests (Python):
+Tests (Python, `tests/test_meeting_mode.py`):
 - `T-C1` el modo reunión se decide por los metadatos del job (puro, como `device_identity.py`): `mode=meeting` + `meeting_id` → modo reunión; sin ellos → conversación.
 - `T-C2` el encoder produce Ogg/Opus válido a partir de PCM sintético y el flujo es incremental (páginas Ogg cada ≤ 1 s) — con `ffmpeg` real, se salta si no está.
-- `T-C3` la subida reanuda desde el byte que el server declara tener (fake HTTP).
-- `T-C4` en modo reunión el agente no genera respuestas ni reproduce nada salvo la confirmación inicial (fake `AgentSession`).
+- `T-C3` la subida reanuda desde el byte que el server declara tener (fake HTTP): corte a mitad → `HEAD` → `Content-Range` nuevo; reunión ya cerrada → abandona.
+- `T-C4` la tubería captura → codifica → spool → subida es todo lo que el agente hace en una reunión: no existe camino de voz (sin sesión, sin `say`, sin `generate_reply`).
+- `T-C5` `SilenceNet` (puro): aviso una vez a N−30 s, parada a N, la voz reinicia el reloj; el vigilante releva `warn` y `stop:silence` al server.
+
+Trampas encontradas en placa (19-09):
+- `aiohttp` reintenta en silencio un `PUT` (idempotente) si el server cierra
+  la conexión, con el cuerpo en streaming ya consumido: el server vería un
+  cuerpo vacío y lo tomaría por "el agente colgó". Se apaga con su flag
+  privado `_retry_connection` y el server además ignora el EOF sin bytes.
+- La subida es una petición que dura toda la reunión: sus eventos (`audio`,
+  `audio_closed`) deben aplicarse a la reunión **tal como está**, no a la
+  copia leída al abrir el flujo, o una parada desde la ficha acababa en
+  `cut`/`device_lost`.
+- Probado en `68ee`: 54 s → Opus 48 kHz mono a ~44 kbit/s; parada desde el
+  API → `transcribing`/`dashboard`; aviso de silencio a los 15 s con ventana
+  de 45 s (la parada por silencio no se pudo ver: había voz en la sala).
 
 ### Bloque D — transcripción, resumen y retención (server)
 

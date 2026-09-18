@@ -44,6 +44,7 @@ from audio_input import SebastianAudioInput, setup_recorder, setup_output_record
 from device_identity import device_identity_from_metadata
 from endpointing import AGENT_STATE_TOPIC, close_device_session, setup_endpointing
 from instrumentation import instrument_session
+from meeting_mode import meeting_from_metadata, run_meeting
 from wake_verify import setup_wake_verify
 from tasks import spawn as _spawn
 from typing import Any
@@ -330,6 +331,11 @@ async def entrypoint(ctx: agents.JobContext) -> None:
     m_jobs.add(1)
     device_identity = device_identity_from_metadata(ctx.job.metadata)
     log.info("job accepted room=%s device=%s", ctx.job.room.name, device_identity)
+    meeting = meeting_from_metadata(ctx.job.metadata)
+    if meeting is not None:
+        # A meeting recording (design 14 block C): no assistant at all (RM-12).
+        await run_meeting(ctx, meeting, device_identity, silero.VAD.load())
+        return
     mic_input = SebastianAudioInput(ctx.room, vad=silero.VAD.load(), device_identity=device_identity)
     ctx.add_shutdown_callback(mic_input.aclose)
     if RECORD and RECORD_TRACK:
