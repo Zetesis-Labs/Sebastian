@@ -27,6 +27,18 @@ CREATE TABLE devices (
   desired_device_profile varchar,
   reported_device_profile varchar,
   profile_reported_at timestamptz,
+  -- Fleet adoption (docs/implementation/11-fleet-adoption-control-room.md):
+  -- credential_digest is the per-device secret issued at adoption; a
+  -- regenerated secret waits in pending_credential_digest until the device
+  -- first authenticates with it. forgotten_at hides the unit from the
+  -- inventory while keeping its sessions.
+  adopted_at timestamptz,
+  pending_credential_digest bytea,
+  desired_config jsonb,
+  desired_config_version varchar,
+  reported_config_version varchar,
+  reported_firmware varchar,
+  forgotten_at timestamptz,
   CONSTRAINT devices_agent_profiles_devices
     FOREIGN KEY (agent_profile_id) REFERENCES agent_profiles(id)
 );

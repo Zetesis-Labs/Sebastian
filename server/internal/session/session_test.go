@@ -11,6 +11,7 @@ import (
 )
 
 type fakeStore struct {
+	confirmed []byte
 	device    Device
 	record    Record
 	err       error
@@ -24,6 +25,11 @@ func (f *fakeStore) FindDevice(context.Context, string) (Device, error) {
 func (f *fakeStore) RecordSession(_ context.Context, record Record) error {
 	f.record = record
 	return f.recordErr
+}
+
+func (f *fakeStore) ConfirmSecret(_ context.Context, _ string, digest []byte) error {
+	f.confirmed = digest
+	return nil
 }
 
 type fakeLiveKit struct {
@@ -122,5 +128,21 @@ func TestCreateDoesNotDispatchWhenMintFails(t *testing.T) {
 	}
 	if livekit.dispatched {
 		t.Fatal("agent dispatched although token mint failed")
+	}
+}
+
+func TestCreateAcceptsThePendingSecretAndConfirmsIt(t *testing.T) {
+	store := &fakeStore{device: Device{ID: "68ee", Identity: "68ee", CredentialDigest: DigestSecret("old"), PendingDigest: DigestSecret("new"), ProfileID: uuid.New()}}
+	livekit := &fakeLiveKit{}
+	service := NewService(store, livekit, "ws://lk", "sebastian", time.Hour, "legacy")
+
+	if _, err := service.Create(context.Background(), Credentials{DeviceID: "68ee", Secret: "new"}); err != nil {
+		t.Fatalf("pending secret must open a session: %v", err)
+	}
+	if string(store.confirmed) != string(DigestSecret("new")) {
+		t.Fatal("first use of the pending secret must confirm it")
+	}
+	if _, err := service.Create(context.Background(), Credentials{DeviceID: "68ee", Secret: "stranger"}); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("expected ErrUnauthorized, got %v", err)
 	}
 }

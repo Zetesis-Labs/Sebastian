@@ -20,6 +20,12 @@ type Config struct {
 	TokenTTL            time.Duration
 	LegacyTokenEnabled  bool
 	LegacyDeviceID      string
+	ControlRoomName     string
+	PublicAPIURL        string // what devices use to reach this control room
+	SyslogIP            string
+	SyslogPort          int
+	OrgSecret           string
+	DiscoveryEnabled    bool
 	ShutdownTimeout     time.Duration
 	DatabasePingTimeout time.Duration
 }
@@ -44,6 +50,11 @@ func Load() (Config, error) {
 		AdminSecret:         strings.TrimSpace(os.Getenv("SEBASTIAN_ADMIN_SECRET")),
 		RoomPrefix:          envOr("SEBASTIAN_ROOM_PREFIX", "sebastian"),
 		LegacyDeviceID:      envOr("SEBASTIAN_LEGACY_DEVICE_ID", "esp32-respeaker"),
+		ControlRoomName:     strings.TrimSpace(os.Getenv("SEBASTIAN_CONTROL_ROOM_NAME")),
+		PublicAPIURL:        strings.TrimRight(strings.TrimSpace(os.Getenv("SEBASTIAN_PUBLIC_API_URL")), "/"),
+		SyslogIP:            strings.TrimSpace(os.Getenv("SEBASTIAN_SYSLOG_IP")),
+		SyslogPort:          514,
+		OrgSecret:           strings.TrimSpace(os.Getenv("SEBASTIAN_ORG_SECRET")),
 		TokenTTL:            time.Hour,
 		ShutdownTimeout:     10 * time.Second,
 		DatabasePingTimeout: 2 * time.Second,
@@ -61,6 +72,15 @@ func Load() (Config, error) {
 	}
 	if cfg.LegacyTokenEnabled, err = boolean("SEBASTIAN_LEGACY_TOKEN_ENABLED", false); err != nil {
 		return Config{}, err
+	}
+	if cfg.DiscoveryEnabled, err = boolean("SEBASTIAN_DISCOVERY_ENABLED", true); err != nil {
+		return Config{}, err
+	}
+	if cfg.SyslogPort, err = integer("SEBASTIAN_SYSLOG_PORT", cfg.SyslogPort); err != nil {
+		return Config{}, err
+	}
+	if cfg.ControlRoomName == "" {
+		cfg.ControlRoomName = cfg.PublicAPIURL
 	}
 
 	var missing []string

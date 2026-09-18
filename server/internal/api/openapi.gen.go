@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"path"
@@ -28,6 +29,84 @@ const (
 	AdminSecretScopes  adminSecretContextKey  = "AdminSecret.Scopes"
 	DeviceSecretScopes deviceSecretContextKey = "DeviceSecret.Scopes"
 )
+
+// Defines values for AdoptionJobKind.
+const (
+	Adopt  AdoptionJobKind = "adopt"
+	Forget AdoptionJobKind = "forget"
+)
+
+// Valid indicates whether the value is a known member of the AdoptionJobKind enum.
+func (e AdoptionJobKind) Valid() bool {
+	switch e {
+	case Adopt:
+		return true
+	case Forget:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AdoptionPhase.
+const (
+	AdoptionPhaseAdopted        AdoptionPhase = "adopted"
+	AdoptionPhaseFailed         AdoptionPhase = "failed"
+	AdoptionPhaseForgotten      AdoptionPhase = "forgotten"
+	AdoptionPhaseQueued         AdoptionPhase = "queued"
+	AdoptionPhaseStarting       AdoptionPhase = "starting"
+	AdoptionPhaseWaitingConsent AdoptionPhase = "waiting_consent"
+)
+
+// Valid indicates whether the value is a known member of the AdoptionPhase enum.
+func (e AdoptionPhase) Valid() bool {
+	switch e {
+	case AdoptionPhaseAdopted:
+		return true
+	case AdoptionPhaseFailed:
+		return true
+	case AdoptionPhaseForgotten:
+		return true
+	case AdoptionPhaseQueued:
+		return true
+	case AdoptionPhaseStarting:
+		return true
+	case AdoptionPhaseWaitingConsent:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DeviceState.
+const (
+	DeviceStateAbsent           DeviceState = "absent"
+	DeviceStateAdopted          DeviceState = "adopted"
+	DeviceStateManagedElsewhere DeviceState = "managed_elsewhere"
+	DeviceStateOrphan           DeviceState = "orphan"
+	DeviceStateRegistered       DeviceState = "registered"
+	DeviceStateUnadopted        DeviceState = "unadopted"
+)
+
+// Valid indicates whether the value is a known member of the DeviceState enum.
+func (e DeviceState) Valid() bool {
+	switch e {
+	case DeviceStateAbsent:
+		return true
+	case DeviceStateAdopted:
+		return true
+	case DeviceStateManagedElsewhere:
+		return true
+	case DeviceStateOrphan:
+		return true
+	case DeviceStateRegistered:
+		return true
+	case DeviceStateUnadopted:
+		return true
+	default:
+		return false
+	}
+}
 
 // Defines values for HealthStatus.
 const (
@@ -68,6 +147,62 @@ func (e RecordingKind) Valid() bool {
 	}
 }
 
+// AdoptionJob defines model for AdoptionJob.
+type AdoptionJob struct {
+	DeviceId string `json:"deviceId"`
+
+	// DeviceSecret The per-device secret issued by this adoption. Shown once; the job expires.
+	DeviceSecret *string `json:"deviceSecret,omitempty"`
+
+	// Error Why it failed — auth, nonce, no_reply, consent_timeout, wifi, json…
+	Error     *string            `json:"error,omitempty"`
+	Id        openapi_types.UUID `json:"id"`
+	Ip        *string            `json:"ip,omitempty"`
+	Kind      AdoptionJobKind    `json:"kind"`
+	Phase     AdoptionPhase      `json:"phase"`
+	StartedAt time.Time          `json:"startedAt"`
+	UpdatedAt time.Time          `json:"updatedAt"`
+}
+
+// AdoptionJobKind defines model for AdoptionJob.Kind.
+type AdoptionJobKind string
+
+// AdoptionPhase defines model for AdoptionPhase.
+type AdoptionPhase string
+
+// AdoptionRequest defines model for AdoptionRequest.
+type AdoptionRequest struct {
+	// Config A sebastian.config.v1 document (see web-installer/public/PROVISIONING.md). Validated by the firmware.
+	Config *DeviceConfig `json:"config,omitempty"`
+
+	// DeviceSecret Sign with this device secret instead of the organization secret (handover of a single unit).
+	DeviceSecret *string `json:"deviceSecret,omitempty"`
+
+	// Ip Address of the device when it was not discovered (adopt by IP).
+	Ip *string `json:"ip,omitempty"`
+}
+
+// ControlRoom defines model for ControlRoom.
+type ControlRoom struct {
+	AdoptPort int `json:"adoptPort"`
+
+	// ApiUrl The URL devices use to reach this control room (token server).
+	ApiUrl           string `json:"apiUrl"`
+	DiscoveryEnabled bool   `json:"discoveryEnabled"`
+	Name             string `json:"name"`
+
+	// OrgSecret Present only for server-side callers; never ship to a browser.
+	OrgSecret           *string `json:"orgSecret,omitempty"`
+	OrgSecretConfigured bool    `json:"orgSecretConfigured"`
+	SyslogIp            *string `json:"syslogIp,omitempty"`
+	SyslogPort          *int    `json:"syslogPort,omitempty"`
+}
+
+// DesiredConfigVersion defines model for DesiredConfigVersion.
+type DesiredConfigVersion struct {
+	Version string `json:"version"`
+}
+
 // DesiredProfile defines model for DesiredProfile.
 type DesiredProfile struct {
 	// Name Firmware profile name. Empty or absent clears the desired state.
@@ -76,17 +211,87 @@ type DesiredProfile struct {
 
 // Device defines model for Device.
 type Device struct {
-	DesiredProfile    *string    `json:"desiredProfile,omitempty"`
-	DisplayName       string     `json:"displayName"`
-	Enabled           bool       `json:"enabled"`
-	Id                string     `json:"id"`
-	ProfileReportedAt *time.Time `json:"profileReportedAt,omitempty"`
-	ReportedProfile   *string    `json:"reportedProfile,omitempty"`
+	AdoptedAt *time.Time `json:"adoptedAt,omitempty"`
+
+	// ControlRoom Origin the device announces it is bound to (may be another control room).
+	ControlRoom          *string `json:"controlRoom,omitempty"`
+	DesiredConfigVersion *string `json:"desiredConfigVersion,omitempty"`
+	DesiredProfile       *string `json:"desiredProfile,omitempty"`
+	DisplayName          string  `json:"displayName"`
+	Enabled              bool    `json:"enabled"`
+	Firmware             *string `json:"firmware,omitempty"`
+	Id                   string  `json:"id"`
+	Ip                   *string `json:"ip,omitempty"`
+
+	// LastError What the device reports about its last control-room contact (empty = ok).
+	LastError             *string    `json:"lastError,omitempty"`
+	ProfileReportedAt     *time.Time `json:"profileReportedAt,omitempty"`
+	ReportedConfigVersion *string    `json:"reportedConfigVersion,omitempty"`
+	ReportedProfile       *string    `json:"reportedProfile,omitempty"`
+	SeenOnLanAt           *time.Time `json:"seenOnLanAt,omitempty"`
+
+	// State adopted = bound here and polling; absent = bound here, silent for more than three poll periods and not on the LAN; managed_elsewhere = seen on the LAN, bound to another control room; unadopted = seen on the LAN, bound to none; orphan = seen on the LAN, bound to a control room it cannot reach; registered = polled this control room without being adopted (legacy /token units).
+	State DeviceState `json:"state"`
+}
+
+// DeviceConfig A sebastian.config.v1 document (see web-installer/public/PROVISIONING.md). Validated by the firmware.
+type DeviceConfig map[string]interface{}
+
+// DeviceDetail defines model for DeviceDetail.
+type DeviceDetail struct {
+	AdoptedAt *time.Time `json:"adoptedAt,omitempty"`
+
+	// ControlRoom Origin the device announces it is bound to (may be another control room).
+	ControlRoom *string `json:"controlRoom,omitempty"`
+
+	// DesiredConfig A sebastian.config.v1 document (see web-installer/public/PROVISIONING.md). Validated by the firmware.
+	DesiredConfig        *DeviceConfig `json:"desiredConfig,omitempty"`
+	DesiredConfigVersion *string       `json:"desiredConfigVersion,omitempty"`
+	DesiredProfile       *string       `json:"desiredProfile,omitempty"`
+	DisplayName          string        `json:"displayName"`
+	Enabled              bool          `json:"enabled"`
+	Firmware             *string       `json:"firmware,omitempty"`
+	HasDeviceSecret      bool          `json:"hasDeviceSecret"`
+	Id                   string        `json:"id"`
+	Ip                   *string       `json:"ip,omitempty"`
+
+	// LastError What the device reports about its last control-room contact (empty = ok).
+	LastError             *string         `json:"lastError,omitempty"`
+	ProfileReportedAt     *time.Time      `json:"profileReportedAt,omitempty"`
+	ReportedConfigVersion *string         `json:"reportedConfigVersion,omitempty"`
+	ReportedProfile       *string         `json:"reportedProfile,omitempty"`
+	SeenOnLanAt           *time.Time      `json:"seenOnLanAt,omitempty"`
+	Sessions              []DeviceSession `json:"sessions"`
+
+	// State adopted = bound here and polling; absent = bound here, silent for more than three poll periods and not on the LAN; managed_elsewhere = seen on the LAN, bound to another control room; unadopted = seen on the LAN, bound to none; orphan = seen on the LAN, bound to a control room it cannot reach; registered = polled this control room without being adopted (legacy /token units).
+	State DeviceState `json:"state"`
 }
 
 // DeviceList defines model for DeviceList.
 type DeviceList struct {
 	Items []Device `json:"items"`
+}
+
+// DeviceSecret defines model for DeviceSecret.
+type DeviceSecret struct {
+	DeviceSecret string `json:"deviceSecret"`
+}
+
+// DeviceSession defines model for DeviceSession.
+type DeviceSession struct {
+	CreatedAt      time.Time          `json:"createdAt"`
+	ExpiresAt      time.Time          `json:"expiresAt"`
+	Id             openapi_types.UUID `json:"id"`
+	RecordingCount int64              `json:"recordingCount"`
+	Room           string             `json:"room"`
+}
+
+// DeviceState adopted = bound here and polling; absent = bound here, silent for more than three poll periods and not on the LAN; managed_elsewhere = seen on the LAN, bound to another control room; unadopted = seen on the LAN, bound to none; orphan = seen on the LAN, bound to a control room it cannot reach; registered = polled this control room without being adopted (legacy /token units).
+type DeviceState string
+
+// DeviceUpdate defines model for DeviceUpdate.
+type DeviceUpdate struct {
+	DisplayName string `json:"displayName"`
 }
 
 // Health defines model for Health.
@@ -160,6 +365,12 @@ type Session struct {
 	Token     string             `json:"token"`
 }
 
+// DeviceId defines model for DeviceId.
+type DeviceId = string
+
+// DeviceNotFound defines model for DeviceNotFound.
+type DeviceNotFound = Problem
+
 // Unauthorized defines model for Unauthorized.
 type Unauthorized = Problem
 
@@ -177,9 +388,20 @@ type ListRecordingsParams struct {
 	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// GetDeviceConfigParams defines parameters for GetDeviceConfig.
+type GetDeviceConfigParams struct {
+	XDeviceSecret string `json:"X-Device-Secret"`
+}
+
 // GetDesiredProfileParams defines parameters for GetDesiredProfile.
 type GetDesiredProfileParams struct {
 	Current *string `form:"current,omitempty" json:"current,omitempty"`
+
+	// Cfg Version of the config the device is running (empty = none).
+	Cfg *string `form:"cfg,omitempty" json:"cfg,omitempty"`
+
+	// Fw Firmware version the device is running.
+	Fw *string `form:"fw,omitempty" json:"fw,omitempty"`
 }
 
 // CreateSessionParams defines parameters for CreateSession.
@@ -188,8 +410,20 @@ type CreateSessionParams struct {
 	XDeviceSecret string `json:"X-Device-Secret"`
 }
 
+// UpdateDeviceJSONRequestBody defines body for UpdateDevice for application/json ContentType.
+type UpdateDeviceJSONRequestBody = DeviceUpdate
+
+// AdoptDeviceJSONRequestBody defines body for AdoptDevice for application/json ContentType.
+type AdoptDeviceJSONRequestBody = AdoptionRequest
+
+// SetDesiredConfigJSONRequestBody defines body for SetDesiredConfig for application/json ContentType.
+type SetDesiredConfigJSONRequestBody = DeviceConfig
+
 // SetDesiredProfileJSONRequestBody defines body for SetDesiredProfile for application/json ContentType.
 type SetDesiredProfileJSONRequestBody = DesiredProfile
+
+// ForgetDeviceJSONRequestBody defines body for ForgetDevice for application/json ContentType.
+type ForgetDeviceJSONRequestBody = AdoptionRequest
 
 // RegisterRecordingJSONRequestBody defines body for RegisterRecording for application/json ContentType.
 type RegisterRecordingJSONRequestBody = RecordingRegistration
@@ -205,12 +439,39 @@ type ServerInterface interface {
 	// Firmware-compatible two-line LiveKit connection response
 	// (GET /token)
 	GetLegacyToken(w http.ResponseWriter, r *http.Request)
-	// List known devices with profile state
+	// Progress of an adoption or forget job
+	// (GET /v1/admin/adoptions/{jobId})
+	GetAdoptionJob(w http.ResponseWriter, r *http.Request, jobId openapi_types.UUID)
+	// This control room's identity and provisioning defaults
+	// (GET /v1/admin/control-room)
+	GetControlRoom(w http.ResponseWriter, r *http.Request)
+	// The fleet view — known devices joined with what mDNS sees on the LAN
 	// (GET /v1/admin/devices)
 	ListDevices(w http.ResponseWriter, r *http.Request)
+	// One device with its desired config and recent sessions
+	// (GET /v1/admin/devices/{deviceId})
+	GetDevice(w http.ResponseWriter, r *http.Request, deviceId DeviceId)
+	// Rename a device
+	// (PATCH /v1/admin/devices/{deviceId})
+	UpdateDevice(w http.ResponseWriter, r *http.Request, deviceId DeviceId)
+	// Adopt a device over the network (discovered, or by IP)
+	// (POST /v1/admin/devices/{deviceId}/adopt)
+	AdoptDevice(w http.ResponseWriter, r *http.Request, deviceId DeviceId)
+	// Clear the desired config
+	// (DELETE /v1/admin/devices/{deviceId}/desired-config)
+	ClearDesiredConfig(w http.ResponseWriter, r *http.Request, deviceId DeviceId)
+	// Set the desired sebastian.config.v1 for a device
+	// (PUT /v1/admin/devices/{deviceId}/desired-config)
+	SetDesiredConfig(w http.ResponseWriter, r *http.Request, deviceId DeviceId)
 	// Set (or clear) the desired device profile
 	// (PUT /v1/admin/devices/{deviceId}/desired-profile)
 	SetDesiredProfile(w http.ResponseWriter, r *http.Request, deviceId string)
+	// Return a device to factory (unadopted) and drop it from the inventory
+	// (POST /v1/admin/devices/{deviceId}/forget)
+	ForgetDevice(w http.ResponseWriter, r *http.Request, deviceId DeviceId)
+	// Issue a new per-device secret (shown once)
+	// (POST /v1/admin/devices/{deviceId}/secret)
+	RegenerateDeviceSecret(w http.ResponseWriter, r *http.Request, deviceId DeviceId)
 	// List recent voice recordings
 	// (GET /v1/admin/recordings)
 	ListRecordings(w http.ResponseWriter, r *http.Request, params ListRecordingsParams)
@@ -223,6 +484,9 @@ type ServerInterface interface {
 	// Get one voice recording
 	// (GET /v1/admin/recordings/{recordingId})
 	GetRecording(w http.ResponseWriter, r *http.Request, recordingId openapi_types.UUID)
+	// The desired sebastian.config.v1 document for this device
+	// (GET /v1/devices/{deviceId}/config)
+	GetDeviceConfig(w http.ResponseWriter, r *http.Request, deviceId string, params GetDeviceConfigParams)
 	// Desired device profile for reconciliation polls
 	// (GET /v1/devices/{deviceId}/desired-profile)
 	GetDesiredProfile(w http.ResponseWriter, r *http.Request, deviceId string, params GetDesiredProfileParams)
@@ -282,6 +546,58 @@ func (siw *ServerInterfaceWrapper) GetLegacyToken(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// GetAdoptionJob operation middleware
+func (siw *ServerInterfaceWrapper) GetAdoptionJob(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "jobId" -------------
+	var jobId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "jobId", r.PathValue("jobId"), &jobId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "jobId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, AdminSecretScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAdoptionJob(w, r, jobId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetControlRoom operation middleware
+func (siw *ServerInterfaceWrapper) GetControlRoom(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, AdminSecretScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetControlRoom(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListDevices operation middleware
 func (siw *ServerInterfaceWrapper) ListDevices(w http.ResponseWriter, r *http.Request) {
 
@@ -293,6 +609,166 @@ func (siw *ServerInterfaceWrapper) ListDevices(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListDevices(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetDevice operation middleware
+func (siw *ServerInterfaceWrapper) GetDevice(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "deviceId" -------------
+	var deviceId DeviceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "deviceId", r.PathValue("deviceId"), &deviceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "deviceId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, AdminSecretScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetDevice(w, r, deviceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateDevice operation middleware
+func (siw *ServerInterfaceWrapper) UpdateDevice(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "deviceId" -------------
+	var deviceId DeviceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "deviceId", r.PathValue("deviceId"), &deviceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "deviceId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, AdminSecretScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateDevice(w, r, deviceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AdoptDevice operation middleware
+func (siw *ServerInterfaceWrapper) AdoptDevice(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "deviceId" -------------
+	var deviceId DeviceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "deviceId", r.PathValue("deviceId"), &deviceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "deviceId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, AdminSecretScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AdoptDevice(w, r, deviceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ClearDesiredConfig operation middleware
+func (siw *ServerInterfaceWrapper) ClearDesiredConfig(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "deviceId" -------------
+	var deviceId DeviceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "deviceId", r.PathValue("deviceId"), &deviceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "deviceId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, AdminSecretScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ClearDesiredConfig(w, r, deviceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetDesiredConfig operation middleware
+func (siw *ServerInterfaceWrapper) SetDesiredConfig(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "deviceId" -------------
+	var deviceId DeviceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "deviceId", r.PathValue("deviceId"), &deviceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "deviceId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, AdminSecretScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetDesiredConfig(w, r, deviceId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -325,6 +801,70 @@ func (siw *ServerInterfaceWrapper) SetDesiredProfile(w http.ResponseWriter, r *h
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SetDesiredProfile(w, r, deviceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ForgetDevice operation middleware
+func (siw *ServerInterfaceWrapper) ForgetDevice(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "deviceId" -------------
+	var deviceId DeviceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "deviceId", r.PathValue("deviceId"), &deviceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "deviceId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, AdminSecretScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ForgetDevice(w, r, deviceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RegenerateDeviceSecret operation middleware
+func (siw *ServerInterfaceWrapper) RegenerateDeviceSecret(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "deviceId" -------------
+	var deviceId DeviceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "deviceId", r.PathValue("deviceId"), &deviceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "deviceId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, AdminSecretScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RegenerateDeviceSecret(w, r, deviceId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -445,6 +985,66 @@ func (siw *ServerInterfaceWrapper) GetRecording(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
+// GetDeviceConfig operation middleware
+func (siw *ServerInterfaceWrapper) GetDeviceConfig(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "deviceId" -------------
+	var deviceId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "deviceId", r.PathValue("deviceId"), &deviceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "deviceId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, DeviceSecretScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetDeviceConfigParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-Device-Secret" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Device-Secret")]; found {
+		var XDeviceSecret string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Device-Secret", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Device-Secret", valueList[0], &XDeviceSecret, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Device-Secret", Err: err})
+			return
+		}
+
+		params.XDeviceSecret = XDeviceSecret
+
+	} else {
+		err := fmt.Errorf("Header parameter X-Device-Secret is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-Device-Secret", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetDeviceConfig(w, r, deviceId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetDesiredProfile operation middleware
 func (siw *ServerInterfaceWrapper) GetDesiredProfile(w http.ResponseWriter, r *http.Request) {
 
@@ -472,6 +1072,32 @@ func (siw *ServerInterfaceWrapper) GetDesiredProfile(w http.ResponseWriter, r *h
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "current"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "current", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cfg" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cfg", r.URL.Query(), &params.Cfg, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cfg"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cfg", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "fw" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "fw", r.URL.Query(), &params.Fw, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "fw"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "fw", Err: err})
 		}
 		return
 	}
@@ -684,17 +1310,29 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/healthz", wrapper.GetLiveness)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/readyz", wrapper.GetReadiness)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/token", wrapper.GetLegacyToken)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/admin/adoptions/{jobId}", wrapper.GetAdoptionJob)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/admin/control-room", wrapper.GetControlRoom)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/admin/devices", wrapper.ListDevices)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/admin/devices/{deviceId}", wrapper.GetDevice)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/v1/admin/devices/{deviceId}", wrapper.UpdateDevice)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/admin/devices/{deviceId}/adopt", wrapper.AdoptDevice)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/admin/devices/{deviceId}/desired-config", wrapper.ClearDesiredConfig)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/admin/devices/{deviceId}/desired-config", wrapper.SetDesiredConfig)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/admin/devices/{deviceId}/desired-profile", wrapper.SetDesiredProfile)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/admin/devices/{deviceId}/forget", wrapper.ForgetDevice)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/admin/devices/{deviceId}/secret", wrapper.RegenerateDeviceSecret)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/admin/recordings", wrapper.ListRecordings)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/admin/recordings", wrapper.RegisterRecording)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/admin/recordings/summary", wrapper.GetRecordingsSummary)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/admin/recordings/{recordingId}", wrapper.GetRecording)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/devices/{deviceId}/config", wrapper.GetDeviceConfig)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/devices/{deviceId}/desired-profile", wrapper.GetDesiredProfile)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/sessions", wrapper.CreateSession)
 
 	return m
 }
+
+type DeviceNotFoundApplicationProblemPlusJSONResponse Problem
 
 type UnauthorizedApplicationProblemPlusJSONResponse Problem
 
@@ -802,6 +1440,95 @@ func (response GetLegacyToken503ApplicationProblemPlusJSONResponse) VisitGetLega
 	return err
 }
 
+type GetAdoptionJobRequestObject struct {
+	JobId openapi_types.UUID `json:"jobId"`
+}
+
+type GetAdoptionJobResponseObject interface {
+	VisitGetAdoptionJobResponse(w http.ResponseWriter) error
+}
+
+type GetAdoptionJob200JSONResponse AdoptionJob
+
+func (response GetAdoptionJob200JSONResponse) VisitGetAdoptionJobResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAdoptionJob401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response GetAdoptionJob401ApplicationProblemPlusJSONResponse) VisitGetAdoptionJobResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAdoptionJob404ApplicationProblemPlusJSONResponse Problem
+
+func (response GetAdoptionJob404ApplicationProblemPlusJSONResponse) VisitGetAdoptionJobResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetControlRoomRequestObject struct {
+}
+
+type GetControlRoomResponseObject interface {
+	VisitGetControlRoomResponse(w http.ResponseWriter) error
+}
+
+type GetControlRoom200JSONResponse ControlRoom
+
+func (response GetControlRoom200JSONResponse) VisitGetControlRoomResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetControlRoom401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response GetControlRoom401ApplicationProblemPlusJSONResponse) VisitGetControlRoomResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListDevicesRequestObject struct {
 }
 
@@ -844,6 +1571,345 @@ type ListDevices503ApplicationProblemPlusJSONResponse struct {
 }
 
 func (response ListDevices503ApplicationProblemPlusJSONResponse) VisitListDevicesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDeviceRequestObject struct {
+	DeviceId DeviceId `json:"deviceId"`
+}
+
+type GetDeviceResponseObject interface {
+	VisitGetDeviceResponse(w http.ResponseWriter) error
+}
+
+type GetDevice200JSONResponse DeviceDetail
+
+func (response GetDevice200JSONResponse) VisitGetDeviceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDevice401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response GetDevice401ApplicationProblemPlusJSONResponse) VisitGetDeviceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDevice404ApplicationProblemPlusJSONResponse struct {
+	DeviceNotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response GetDevice404ApplicationProblemPlusJSONResponse) VisitGetDeviceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDevice503ApplicationProblemPlusJSONResponse struct {
+	UnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response GetDevice503ApplicationProblemPlusJSONResponse) VisitGetDeviceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateDeviceRequestObject struct {
+	DeviceId DeviceId `json:"deviceId"`
+	Body     *UpdateDeviceJSONRequestBody
+}
+
+type UpdateDeviceResponseObject interface {
+	VisitUpdateDeviceResponse(w http.ResponseWriter) error
+}
+
+type UpdateDevice204Response struct {
+}
+
+func (response UpdateDevice204Response) VisitUpdateDeviceResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type UpdateDevice401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateDevice401ApplicationProblemPlusJSONResponse) VisitUpdateDeviceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateDevice404ApplicationProblemPlusJSONResponse struct {
+	DeviceNotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateDevice404ApplicationProblemPlusJSONResponse) VisitUpdateDeviceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateDevice503ApplicationProblemPlusJSONResponse struct {
+	UnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateDevice503ApplicationProblemPlusJSONResponse) VisitUpdateDeviceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AdoptDeviceRequestObject struct {
+	DeviceId DeviceId `json:"deviceId"`
+	Body     *AdoptDeviceJSONRequestBody
+}
+
+type AdoptDeviceResponseObject interface {
+	VisitAdoptDeviceResponse(w http.ResponseWriter) error
+}
+
+type AdoptDevice202JSONResponse AdoptionJob
+
+func (response AdoptDevice202JSONResponse) VisitAdoptDeviceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AdoptDevice400ApplicationProblemPlusJSONResponse Problem
+
+func (response AdoptDevice400ApplicationProblemPlusJSONResponse) VisitAdoptDeviceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AdoptDevice401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response AdoptDevice401ApplicationProblemPlusJSONResponse) VisitAdoptDeviceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AdoptDevice503ApplicationProblemPlusJSONResponse struct {
+	UnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response AdoptDevice503ApplicationProblemPlusJSONResponse) VisitAdoptDeviceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClearDesiredConfigRequestObject struct {
+	DeviceId DeviceId `json:"deviceId"`
+}
+
+type ClearDesiredConfigResponseObject interface {
+	VisitClearDesiredConfigResponse(w http.ResponseWriter) error
+}
+
+type ClearDesiredConfig204Response struct {
+}
+
+func (response ClearDesiredConfig204Response) VisitClearDesiredConfigResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type ClearDesiredConfig401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ClearDesiredConfig401ApplicationProblemPlusJSONResponse) VisitClearDesiredConfigResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClearDesiredConfig404ApplicationProblemPlusJSONResponse struct {
+	DeviceNotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ClearDesiredConfig404ApplicationProblemPlusJSONResponse) VisitClearDesiredConfigResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClearDesiredConfig503ApplicationProblemPlusJSONResponse struct {
+	UnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response ClearDesiredConfig503ApplicationProblemPlusJSONResponse) VisitClearDesiredConfigResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetDesiredConfigRequestObject struct {
+	DeviceId DeviceId `json:"deviceId"`
+	Body     *SetDesiredConfigJSONRequestBody
+}
+
+type SetDesiredConfigResponseObject interface {
+	VisitSetDesiredConfigResponse(w http.ResponseWriter) error
+}
+
+type SetDesiredConfig200JSONResponse DesiredConfigVersion
+
+func (response SetDesiredConfig200JSONResponse) VisitSetDesiredConfigResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetDesiredConfig401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response SetDesiredConfig401ApplicationProblemPlusJSONResponse) VisitSetDesiredConfigResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetDesiredConfig404ApplicationProblemPlusJSONResponse struct {
+	DeviceNotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response SetDesiredConfig404ApplicationProblemPlusJSONResponse) VisitSetDesiredConfigResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetDesiredConfig503ApplicationProblemPlusJSONResponse struct {
+	UnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response SetDesiredConfig503ApplicationProblemPlusJSONResponse) VisitSetDesiredConfigResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -907,6 +1973,161 @@ type SetDesiredProfile503ApplicationProblemPlusJSONResponse struct {
 }
 
 func (response SetDesiredProfile503ApplicationProblemPlusJSONResponse) VisitSetDesiredProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ForgetDeviceRequestObject struct {
+	DeviceId DeviceId `json:"deviceId"`
+	Body     *ForgetDeviceJSONRequestBody
+}
+
+type ForgetDeviceResponseObject interface {
+	VisitForgetDeviceResponse(w http.ResponseWriter) error
+}
+
+type ForgetDevice202JSONResponse AdoptionJob
+
+func (response ForgetDevice202JSONResponse) VisitForgetDeviceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ForgetDevice400ApplicationProblemPlusJSONResponse Problem
+
+func (response ForgetDevice400ApplicationProblemPlusJSONResponse) VisitForgetDeviceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ForgetDevice401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ForgetDevice401ApplicationProblemPlusJSONResponse) VisitForgetDeviceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ForgetDevice404ApplicationProblemPlusJSONResponse struct {
+	DeviceNotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ForgetDevice404ApplicationProblemPlusJSONResponse) VisitForgetDeviceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ForgetDevice503ApplicationProblemPlusJSONResponse struct {
+	UnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response ForgetDevice503ApplicationProblemPlusJSONResponse) VisitForgetDeviceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RegenerateDeviceSecretRequestObject struct {
+	DeviceId DeviceId `json:"deviceId"`
+}
+
+type RegenerateDeviceSecretResponseObject interface {
+	VisitRegenerateDeviceSecretResponse(w http.ResponseWriter) error
+}
+
+type RegenerateDeviceSecret200JSONResponse DeviceSecret
+
+func (response RegenerateDeviceSecret200JSONResponse) VisitRegenerateDeviceSecretResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RegenerateDeviceSecret401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response RegenerateDeviceSecret401ApplicationProblemPlusJSONResponse) VisitRegenerateDeviceSecretResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RegenerateDeviceSecret404ApplicationProblemPlusJSONResponse struct {
+	DeviceNotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response RegenerateDeviceSecret404ApplicationProblemPlusJSONResponse) VisitRegenerateDeviceSecretResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RegenerateDeviceSecret503ApplicationProblemPlusJSONResponse struct {
+	UnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response RegenerateDeviceSecret503ApplicationProblemPlusJSONResponse) VisitRegenerateDeviceSecretResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -1175,6 +2396,73 @@ func (response GetRecording503ApplicationProblemPlusJSONResponse) VisitGetRecord
 	return err
 }
 
+type GetDeviceConfigRequestObject struct {
+	DeviceId string `json:"deviceId"`
+	Params   GetDeviceConfigParams
+}
+
+type GetDeviceConfigResponseObject interface {
+	VisitGetDeviceConfigResponse(w http.ResponseWriter) error
+}
+
+type GetDeviceConfig200JSONResponse DeviceConfig
+
+func (response GetDeviceConfig200JSONResponse) VisitGetDeviceConfigResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDeviceConfig401ApplicationProblemPlusJSONResponse Problem
+
+func (response GetDeviceConfig401ApplicationProblemPlusJSONResponse) VisitGetDeviceConfigResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDeviceConfig404ApplicationProblemPlusJSONResponse Problem
+
+func (response GetDeviceConfig404ApplicationProblemPlusJSONResponse) VisitGetDeviceConfigResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDeviceConfig503ApplicationProblemPlusJSONResponse struct {
+	UnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response GetDeviceConfig503ApplicationProblemPlusJSONResponse) VisitGetDeviceConfigResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetDesiredProfileRequestObject struct {
 	DeviceId string `json:"deviceId"`
 	Params   GetDesiredProfileParams
@@ -1184,14 +2472,24 @@ type GetDesiredProfileResponseObject interface {
 	VisitGetDesiredProfileResponse(w http.ResponseWriter) error
 }
 
-type GetDesiredProfile200TextResponse string
+type GetDesiredProfile200ResponseHeaders struct {
+	XDesiredConfig *string
+}
+
+type GetDesiredProfile200TextResponse struct {
+	Body    string
+	Headers GetDesiredProfile200ResponseHeaders
+}
 
 func (response GetDesiredProfile200TextResponse) VisitGetDesiredProfileResponse(w http.ResponseWriter) error {
 
 	w.Header().Set("Content-Type", "text/plain")
+	if response.Headers.XDesiredConfig != nil {
+		w.Header().Set("X-Desired-Config", fmt.Sprint(*response.Headers.XDesiredConfig))
+	}
 	w.WriteHeader(200)
 
-	_, err := w.Write([]byte(response))
+	_, err := w.Write([]byte(response.Body))
 	return err
 }
 
@@ -1270,12 +2568,39 @@ type StrictServerInterface interface {
 	// Firmware-compatible two-line LiveKit connection response
 	// (GET /token)
 	GetLegacyToken(ctx context.Context, request GetLegacyTokenRequestObject) (GetLegacyTokenResponseObject, error)
-	// List known devices with profile state
+	// Progress of an adoption or forget job
+	// (GET /v1/admin/adoptions/{jobId})
+	GetAdoptionJob(ctx context.Context, request GetAdoptionJobRequestObject) (GetAdoptionJobResponseObject, error)
+	// This control room's identity and provisioning defaults
+	// (GET /v1/admin/control-room)
+	GetControlRoom(ctx context.Context, request GetControlRoomRequestObject) (GetControlRoomResponseObject, error)
+	// The fleet view — known devices joined with what mDNS sees on the LAN
 	// (GET /v1/admin/devices)
 	ListDevices(ctx context.Context, request ListDevicesRequestObject) (ListDevicesResponseObject, error)
+	// One device with its desired config and recent sessions
+	// (GET /v1/admin/devices/{deviceId})
+	GetDevice(ctx context.Context, request GetDeviceRequestObject) (GetDeviceResponseObject, error)
+	// Rename a device
+	// (PATCH /v1/admin/devices/{deviceId})
+	UpdateDevice(ctx context.Context, request UpdateDeviceRequestObject) (UpdateDeviceResponseObject, error)
+	// Adopt a device over the network (discovered, or by IP)
+	// (POST /v1/admin/devices/{deviceId}/adopt)
+	AdoptDevice(ctx context.Context, request AdoptDeviceRequestObject) (AdoptDeviceResponseObject, error)
+	// Clear the desired config
+	// (DELETE /v1/admin/devices/{deviceId}/desired-config)
+	ClearDesiredConfig(ctx context.Context, request ClearDesiredConfigRequestObject) (ClearDesiredConfigResponseObject, error)
+	// Set the desired sebastian.config.v1 for a device
+	// (PUT /v1/admin/devices/{deviceId}/desired-config)
+	SetDesiredConfig(ctx context.Context, request SetDesiredConfigRequestObject) (SetDesiredConfigResponseObject, error)
 	// Set (or clear) the desired device profile
 	// (PUT /v1/admin/devices/{deviceId}/desired-profile)
 	SetDesiredProfile(ctx context.Context, request SetDesiredProfileRequestObject) (SetDesiredProfileResponseObject, error)
+	// Return a device to factory (unadopted) and drop it from the inventory
+	// (POST /v1/admin/devices/{deviceId}/forget)
+	ForgetDevice(ctx context.Context, request ForgetDeviceRequestObject) (ForgetDeviceResponseObject, error)
+	// Issue a new per-device secret (shown once)
+	// (POST /v1/admin/devices/{deviceId}/secret)
+	RegenerateDeviceSecret(ctx context.Context, request RegenerateDeviceSecretRequestObject) (RegenerateDeviceSecretResponseObject, error)
 	// List recent voice recordings
 	// (GET /v1/admin/recordings)
 	ListRecordings(ctx context.Context, request ListRecordingsRequestObject) (ListRecordingsResponseObject, error)
@@ -1288,6 +2613,9 @@ type StrictServerInterface interface {
 	// Get one voice recording
 	// (GET /v1/admin/recordings/{recordingId})
 	GetRecording(ctx context.Context, request GetRecordingRequestObject) (GetRecordingResponseObject, error)
+	// The desired sebastian.config.v1 document for this device
+	// (GET /v1/devices/{deviceId}/config)
+	GetDeviceConfig(ctx context.Context, request GetDeviceConfigRequestObject) (GetDeviceConfigResponseObject, error)
 	// Desired device profile for reconciliation polls
 	// (GET /v1/devices/{deviceId}/desired-profile)
 	GetDesiredProfile(ctx context.Context, request GetDesiredProfileRequestObject) (GetDesiredProfileResponseObject, error)
@@ -1397,6 +2725,56 @@ func (sh *strictHandler) GetLegacyToken(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
+// GetAdoptionJob operation middleware
+func (sh *strictHandler) GetAdoptionJob(w http.ResponseWriter, r *http.Request, jobId openapi_types.UUID) {
+	var request GetAdoptionJobRequestObject
+
+	request.JobId = jobId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetAdoptionJob(ctx, request.(GetAdoptionJobRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetAdoptionJob")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetAdoptionJobResponseObject); ok {
+		if err := validResponse.VisitGetAdoptionJobResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetControlRoom operation middleware
+func (sh *strictHandler) GetControlRoom(w http.ResponseWriter, r *http.Request) {
+	var request GetControlRoomRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetControlRoom(ctx, request.(GetControlRoomRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetControlRoom")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetControlRoomResponseObject); ok {
+		if err := validResponse.VisitGetControlRoomResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListDevices operation middleware
 func (sh *strictHandler) ListDevices(w http.ResponseWriter, r *http.Request) {
 	var request ListDevicesRequestObject
@@ -1414,6 +2792,160 @@ func (sh *strictHandler) ListDevices(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListDevicesResponseObject); ok {
 		if err := validResponse.VisitListDevicesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetDevice operation middleware
+func (sh *strictHandler) GetDevice(w http.ResponseWriter, r *http.Request, deviceId DeviceId) {
+	var request GetDeviceRequestObject
+
+	request.DeviceId = deviceId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetDevice(ctx, request.(GetDeviceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetDevice")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetDeviceResponseObject); ok {
+		if err := validResponse.VisitGetDeviceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateDevice operation middleware
+func (sh *strictHandler) UpdateDevice(w http.ResponseWriter, r *http.Request, deviceId DeviceId) {
+	var request UpdateDeviceRequestObject
+
+	request.DeviceId = deviceId
+
+	var body UpdateDeviceJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateDevice(ctx, request.(UpdateDeviceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateDevice")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateDeviceResponseObject); ok {
+		if err := validResponse.VisitUpdateDeviceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AdoptDevice operation middleware
+func (sh *strictHandler) AdoptDevice(w http.ResponseWriter, r *http.Request, deviceId DeviceId) {
+	var request AdoptDeviceRequestObject
+
+	request.DeviceId = deviceId
+
+	var body AdoptDeviceJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if !errors.Is(err, io.EOF) {
+			sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+			return
+		}
+	} else {
+		request.Body = &body
+	}
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AdoptDevice(ctx, request.(AdoptDeviceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AdoptDevice")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AdoptDeviceResponseObject); ok {
+		if err := validResponse.VisitAdoptDeviceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ClearDesiredConfig operation middleware
+func (sh *strictHandler) ClearDesiredConfig(w http.ResponseWriter, r *http.Request, deviceId DeviceId) {
+	var request ClearDesiredConfigRequestObject
+
+	request.DeviceId = deviceId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ClearDesiredConfig(ctx, request.(ClearDesiredConfigRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ClearDesiredConfig")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ClearDesiredConfigResponseObject); ok {
+		if err := validResponse.VisitClearDesiredConfigResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetDesiredConfig operation middleware
+func (sh *strictHandler) SetDesiredConfig(w http.ResponseWriter, r *http.Request, deviceId DeviceId) {
+	var request SetDesiredConfigRequestObject
+
+	request.DeviceId = deviceId
+
+	var body SetDesiredConfigJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetDesiredConfig(ctx, request.(SetDesiredConfigRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetDesiredConfig")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetDesiredConfigResponseObject); ok {
+		if err := validResponse.VisitSetDesiredConfigResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -1447,6 +2979,68 @@ func (sh *strictHandler) SetDesiredProfile(w http.ResponseWriter, r *http.Reques
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SetDesiredProfileResponseObject); ok {
 		if err := validResponse.VisitSetDesiredProfileResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ForgetDevice operation middleware
+func (sh *strictHandler) ForgetDevice(w http.ResponseWriter, r *http.Request, deviceId DeviceId) {
+	var request ForgetDeviceRequestObject
+
+	request.DeviceId = deviceId
+
+	var body ForgetDeviceJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if !errors.Is(err, io.EOF) {
+			sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+			return
+		}
+	} else {
+		request.Body = &body
+	}
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ForgetDevice(ctx, request.(ForgetDeviceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ForgetDevice")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ForgetDeviceResponseObject); ok {
+		if err := validResponse.VisitForgetDeviceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RegenerateDeviceSecret operation middleware
+func (sh *strictHandler) RegenerateDeviceSecret(w http.ResponseWriter, r *http.Request, deviceId DeviceId) {
+	var request RegenerateDeviceSecretRequestObject
+
+	request.DeviceId = deviceId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RegenerateDeviceSecret(ctx, request.(RegenerateDeviceSecretRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RegenerateDeviceSecret")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RegenerateDeviceSecretResponseObject); ok {
+		if err := validResponse.VisitRegenerateDeviceSecretResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -1561,6 +3155,33 @@ func (sh *strictHandler) GetRecording(w http.ResponseWriter, r *http.Request, re
 	}
 }
 
+// GetDeviceConfig operation middleware
+func (sh *strictHandler) GetDeviceConfig(w http.ResponseWriter, r *http.Request, deviceId string, params GetDeviceConfigParams) {
+	var request GetDeviceConfigRequestObject
+
+	request.DeviceId = deviceId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetDeviceConfig(ctx, request.(GetDeviceConfigRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetDeviceConfig")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetDeviceConfigResponseObject); ok {
+		if err := validResponse.VisitGetDeviceConfigResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetDesiredProfile operation middleware
 func (sh *strictHandler) GetDesiredProfile(w http.ResponseWriter, r *http.Request, deviceId string, params GetDesiredProfileParams) {
 	var request GetDesiredProfileRequestObject
@@ -1619,43 +3240,78 @@ func (sh *strictHandler) CreateSession(w http.ResponseWriter, r *http.Request, p
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"1Frrbxu5Ef9XCLYf7tC1JOdxaHSfcnF7dZMWgZ2gBQIDRy1HEi9cco+clb0J9L8Xw+W+pJUsuZGTfFtp",
-	"+RjO/Ob1437mqc1ya8Cg59PP3IHPrfEQfrw3osCldeoTSPqdWoNgkB5FnmuVClTWjHNnZxqyv/zuraF3",
-	"Pl1CJujpzw7mfMr/NG43GVdv/fhtNYuv1+uES/CpUzktx6f83RKYkJkyyqMLezAPqQNkyjNlVkIrOeLr",
-	"hARcCaXFTMNjyveSOfijUA4kk5CDkWDSkmQrWnlGnObFxWivC/A0462zc1WJK6RUtKLQb53NwaEitc+F",
-	"9pDwvPPXZ25EFqb05fi7ctmtcMDyalFGw0bsb1mOJbOOiZkHgyzVIJxnuAQmKyGYR4Ew4gnPxN0bMAtc",
-	"8ulPTxOOZQ58yj06ZRbhBPEfO/sdUiSdX8BKpcfKL7cOv7FTwqXyuRblv+NJt96DIbXKzruZtRqEoZdK",
-	"Ds6JermC3DoE+TJAY25dJpBPuRQIZ6gy4Mn2VBfn7BY5DKpgwKcfSIT+IVqRb3aq8Y3yeKQqFULWf9iH",
-	"4mit1pDCOVFuCx/WGpLzHyA0oeMoGQleRXgCU2S0gf3YWX2HBuOsISlqZzwWdSiUHkSGMh6FqXDcAKJw",
-	"6szBHBzQmwFQtOfKxJ3K6GjPX7xIOIWq8Ot8MmmmKYOwABd0r3AH6qs/DpdhQ2Xhbb1+sk+DV5BaJ2mN",
-	"43Q4KxGu1ae+kMrgT89459yDp05FjoU7zu1iCH8X1bL93oE40pNlUeWQf/kHnIF8f2dIqqJOa7oixICt",
-	"YR+Vkff5aWOe1zR4nUTLvXd6Ex2DwcrabFBCD94ray4PExSdMFV+OTDctctHGeJhO3rrnqRv3qTFVs9I",
-	"PeB0Lb4X1q+jkuuAk1kJOpg3dTZfWkO7iAWVB0lV83iFMBCUOmuePDq3TvnwAN2scQWLpl76rpw8U6au",
-	"Qc5P6b/37PN4bnqPIMe44Wm8bi/OrossE648EmKpLQw+wIBaeHz1AIyhRaF/KREegpow+eLhuNswUnX2",
-	"nkzbewzp/LqKr0eqGu5y5cAfo60DM9mePONW4A50A7QfwRyYYSK+2/Xr6UnnmNuqCyKlhVNYXpPrVop5",
-	"ST3ldegkQ4imHmoJQoLjSWyx+H/PwqizOKwNy7l6DWVbud+7TDVs5zrrUITO7XZX98oadFazXAsDbG4d",
-	"u4aZ8KiEYTIs6pkwkr1RK3itkIWkxmIq9qOmHJzydt7Lt5c84StwFZz4ZHQ+moT4lYMRueJT/nQ0GT3l",
-	"Cc8FLoO2xstQ+n+i50V1VEJZwCsVFPxXQJLBgCc895iDJ5PJnob8uEY8diA7eILc2RS8p+5baLWq++46",
-	"RlHnEN7rVlIUCx/6jdIjZPyGJowdCFnuPesVCKm+7mHJDVQKLBWGiTSFHBk6MZ+rNNAhzydPv1EapDHH",
-	"RTvQdfQ5aJImTkSLSMgdpFQM8im6ArY0RHkzBkkGRuZWGRyxS2RZ4ZHNgMEdqUOhLlnszYMn+aUttGTG",
-	"1oOsB8nyYqZVqkvyqG3gw0Kk5bsYiu6BA8IdjnMt1IbeN+PfloZrF39/9YbNrdb2FiSblYHK+ed/3iXM",
-	"Qy4caYT+FczArVYGAhieTZ49NmdHMwSqmdIKy8YChAipfFD314BprUTrWE4B0CO11vfgtKbWzuozaWB4",
-	"a89IvU3kTa0xkAZ+skZAB8s9bURIr87Hgdgcx0C+M95Q63ERx5ww3HRYqAHNRQGYdRJchbFIvD6bnO9a",
-	"upF13KOPW7vfO6mhdLtpnE8/bCTwDzfrm67J6BTso7G3bZq8VbhsyNHAeXbs02eYqRqO+h421fhz9XAp",
-	"1+NIZ57lLTmYFwNWvAbcoH0pvzqRAYLz4UiheqCc29YO9T68Ww9VAa+1aoe4PX/y12R/T0GKoqXA4y9W",
-	"ll8QPr3DrfslHIm83gLvs+2KJy7TsZR1IH+OjHXIeEFG8Iz82DCFnhm4Q5ZbrR8OyEcOkZU7hTQzt4Xp",
-	"BcNTOcU1IPvBuuoO4MfeHUDUbN4g81jHcHVHuD+MXbXDhtH/RwGubOGvVaaoYG71LWEuCo18+nyStMxr",
-	"4Fpb5nWgC7s5YeTsk0QD1r6ClOryVkndMBp7bUb92LcdUF11jJUlrLiuKXfCpTPqZp3w3PoBZFRsFbiW",
-	"AjtNiBqmxw6KVOdfXogdQKleMhd1AvK7iWnhqtZ7m6pQhcYulEkLPgQ6uFMe42lePLZgFRsQqufQHoYe",
-	"b1PLJ3aiGudMtN7TiFIlOqZMLSr9IRZwsHftiMdj33J0u9vZenRN6D1GtKz32usHUfpvNjC+XCwcLAR2",
-	"AmJtudBP1rQqywCdSv3/bc7PzfOlXB9k1IMKzc6qe2vNe3jBx8mz+yFTXfX67yZutpI/ajn4K1D9DJvp",
-	"/FiAHtYSNbTNdhF8NhepMosRozA9bz5jsVp7hkvlG/IgYdWHGKQpqvpdYQw9163CSgn2W1o4BwZ/S4L3",
-	"UcWiVtD/4KX7hQz7AcIXMjMrS3a7BMMM6UR55gF/HLH3pt9FkmiiQHvWZg7mLTNwywpDQok8B+EojGP9",
-	"5RJTZgUGrSupX5kr5wNdgCLFEbsmIQLNVIRT+1ALCs8qymvKPgLkodWZz8OSFRXFqLJ1BpAVBpWuC/jU",
-	"gQSDSmjPtCAcDfBV30YbmgxX/NF+fMfCQx8m3ZyOdLsYgMzPrILMJlq+Bp/19mAS62Kw0wtXCuTVJlVa",
-	"VYkqeF4nCmx1fPX1QqA6Bgv6V+Gevr6xGgbYzluSk6Ds/juZg3Z88vyn3o5PnxwCxy/XPNQqHYBCfMXi",
-	"NxLd7PdYaLysPsccCEbfOtfbTZr9O73NrFlBm4n6kHWXE2o95XOB6TJkJ+G9WhiQrP7QpLnXqN3nZr1u",
-	"rksrxyic5lM+5uub9f8CAAD//w==",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,
