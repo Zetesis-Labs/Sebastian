@@ -6,7 +6,8 @@
 > personas; el diseño técnico vendrá en un documento aparte. Estado:
 > **pendiente de aprobación por Rubén**. Cada requisito lleva identificador
 > (`RM-…`) y criterios de aceptación para que los tests verticales se escriban
-> contra ellos antes de implementar. Se apoya en lo que ya existe:
+> contra ellos antes de implementar. Decisiones de §11 tomadas. Se apoya en lo
+> que ya existe:
 > sesiones LiveKit del altavoz, catálogo de grabaciones (`recordings`) y la
 > flota gobernada desde el control room
 > ([12-fleet-adoption-functional-spec.md](12-fleet-adoption-functional-spec.md)).
@@ -124,9 +125,10 @@ arranca **sin** grabar y sin rojo (no se retoma sola; RM-23).
 
 **RM-11 Audio.** Se graba una pista mono del micro del altavoz con el
 procesado del XVF3800 y **haz automático** (no fijo: varias personas hablan
-desde sitios distintos). Formato de almacenamiento: el mismo que las
-grabaciones actuales o uno comprimido sin pérdida perceptible; la decisión
-técnica va en el diseño.
+desde sitios distintos). Formato de almacenamiento: **Ogg/Opus mono, 48 kbit/s**
+(≈ 20 MB por hora). Es lo que LiveKit ya produce al volcar una pista, así que
+no hay transcodificación; el navegador lo reproduce, el proveedor de
+transcripción lo acepta tal cual, y una hora pesa lo que un minuto de WAV.
 
 **RM-12 Sin agente en medio.** Durante la grabación el altavoz no reproduce
 nada y el agente no conversa. El agente permanece a la escucha **solo** de la
@@ -183,19 +185,21 @@ Hablante 2…), con marcas de tiempo por intervención. El operador puede
 renombrar a los hablantes en el control room (Hablante 1 → "Ana") y el nombre
 se aplica a toda la transcripción.
 
-**RM-32 Resumen (opcional).** Si está activado en el control room, se genera
-además un resumen breve y una lista de acuerdos/acciones con el mismo modelo
-que usa el agente. Se marca como generado automáticamente.
+**RM-32 Resumen.** Tras la transcripción se genera un resumen breve y una
+lista de acuerdos y acciones, en el idioma de la reunión, con un modelo de
+OpenAI de la gama económica (el "mini" vigente cuando se implemente; lo fija
+el diseño). Activado por defecto; se puede desactivar por control room. Se
+marca como generado automáticamente y se puede regenerar.
 
 **RM-33 Fallo visible y reintentable.** Si la transcripción falla, la grabación
 queda *Sin transcripción* con el motivo, y un botón **Transcribir de nuevo**.
 El audio nunca se pierde por un fallo de transcripción.
 
-**RM-34 Proveedor.** La transcripción usa un proveedor con diarización.
-Primera versión: el mismo proveedor que ya usa el agente para voz (OpenAI),
-por no añadir cuentas ni claves; alternativa autoalojada (Whisper con
-diarización en cortes) como opción del control room para quien no quiera
-sacar el audio fuera. **Decisión abierta (§11).**
+**RM-34 Proveedor.** Transcripción y resumen con **OpenAI**, la cuenta y la
+clave que ya usa el agente. Transcripción con el modelo de transcripción con
+diarización de OpenAI (el vigente cuando se implemente; lo fija el diseño),
+con `whisper-1` como reserva sin hablantes si aquel no está disponible. La
+opción autoalojada (Whisper en cortes) queda fuera de esta versión.
 
 **RM-35 Privacidad del proceso.** El audio solo sale hacia el proveedor de
 transcripción configurado; no se usa para nada más y no se conserva allí (se
@@ -257,17 +261,13 @@ por el poll; las confirma al control room.
 - Compartir grabaciones fuera del control room (enlaces, correo).
 - Traducción de la transcripción.
 
-## 11. Decisiones abiertas
+## 11. Decisiones tomadas (2026-09-18)
 
-1. **Proveedor de transcripción** (RM-34): OpenAI (ya en la pila, minutos de
-   pago, el audio sale fuera) o Whisper + diarización autoalojado en cortes
-   (sin coste por minuto, GPU o paciencia, el audio no sale). Propuesta:
-   empezar con OpenAI y dejar el autoalojado como opción.
-2. **Gesto** (RM-02): decidido el 2026-09-18, corta + larga.
-3. **Resumen** (RM-32): activado por defecto o no. Propuesta: desactivado por
-   defecto; se activa por control room.
-4. **Formato del audio** (RM-11): lo dice el diseño; la retención (RM-45) y
-   el almacenamiento dependen de ello.
+1. **Proveedor de transcripción y resumen** (RM-32, RM-34): OpenAI, con la
+   cuenta del agente. El autoalojado queda fuera de esta versión.
+2. **Gesto** (RM-02): corta + larga de MUTE.
+3. **Resumen** (RM-32): activado por defecto, desactivable por control room.
+4. **Formato del audio** (RM-11): Ogg/Opus mono 48 kbit/s, sin transcodificar.
 
 ## 12. Factibilidad
 
