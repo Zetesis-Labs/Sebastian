@@ -313,3 +313,11 @@ miraba el anillo). `68ee8f4d8dd4` y `e072a1f895f4` siguen con firmware anterior.
   (`device_identity.py`, puro, con tests). "Okay Nabu" vuelve a funcionar en
   `68ee`. Un `uv run agent.py dev` lanzado por una sesión anterior se había
   quedado zombi (sin conexión a LiveKit): matar y relanzar.
+- Pruebas de hardware con `68ee` (21:10-21:16): **RF-45** WiFi falsa → a los
+  ~70 s vuelve a `Pizarro` y reporta `wifi-rollback` (la versión en ejecución
+  coincide con la deseada aunque la WiFi no; la ficha lo enseña campo a
+  campo). **RF-53** regenerar → la placa coge el secreto nuevo en su siguiente
+  config, reinicia y se autentica con él (pendiente promovido en DB).
+  **RF-38** casa-2 la adopta por IP con ese secreto sin secreto de organización
+  → `adopted` allí, `moved` aquí; «Recuperar» desde casa-mac con el mismo
+  secreto la devuelve. Queda sin ver a ojo el ámbar fijo (RF-64).
