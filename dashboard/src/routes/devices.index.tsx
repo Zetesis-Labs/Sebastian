@@ -18,7 +18,7 @@ import {
   type Section,
 } from '../lib/fleet'
 
-export const Route = createFileRoute('/devices')({
+export const Route = createFileRoute('/devices/')({
   loader: () => getDevices(),
   component: Devices,
   errorComponent: ({ error }) => (

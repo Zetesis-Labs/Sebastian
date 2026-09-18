@@ -49,14 +49,17 @@ export interface SharedGroup {
 }
 
 // ── read/write a config value by dot path (paths are always section.key) ──────
+// Sections may be absent (adoption is optional): reading one must not throw,
+// or the whole form dies with the field.
 export function getField(config: DeviceConfig, path: string): unknown {
   const [section, key] = path.split(".") as [keyof DeviceConfig, string];
-  return (config[section] as Record<string, unknown>)[key];
+  const holder = (config[section] ?? {}) as Record<string, unknown>;
+  return holder[key];
 }
 
 export function setField(config: DeviceConfig, path: string, value: unknown): DeviceConfig {
   const [section, key] = path.split(".") as [keyof DeviceConfig, string];
-  return { ...config, [section]: { ...(config[section] as object), [key]: value } };
+  return { ...config, [section]: { ...((config[section] ?? {}) as object), [key]: value } };
 }
 
 // ── reused field definitions ──────────────────────────────────────────────────

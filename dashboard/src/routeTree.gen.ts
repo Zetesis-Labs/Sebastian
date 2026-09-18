@@ -10,8 +10,8 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as InstallerRouteImport } from './routes/installer'
-import { Route as DevicesRouteImport } from './routes/devices'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as DevicesIndexRouteImport } from './routes/devices.index'
 import { Route as RecordingsRecordingIdRouteImport } from './routes/recordings.$recordingId'
 import { Route as InstallerControlRoomDotjsonRouteImport } from './routes/installer.control-room[.]json'
 import { Route as DevicesDeviceIdRouteImport } from './routes/devices.$deviceId'
@@ -21,14 +21,14 @@ const InstallerRoute = InstallerRouteImport.update({
   path: '/installer',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DevicesRoute = DevicesRouteImport.update({
-  id: '/devices',
-  path: '/devices',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DevicesIndexRoute = DevicesIndexRouteImport.update({
+  id: '/devices/',
+  path: '/devices/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const RecordingsRecordingIdRoute = RecordingsRecordingIdRouteImport.update({
@@ -50,61 +50,61 @@ const DevicesDeviceIdRoute = DevicesDeviceIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/devices': typeof DevicesRouteWithChildren
   '/installer': typeof InstallerRouteWithChildren
   '/devices/$deviceId': typeof DevicesDeviceIdRoute
   '/installer/control-room.json': typeof InstallerControlRoomDotjsonRoute
   '/recordings/$recordingId': typeof RecordingsRecordingIdRoute
+  '/devices/': typeof DevicesIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/devices': typeof DevicesRouteWithChildren
   '/installer': typeof InstallerRouteWithChildren
   '/devices/$deviceId': typeof DevicesDeviceIdRoute
   '/installer/control-room.json': typeof InstallerControlRoomDotjsonRoute
   '/recordings/$recordingId': typeof RecordingsRecordingIdRoute
+  '/devices': typeof DevicesIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/devices': typeof DevicesRouteWithChildren
   '/installer': typeof InstallerRouteWithChildren
   '/devices/$deviceId': typeof DevicesDeviceIdRoute
   '/installer/control-room.json': typeof InstallerControlRoomDotjsonRoute
   '/recordings/$recordingId': typeof RecordingsRecordingIdRoute
+  '/devices/': typeof DevicesIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/devices'
     | '/installer'
     | '/devices/$deviceId'
     | '/installer/control-room.json'
     | '/recordings/$recordingId'
+    | '/devices/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/devices'
     | '/installer'
     | '/devices/$deviceId'
     | '/installer/control-room.json'
     | '/recordings/$recordingId'
+    | '/devices'
   id:
     | '__root__'
     | '/'
-    | '/devices'
     | '/installer'
     | '/devices/$deviceId'
     | '/installer/control-room.json'
     | '/recordings/$recordingId'
+    | '/devices/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  DevicesRoute: typeof DevicesRouteWithChildren
   InstallerRoute: typeof InstallerRouteWithChildren
   RecordingsRecordingIdRoute: typeof RecordingsRecordingIdRoute
+  DevicesIndexRoute: typeof DevicesIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -116,18 +116,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof InstallerRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/devices': {
-      id: '/devices'
-      path: '/devices'
-      fullPath: '/devices'
-      preLoaderRoute: typeof DevicesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/': {
       id: '/'
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/devices/': {
+      id: '/devices/'
+      path: '/devices'
+      fullPath: '/devices/'
+      preLoaderRoute: typeof DevicesIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/recordings/$recordingId': {
@@ -154,17 +154,6 @@ declare module '@tanstack/react-router' {
   }
 }
 
-interface DevicesRouteChildren {
-  DevicesDeviceIdRoute: typeof DevicesDeviceIdRoute
-}
-
-const DevicesRouteChildren: DevicesRouteChildren = {
-  DevicesDeviceIdRoute: DevicesDeviceIdRoute,
-}
-
-const DevicesRouteWithChildren =
-  DevicesRoute._addFileChildren(DevicesRouteChildren)
-
 interface InstallerRouteChildren {
   InstallerControlRoomDotjsonRoute: typeof InstallerControlRoomDotjsonRoute
 }
@@ -179,9 +168,9 @@ const InstallerRouteWithChildren = InstallerRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  DevicesRoute: DevicesRouteWithChildren,
   InstallerRoute: InstallerRouteWithChildren,
   RecordingsRecordingIdRoute: RecordingsRecordingIdRoute,
+  DevicesIndexRoute: DevicesIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
