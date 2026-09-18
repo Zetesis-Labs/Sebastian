@@ -14,12 +14,27 @@ const std = @import("std");
 const c = @import("csdk.zig");
 const xvf = @import("xvf_dfu.zig");
 const mic = @import("mic_src.zig");
+const gesture = @import("core/gesture_core.zig");
 
 const log = std.log.scoped(.xvf_ui);
 
 pub const State = enum(u8) { idle, waking, active, usb };
 
+/// Meeting recording as the ring shows it (RM-10/13/51): solid red while
+/// recording, slow red blink 30 s before a silence cut, fast red blink when
+/// the control room is gone. Nothing else on the ring is ever red.
+pub const Recording = enum(u8) { off, on, warn, no_room };
+
 var ui_state = std.atomic.Value(u8).init(@intFromEnum(State.idle));
+var rec_state = std.atomic.Value(u8).init(@intFromEnum(Recording.off));
+
+pub fn setRecording(r: Recording) void {
+    rec_state.store(@intFromEnum(r), .release);
+}
+
+fn currentRecording() Recording {
+    return @enumFromInt(rec_state.load(.acquire));
+}
 
 /// Set the invocation state shown on the ring. Called from app.zig.
 pub fn setState(s: State) void {
@@ -42,6 +57,8 @@ const BEAM = rgb(0, 90, 20); // ACTIVE: green LED pointing at the talker
 const HALO = rgb(0, 18, 4); // its two neighbours
 const HELD = rgb(0, 6, 2); // ACTIVE, nobody talking: dim held direction
 const USB_BEAM = rgb(90, 55, 0); // USB: same beam, amber — the PC has the mic
+const REC = rgb(110, 0, 0); // recording: solid red (RM-10)
+const REC_DIM = rgb(14, 0, 0); // recording + mute: red, every other LED dim (RM-13)
 const USB_HALO = rgb(18, 11, 0);
 const USB_HELD = rgb(6, 4, 0);
 
@@ -89,6 +106,24 @@ fn renderConsent(frame: u32) void {
     xvf.setLeds(.{if (on) USB_BEAM else OFF} ** 12);
 }
 
+/// Meeting recording (RM-10/13/51).
+fn renderRecording(r: Recording, muted: bool, frame: u32) void {
+    switch (r) {
+        .off => {},
+        .on => {
+            if (!muted) {
+                xvf.setLeds(.{REC} ** 12);
+                return;
+            }
+            var pix: [12][3]u8 = undefined;
+            for (&pix, 0..) |*p, i| p.* = if (i % 2 == 0) REC else REC_DIM;
+            xvf.setLeds(pix);
+        },
+        .warn => xvf.setLeds(.{if ((frame / 6) % 2 == 0) REC else OFF} ** 12), // ~1 Hz
+        .no_room => xvf.setLeds(.{if ((frame / 2) % 2 == 0) REC else OFF} ** 12), // ~3 Hz
+    }
+}
+
 /// Adoption accepted (RF-64): solid amber for the 2 s before the restart.
 fn renderAccepted() void {
     xvf.setLeds(.{USB_BEAM} ** 12);
@@ -125,6 +160,7 @@ fn uiTask(_: ?*anyopaque) callconv(.c) void {
     var speaking = false;
     var frame: u32 = 0;
     var was_muted: ?bool = null;
+    var detector = gesture.Detector{};
     var degraded = false;
     while (true) : (frame +%= 1) {
         if (xvf.consecutiveFailures() >= DEGRADED_AFTER) {
@@ -141,6 +177,14 @@ fn uiTask(_: ?*anyopaque) callconv(.c) void {
             log.info("XVF answering again — ring resumed", .{});
         }
         const muted = xvf.readMuted();
+        // MUTE gestures (RM-02/20/50): GPI byte 0 is the button, active low;
+        // the XVF toggles the mute GPO on every press, so verdicts that were
+        // not a mute tap undo those toggles.
+        if (xvf.readGpi()) |gpi| {
+            const now_ms: u32 = @intCast(@divTrunc(c.esp_timer_get_time(), 1000) & 0xffff_ffff);
+            const verdict = detector.feed((gpi[0] & 0x01) == 0, now_ms);
+            actOnGesture(verdict);
+        }
         mic.setMuted(muted); // GPIO30 mute doesn't silence our ASR beam — do it in software
         const consent = c.sebastian_adopt_consent_pending();
         if (consent and was_muted != null and was_muted.? != muted) c.sebastian_adopt_consent_grant();
@@ -151,8 +195,12 @@ fn uiTask(_: ?*anyopaque) callconv(.c) void {
             log.info("mute: {s}", .{if (muted) "on" else "off"});
         }
 
+        const recording = currentRecording();
         if (c.sebastian_adopt_accepted()) {
             renderAccepted();
+            speaking = false;
+        } else if (recording != .off) {
+            renderRecording(recording, muted, frame);
             speaking = false;
         } else if (consent) {
             renderConsent(frame);
@@ -173,6 +221,26 @@ fn uiTask(_: ?*anyopaque) callconv(.c) void {
             .usb => renderActive(&last, &speaking, USB_BEAM, USB_HALO, USB_HELD),
         }
         c.vTaskDelay(80);
+    }
+}
+
+fn actOnGesture(verdict: gesture.Verdict) void {
+    if (verdict == .none) return;
+    var undo = gesture.togglesToUndo(verdict);
+    while (undo > 0) : (undo -= 1) xvf.setMute(!xvf.readMuted());
+    switch (verdict) {
+        .mute_tap => {},
+        .long_alone, .ignored => log.info("mute button: {s} press, nothing done", .{if (verdict == .long_alone) "long" else "odd"}),
+        .record_toggle => {
+            if (!c.sebastian_meeting_is_recordable()) {
+                log.info("record gesture in a profile without recording — ignored (RM-54)", .{});
+                return;
+            }
+            const cmd: [*:0]const u8 = if (c.sebastian_meeting_is_active()) "record-stop" else "record-start";
+            log.info("record gesture → {s}", .{cmd});
+            c.sebastian_meeting_push(cmd, "", 'g');
+        },
+        .none => {},
     }
 }
 

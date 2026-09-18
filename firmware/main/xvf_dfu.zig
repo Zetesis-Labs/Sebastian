@@ -216,6 +216,22 @@ pub fn setLedRing(r: u8, g: u8, b: u8) void {
     setLeds(.{.{ r, g, b }} ** 12);
 }
 
+// --- GPI servicer: raw input pins (the MUTE button lives here) -----------------
+const RESID_GPI: u8 = 36;
+const GPI_READ: u8 = 0;
+
+/// Raw GPI values {gpi0, gpi1, gpi2} (GPI_READ_VALUES, 3 bytes after the
+/// status byte). null on I2C failure. The MUTE button is one of these bits
+/// (meeting recordings, RM-02): the XVF toggles the mute GPO by itself on the
+/// press, this is the only way to see how long it is held.
+pub fn readGpi() ?[3]u8 {
+    const req = [_]u8{ RESID_GPI, GPI_READ | READ_BIT, 4 };
+    var resp: [4]u8 = undefined;
+    if (!xfer(&req, &resp)) return null;
+    if (resp[0] != 0) return null; // status byte: 0 = CTRL_DONE
+    return .{ resp[1], resp[2], resp[3] };
+}
+
 // --- AEC servicer: beam direction (DoA) for the LED ring ----------------------
 const RESID_AEC: u8 = 33;
 const AEC_AZIMUTH: u8 = 75;

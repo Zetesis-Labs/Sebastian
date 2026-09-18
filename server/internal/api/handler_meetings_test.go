@@ -32,6 +32,12 @@ func (s *stubMeetings) Start(_ context.Context, deviceID string, origin meeting.
 	return s.m, s.err
 }
 
+func (s *stubMeetings) StartFromUnit(_ context.Context, deviceID, secret string) (meeting.Meeting, error) {
+	s.reported = append(s.reported, "start|"+deviceID+"|"+secret)
+	s.m.DeviceID, s.m.RequestedBy = deviceID, meeting.OriginGesture
+	return s.m, s.err
+}
+
 func (s *stubMeetings) Stop(_ context.Context, _ uuid.UUID, reason meeting.EndReason) (meeting.Meeting, error) {
 	s.m.EndReason = reason
 	return s.m, s.err

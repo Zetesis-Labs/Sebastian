@@ -746,6 +746,43 @@ paths:
                 $ref: "#/components/schemas/Problem"
         "503":
           $ref: "#/components/responses/Unavailable"
+  /v1/devices/{deviceId}/meetings:
+    post:
+      operationId: requestMeeting
+      summary: The unit asks for a meeting after the MUTE gesture (RM-02)
+      tags: [devices, meetings]
+      security:
+        - DeviceSecret: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+        - name: X-Device-Secret
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        "202":
+          description: Meeting requested; the unit starts it with this id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Meeting"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: A meeting is already in progress on this unit (RM-05).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "422":
+          description: The unit cannot record (not adopted here, not contacting, or not in the agente profile).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/devices/{deviceId}/meeting:
     put:
       operationId: reportMeeting

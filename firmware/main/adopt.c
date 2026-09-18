@@ -48,6 +48,42 @@ static volatile bool consent_pending;
 static volatile bool consent_granted;
 static volatile bool accepted;
 
+// Meeting mailbox (design 14 §3.2). Written by the LAN listener, the poll task
+// and the ring task; read by the app task. Tiny critical sections, no queue.
+static portMUX_TYPE meeting_mux = portMUX_INITIALIZER_UNLOCKED;
+static char meeting_cmd[16];
+static char meeting_id[40];
+static char meeting_origin;
+static volatile bool meeting_active;
+static volatile bool meeting_recordable;
+
+void sebastian_meeting_push(const char *cmd, const char *id, char origin) {
+    portENTER_CRITICAL(&meeting_mux);
+    strlcpy(meeting_cmd, cmd ? cmd : "", sizeof(meeting_cmd));
+    strlcpy(meeting_id, id ? id : "", sizeof(meeting_id));
+    meeting_origin = origin;
+    portEXIT_CRITICAL(&meeting_mux);
+}
+
+bool sebastian_meeting_take(char *cmd, size_t cmd_size, char *id, size_t id_size, char *origin) {
+    bool got = false;
+    portENTER_CRITICAL(&meeting_mux);
+    if (meeting_cmd[0]) {
+        strlcpy(cmd, meeting_cmd, cmd_size);
+        strlcpy(id, meeting_id, id_size);
+        if (origin) *origin = meeting_origin;
+        meeting_cmd[0] = 0;
+        got = true;
+    }
+    portEXIT_CRITICAL(&meeting_mux);
+    return got;
+}
+
+void sebastian_meeting_set_active(bool active) { meeting_active = active; }
+bool sebastian_meeting_is_active(void) { return meeting_active; }
+void sebastian_meeting_set_recordable(bool recordable) { meeting_recordable = recordable; }
+bool sebastian_meeting_is_recordable(void) { return meeting_recordable; }
+
 void sebastian_adopt_session_active(bool active) { session_active = active; }
 bool sebastian_adopt_session_is_active(void) { return session_active; }
 bool sebastian_adopt_consent_pending(void) { return consent_pending; }
@@ -234,6 +270,48 @@ static void handle_adopt(int sock, const struct sockaddr_in *peer, const cJSON *
     esp_restart();
 }
 
+// {"t":"cmd","n":nonce,"cmd":"record-start|record-stop","id":meetingId,"mac":HMAC(orgSecret, nonce.cmd.id)}
+// → {"t":"ok"} | {"t":"err","why":"auth|profile|busy|idle|json|nonce"} (design 14 §3.2, RM-06/07/54)
+static void handle_cmd(int sock, const struct sockaddr_in *peer, const cJSON *root) {
+    const cJSON *n = cJSON_GetObjectItem(root, "n");
+    const cJSON *cmd = cJSON_GetObjectItem(root, "cmd");
+    const cJSON *id = cJSON_GetObjectItem(root, "id");
+    const cJSON *mac = cJSON_GetObjectItem(root, "mac");
+    if (!cJSON_IsString(n) || !cJSON_IsString(cmd) || !cJSON_IsString(id) || !cJSON_IsString(mac) ||
+        strlen(id->valuestring) >= sizeof(meeting_id) || strlen(cmd->valuestring) >= sizeof(meeting_cmd)) {
+        send_err(sock, peer, "json");
+        return;
+    }
+    uint8_t got[NONCE_BYTES];
+    const bool fresh = nonce_issued_us != 0 && esp_timer_get_time() - nonce_issued_us < NONCE_TTL_US;
+    const bool same_peer = nonce_peer.sin_addr.s_addr == peer->sin_addr.s_addr;
+    if (!fresh || !same_peer || !hex_decode(n->valuestring, got, sizeof(got)) || memcmp(got, nonce, sizeof(nonce)) != 0) {
+        send_err(sock, peer, "nonce");
+        return;
+    }
+    nonce_issued_us = 0;
+    uint8_t expected[32];
+    char org[129] = {0};
+    char signed_text[64];
+    snprintf(signed_text, sizeof(signed_text), "%s.%s", cmd->valuestring, id->valuestring);
+    if (!hex_decode(mac->valuestring, expected, sizeof(expected)) || !sebastian_get_org_secret(org, sizeof(org)) ||
+        !hmac_matches(org, n->valuestring, signed_text, expected)) {
+        ESP_LOGW(TAG, "meeting order rejected: signature does not match the organization secret");
+        send_err(sock, peer, "auth");
+        return;
+    }
+    if (!meeting_recordable) { send_err(sock, peer, "profile"); return; }
+    const bool start = strcmp(cmd->valuestring, "record-start") == 0;
+    const bool stop = strcmp(cmd->valuestring, "record-stop") == 0;
+    const bool warn = strcmp(cmd->valuestring, "record-warn") == 0;
+    if (!start && !stop && !warn) { send_err(sock, peer, "json"); return; }
+    if (start && meeting_active) { send_err(sock, peer, "busy"); return; }
+    if ((stop || warn) && !meeting_active) { send_err(sock, peer, "idle"); return; }
+    sebastian_meeting_push(cmd->valuestring, id->valuestring, 'n');
+    ESP_LOGI(TAG, "meeting order %s (%s) accepted", cmd->valuestring, id->valuestring);
+    send_json(sock, peer, "{\"t\":\"ok\"}");
+}
+
 static void adopt_task(void *arg) {
     (void)arg;
     char *rx = heap_caps_malloc(RX_SIZE, MALLOC_CAP_SPIRAM);
@@ -258,6 +336,7 @@ static void adopt_task(void *arg) {
         if (!cJSON_IsString(t)) { cJSON_Delete(root); continue; }
         if (strcmp(t->valuestring, "hello") == 0) handle_hello(sock, &peer);
         else if (strcmp(t->valuestring, "adopt") == 0) handle_adopt(sock, &peer, root);
+        else if (strcmp(t->valuestring, "cmd") == 0) handle_cmd(sock, &peer, root);
         cJSON_Delete(root);
     }
 }
