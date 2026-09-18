@@ -64,6 +64,30 @@ func (s *stubMeetings) List(context.Context, meeting.Filter) ([]meeting.Meeting,
 	return []meeting.Meeting{s.m}, s.err
 }
 func (s *stubMeetings) Delete(context.Context, uuid.UUID) error { return s.err }
+func (s *stubMeetings) Patch(_ context.Context, _ uuid.UUID, speakers map[string]string, keep *bool) (meeting.Meeting, error) {
+	if s.err != nil {
+		return meeting.Meeting{}, s.err
+	}
+	if len(speakers) > 0 {
+		if s.m.Transcript == nil {
+			return meeting.Meeting{}, meeting.ErrInvalid
+		}
+		t := s.m.Transcript.Rename(speakers)
+		s.m.Transcript = &t
+	}
+	if keep != nil {
+		s.m.Keep = *keep
+	}
+	return s.m, nil
+}
+func (s *stubMeetings) Retranscribe(context.Context, uuid.UUID) (meeting.Meeting, error) {
+	s.reported = append(s.reported, "retranscribe")
+	return s.m, s.err
+}
+func (s *stubMeetings) Resummarize(context.Context, uuid.UUID) (meeting.Meeting, error) {
+	s.reported = append(s.reported, "resummarize")
+	return s.m, s.err
+}
 
 func meetingsHandler(m *stubMeetings) *Server {
 	return NewHandler(nil, nil, &stubDevices{}, m, stubReadiness{}, testLogger(), time.Second)
@@ -255,5 +279,60 @@ func TestAgentStopAndWarnRoutes(t *testing.T) {
 	stub.err = meeting.ErrNotFound
 	if res := post("/warn", "agent-secret", ""); res.StatusCode != 404 {
 		t.Fatalf("unknown meeting: %d", res.StatusCode)
+	}
+}
+
+// Block D at the edge: the transcript travels, downloads render, renames and
+// retries map to the spec's answers.
+func TestTranscriptDownloadsRenamesAndRetries(t *testing.T) {
+	id := uuid.New()
+	tr := meeting.Transcript{Diarized: true, Segments: []meeting.Segment{{Start: 0, End: 2.5, Speaker: "Hablante 1", Text: "Hola"}}}
+	tr.Text = tr.PlainText()
+	stub := &stubMeetings{m: meeting.Meeting{ID: id, State: meeting.StateReady, Transcript: &tr, Summary: &meeting.Summary{Text: "resumen", Model: "mini"}}}
+	h := meetingsHandler(stub)
+	ctx := context.Background()
+
+	got, _ := h.GetMeeting(ctx, GetMeetingRequestObject{MeetingId: id})
+	body := got.(GetMeeting200JSONResponse)
+	if body.Transcript == nil || body.Transcript.Segments[0].Speaker != "Hablante 1" || body.Summary == nil || body.Summary.Text != "resumen" || len(body.Summary.Agreements) != 0 {
+		t.Fatalf("detail: %+v", body)
+	}
+	srt := Srt
+	txt, _ := h.GetMeetingTranscript(ctx, GetMeetingTranscriptRequestObject{MeetingId: id})
+	if string(txt.(GetMeetingTranscript200TextResponse)) != "[00:00] Hablante 1: Hola\n" {
+		t.Fatalf("txt = %q", txt)
+	}
+	sub, _ := h.GetMeetingTranscript(ctx, GetMeetingTranscriptRequestObject{MeetingId: id, Params: GetMeetingTranscriptParams{Format: &srt}})
+	if !strings.HasPrefix(string(sub.(GetMeetingTranscript200TextResponse)), "1\n00:00:00,000 --> 00:00:02,500\nHablante 1: Hola") {
+		t.Fatalf("srt = %q", sub)
+	}
+	keep := true
+	names := map[string]string{"Hablante 1": "Ana"}
+	upd, _ := h.UpdateMeeting(ctx, UpdateMeetingRequestObject{MeetingId: id, Body: &MeetingPatch{Speakers: &names, Keep: &keep}})
+	u := upd.(UpdateMeeting200JSONResponse)
+	if !u.Keep || (*u.Transcript.Speakers)["Hablante 1"] != "Ana" || u.Transcript.Text != "Ana: Hola\n" {
+		t.Fatalf("patch: %+v", u)
+	}
+	stub.m.Transcript = nil
+	if res, _ := h.UpdateMeeting(ctx, UpdateMeetingRequestObject{MeetingId: id, Body: &MeetingPatch{Speakers: &names}}); fmt.Sprintf("%T", res) != "api.UpdateMeeting409ApplicationProblemPlusJSONResponse" {
+		t.Fatalf("rename without transcript: %T", res)
+	}
+	if res, _ := h.GetMeetingTranscript(ctx, GetMeetingTranscriptRequestObject{MeetingId: id}); fmt.Sprintf("%T", res) != "api.GetMeetingTranscript404ApplicationProblemPlusJSONResponse" {
+		t.Fatalf("download without transcript: %T", res)
+	}
+	if res, _ := h.TranscribeMeeting(ctx, TranscribeMeetingRequestObject{MeetingId: id}); fmt.Sprintf("%T", res) != "api.TranscribeMeeting202JSONResponse" {
+		t.Fatalf("retranscribe: %T", res)
+	}
+	stub.err = meeting.ErrInvalid
+	if res, _ := h.TranscribeMeeting(ctx, TranscribeMeetingRequestObject{MeetingId: id}); fmt.Sprintf("%T", res) != "api.TranscribeMeeting409ApplicationProblemPlusJSONResponse" {
+		t.Fatalf("retranscribe while busy: %T", res)
+	}
+	if res, _ := h.SummarizeMeeting(ctx, SummarizeMeetingRequestObject{MeetingId: id}); fmt.Sprintf("%T", res) != "api.SummarizeMeeting409ApplicationProblemPlusJSONResponse" {
+		t.Fatalf("summarize without transcript: %T", res)
+	}
+	stub.err = nil
+	q := "hola"
+	if _, err := h.ListMeetings(ctx, ListMeetingsRequestObject{Params: ListMeetingsParams{Q: &q}}); err != nil {
+		t.Fatal(err)
 	}
 }

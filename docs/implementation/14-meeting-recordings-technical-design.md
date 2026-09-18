@@ -231,12 +231,23 @@ Trampas encontradas en placa (19-09):
 
 ### Bloque D — transcripción, resumen y retención (server)
 
-Alcance: job de transcripción (`ffmpeg -c copy` a WebM en piezas ≤ 20 MB,
-`gpt-4o-transcribe-diarize` + `diarized_json`, `known_speaker_references`
-entre piezas, `whisper-1` sin hablantes como reserva), normalización de
-hablantes (`A, B…` → `Hablante 1, 2…`), resumen con el modelo mini vigente
-(`SEBASTIAN_SUMMARY_MODEL`, por defecto `gpt-5-mini`; se fija al implementar
-consultando `GET /v1/models`), reintentos, retención diaria, borrado.
+Alcance: job de transcripción (`internal/transcribe`: piezas ≤ 20 MB con
+`ffmpeg -c copy` **en Ogg** — el proveedor acepta Ogg desde 2026, así que
+no hay remultiplexado a WebM; una reunión que cabe entera va tal cual, sin
+`ffmpeg`), `gpt-4o-transcribe-diarize` + `diarized_json`,
+`known_speaker_references` entre piezas (clips WAV de 16 kHz de hasta 8 s
+por hablante, máximo 4), `whisper-1` sin hablantes como reserva si el modelo
+no existe, normalización de hablantes (`A, B…` → `Hablante 1, 2…`, puro),
+resumen estructurado (`json_schema`: idioma, resumen, acuerdos, acciones)
+con el mini vigente el 19-09-2026 según `GET /v1/models`:
+**`gpt-5.4-mini`** (`SEBASTIAN_SUMMARY_MODEL`); el modelo de diarización no
+devuelve idioma, lo aporta el resumen. Reintentos con backoff en 5xx/429; un
+4xx es definitivo y deja `no_transcript` con el motivo. Cola en memoria de un
+worker; al arrancar recoge lo que quedó en `transcribing`. Retención diaria
+(`SEBASTIAN_MEETING_RETENTION_DAYS`, 90; 0 desactiva) sobre estados finales
+sin `keep`. `ffmpeg` estático en la imagen distroless del server
+(`mwader/static-ffmpeg`). `OPENAI_API_KEY` en el secreto del server; sin
+clave se graba pero acaba en `no_transcript`.
 
 Tests (Go):
 - `T-D1` troceado (puro): duración y tamaño → lista de cortes ≤ 20 MB con solape de 2 s; una reunión de 40 min → una pieza.
@@ -245,6 +256,15 @@ Tests (Go):
 - `T-D4` resumen: el prompt lleva el idioma detectado; desactivado por control room → no se llama (RM-32).
 - `T-D5` retención (puro): qué reuniones caducan a fecha dada respetando `keep` (RM-45); el borrado deja fila con `deleted_at` y sin contenido (RM-46).
 - `T-D6` privacidad: la petición a OpenAI no lleva metadatos del control room ni el id del altavoz (RM-35).
+- Además: tabla de eventos del job (pieza única sin `ffmpeg`, hablantes que viajan entre piezas, rechazo → motivo, recuperación al arrancar), `ffmpeg` real (corte y clip, se salta si no está), txt/srt y renombrado (puros), el store con Postgres (jsonb, búsqueda `q`, `EndedBefore`).
+
+Hecho (19-09): las tres reuniones de prueba del bloque C quedaron `ready`
+con dos hablantes en español y resumen de `gpt-5.4-mini` en < 40 s cada
+una. API admin nueva: `PATCH …/meetings/{id}` (`speakers`, `keep`),
+`GET …/transcript?format=txt|srt`, `POST …/transcribe`, `POST …/summarize`,
+`?q=` en el listado; el detalle lleva `transcript`, `transcriptError` y
+`summary`. Pendiente de E: la fila `recordings` con `kind=meeting` no se
+crea — el listado del control room lee `/v1/admin/meetings` directamente.
 
 ### Bloque E — el control room
 
@@ -298,7 +318,8 @@ frente a los 3,5 de la spec: la diferencia es la transcripción por piezas
    con `…/warn` — el server no decodifica Opus. La placa solo avisa con el
    anillo cuando recibe `record-warn` (LAN o `X-Meeting: warn:<id>`).
 6. Modelo de transcripción `gpt-4o-transcribe-diarize` (reserva `whisper-1`);
-   modelo de resumen configurable, por defecto el mini vigente.
+   modelo de resumen configurable, por defecto el mini vigente:
+   `gpt-5.4-mini` (fijado el 19-09-2026).
 
 ## 7. Abierto (se decide en el spike 0 o al implementar)
 

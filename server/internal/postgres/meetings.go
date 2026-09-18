@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -15,23 +16,26 @@ import (
 type meetingModel struct {
 	bun.BaseModel `bun:"table:meetings"`
 
-	ID          uuid.UUID  `bun:"id,pk"`
-	DeviceID    string     `bun:"device_id"`
-	SessionID   *uuid.UUID `bun:"session_id"`
-	State       string     `bun:"state"`
-	RequestedBy string     `bun:"requested_by"`
-	RequestedAt time.Time  `bun:"requested_at"`
-	StartedAt   *time.Time `bun:"started_at"`
-	EndedAt     *time.Time `bun:"ended_at"`
-	EndReason   *string    `bun:"end_reason"`
-	AudioPath   *string    `bun:"audio_path"`
-	AudioBytes  int64      `bun:"audio_bytes"`
-	LastAudioAt *time.Time `bun:"last_audio_at"`
-	DurationMs  int64      `bun:"duration_ms"`
-	Keep        bool       `bun:"keep"`
-	DeletedAt   *time.Time `bun:"deleted_at"`
-	CreatedAt   time.Time  `bun:"created_at"`
-	UpdatedAt   time.Time  `bun:"updated_at"`
+	ID              uuid.UUID       `bun:"id,pk"`
+	DeviceID        string          `bun:"device_id"`
+	SessionID       *uuid.UUID      `bun:"session_id"`
+	State           string          `bun:"state"`
+	RequestedBy     string          `bun:"requested_by"`
+	RequestedAt     time.Time       `bun:"requested_at"`
+	StartedAt       *time.Time      `bun:"started_at"`
+	EndedAt         *time.Time      `bun:"ended_at"`
+	EndReason       *string         `bun:"end_reason"`
+	AudioPath       *string         `bun:"audio_path"`
+	AudioBytes      int64           `bun:"audio_bytes"`
+	LastAudioAt     *time.Time      `bun:"last_audio_at"`
+	DurationMs      int64           `bun:"duration_ms"`
+	Keep            bool            `bun:"keep"`
+	DeletedAt       *time.Time      `bun:"deleted_at"`
+	Transcript      json.RawMessage `bun:"transcript,type:jsonb,nullzero"`
+	TranscriptError *string         `bun:"transcript_error"`
+	Summary         json.RawMessage `bun:"summary,type:jsonb,nullzero"`
+	CreatedAt       time.Time       `bun:"created_at"`
+	UpdatedAt       time.Time       `bun:"updated_at"`
 }
 
 // MeetingStore is the meetings side of the store (meeting.Store).
@@ -46,19 +50,45 @@ func meetingToModel(m meeting.Meeting) meetingModel {
 		StartedAt: optTime(m.StartedAt), EndedAt: optTime(m.EndedAt), EndReason: optStr(string(m.EndReason)),
 		AudioPath: optStr(m.AudioPath), AudioBytes: m.AudioBytes, LastAudioAt: optTime(m.LastAudioAt),
 		DurationMs: m.DurationMs, Keep: m.Keep, DeletedAt: optTime(m.DeletedAt),
+		Transcript: optJSON(m.Transcript), TranscriptError: optStr(m.TranscriptError), Summary: optJSON(m.Summary),
 		CreatedAt: m.CreatedAt, UpdatedAt: m.UpdatedAt,
 	}
 }
 
+func optJSON[T any](v *T) json.RawMessage {
+	if v == nil {
+		return nil
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		panic(fmt.Sprintf("marshal meeting content: %v", err))
+	}
+	return raw
+}
+
 func (r meetingModel) toDomain() meeting.Meeting {
-	return meeting.Meeting{
+	m := meeting.Meeting{
 		ID: r.ID, DeviceID: r.DeviceID, SessionID: r.SessionID, State: meeting.State(r.State),
 		RequestedBy: meeting.Origin(r.RequestedBy), RequestedAt: r.RequestedAt,
 		StartedAt: derefTime(r.StartedAt), EndedAt: derefTime(r.EndedAt), EndReason: meeting.EndReason(derefStr(r.EndReason)),
 		AudioPath: derefStr(r.AudioPath), AudioBytes: r.AudioBytes, LastAudioAt: derefTime(r.LastAudioAt),
 		DurationMs: r.DurationMs, Keep: r.Keep, DeletedAt: derefTime(r.DeletedAt),
-		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
+		TranscriptError: derefStr(r.TranscriptError),
+		CreatedAt:       r.CreatedAt, UpdatedAt: r.UpdatedAt,
 	}
+	if len(r.Transcript) > 0 {
+		var t meeting.Transcript
+		if json.Unmarshal(r.Transcript, &t) == nil {
+			m.Transcript = &t
+		}
+	}
+	if len(r.Summary) > 0 {
+		var sum meeting.Summary
+		if json.Unmarshal(r.Summary, &sum) == nil {
+			m.Summary = &sum
+		}
+	}
+	return m
 }
 
 func optTime(t time.Time) *time.Time {
@@ -173,9 +203,28 @@ func (s *MeetingStore) List(ctx context.Context, f meeting.Filter) ([]meeting.Me
 	if f.State != "" {
 		q = q.Where("state = ?", string(f.State))
 	}
+	if f.Query != "" {
+		like := "%" + f.Query + "%"
+		q = q.WhereGroup(" AND ", func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.Where("transcript->>'text' ILIKE ?", like).WhereOr("summary->>'text' ILIKE ?", like)
+		})
+	}
 	var rows []meetingModel
 	if err := q.Scan(ctx, &rows); err != nil {
 		return nil, fmt.Errorf("list meetings: %w", err)
+	}
+	return meetingsToDomain(rows), nil
+}
+
+func (s *MeetingStore) EndedBefore(ctx context.Context, before time.Time, limit int) ([]meeting.Meeting, error) {
+	var rows []meetingModel
+	err := s.db.NewSelect().Model(&rows).
+		Where("state IN (?)", bun.In([]string{"ready", "no_transcript", "cut"})).
+		Where("keep = false").Where("deleted_at IS NULL").
+		Where("coalesce(ended_at, requested_at) < ?", before).
+		OrderExpr("coalesce(ended_at, requested_at)").Limit(limit).Scan(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("meetings ended before: %w", err)
 	}
 	return meetingsToDomain(rows), nil
 }

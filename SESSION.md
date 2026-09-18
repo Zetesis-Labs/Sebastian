@@ -367,3 +367,22 @@ miraba el anillo). `68ee8f4d8dd4` y `e072a1f895f4` siguen con firmware anterior.
   conexión; `_retry_connection = False`.
 - Siguiente: bloque D (transcripción por piezas WebM ≤ 20 MB con
   `gpt-4o-transcribe-diarize`, resumen, retención, borrado) y E (control room).
+
+## Reuniones, bloque D (madrugada del 19) — misma rama
+
+- `server/internal/transcribe`: `Pieces`/`Merge`/`KnownSpeakers` puros,
+  cliente OpenAI (multipart `diarized_json`, reserva `whisper-1`, resumen
+  `json_schema` con `gpt-5.4-mini`, reintentos 5xx/429, 4xx definitivo),
+  `Job` de un worker con recuperación al arrancar, `FFmpeg` (corte Ogg
+  `-c copy`, clips WAV para `known_speaker_references`). Dominio:
+  `meeting.Transcript`/`Summary`, `Rename`, `TXT`/`SRT`, `Expired` (retención).
+  Servicio: `Transcribed/TranscriptFailed/Summarized/Patch/Resummarize/Retain`.
+  Store: jsonb, `q` ILIKE, `EndedBefore`. API: PATCH, transcript txt/srt,
+  transcribe, summarize, `q`. Chart: `retentionDays`, `summary`,
+  `summaryModel`, `OPENAI_API_KEY` opcional. Dockerfile: ffmpeg estático.
+- Hallazgo: OpenAI ya acepta Ogg → sin remultiplexado a WebM.
+- Probado: al relanzar el server, el job transcribió las 3 reuniones de C
+  (2 hablantes, es, resúmenes). Env local `server.env` lleva `OPENAI_API_KEY`.
+- Siguiente: bloque E (control room): lista/ficha de reuniones, reproductor
+  + transcripción sincronizada, txt/srt, renombrar, buscar, parar/borrar,
+  botones en la ficha del altavoz, `meetingSilenceMin`/`meetingMaxHours`.

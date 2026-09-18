@@ -31,6 +31,9 @@ type MeetingService interface {
 	Get(ctx context.Context, id uuid.UUID) (meeting.Meeting, error)
 	List(ctx context.Context, f meeting.Filter) ([]meeting.Meeting, error)
 	Delete(ctx context.Context, id uuid.UUID) error
+	Patch(ctx context.Context, id uuid.UUID, speakers map[string]string, keep *bool) (meeting.Meeting, error)
+	Retranscribe(ctx context.Context, id uuid.UUID) (meeting.Meeting, error)
+	Resummarize(ctx context.Context, id uuid.UUID) (meeting.Meeting, error)
 }
 
 func (h *Server) StartMeeting(ctx context.Context, request StartMeetingRequestObject) (StartMeetingResponseObject, error) {
@@ -97,6 +100,9 @@ func (h *Server) ListMeetings(ctx context.Context, request ListMeetingsRequestOb
 	if request.Params.State != nil {
 		f.State = meeting.State(*request.Params.State)
 	}
+	if request.Params.Q != nil {
+		f.Query = strings.TrimSpace(*request.Params.Q)
+	}
 	if request.Params.Limit != nil {
 		f.Limit = max(1, min(*request.Params.Limit, 200))
 	}
@@ -121,6 +127,74 @@ func (h *Server) GetMeeting(ctx context.Context, request GetMeetingRequestObject
 		return GetMeeting503ApplicationProblemPlusJSONResponse{UnavailableApplicationProblemPlusJSONResponse: h.unavailable(ctx, "get meeting failed", err, "meeting_id", request.MeetingId)}, nil
 	}
 	return GetMeeting200JSONResponse(meetingResponse(m, h.now())), nil
+}
+
+// UpdateMeeting renames speakers and flags the meeting to keep (RM-31, RM-45).
+func (h *Server) UpdateMeeting(ctx context.Context, request UpdateMeetingRequestObject) (UpdateMeetingResponseObject, error) {
+	var speakers map[string]string
+	var keep *bool
+	if request.Body != nil {
+		if request.Body.Speakers != nil {
+			speakers = *request.Body.Speakers
+		}
+		keep = request.Body.Keep
+	}
+	m, err := h.meetings.Patch(ctx, request.MeetingId, speakers, keep)
+	switch {
+	case errors.Is(err, meeting.ErrNotFound):
+		return UpdateMeeting404ApplicationProblemPlusJSONResponse{MeetingNotFoundApplicationProblemPlusJSONResponse: meetingNotFound()}, nil
+	case errors.Is(err, meeting.ErrInvalid):
+		return UpdateMeeting409ApplicationProblemPlusJSONResponse(problem(409, "No transcript", "There is no transcript whose speakers could be renamed.")), nil
+	case err != nil:
+		return UpdateMeeting503ApplicationProblemPlusJSONResponse{UnavailableApplicationProblemPlusJSONResponse: h.unavailable(ctx, "update meeting failed", err, "meeting_id", request.MeetingId)}, nil
+	}
+	return UpdateMeeting200JSONResponse(meetingResponse(m, h.now())), nil
+}
+
+// GetMeetingTranscript is the txt/srt download (RM-41).
+func (h *Server) GetMeetingTranscript(ctx context.Context, request GetMeetingTranscriptRequestObject) (GetMeetingTranscriptResponseObject, error) {
+	m, err := h.meetings.Get(ctx, request.MeetingId)
+	if errors.Is(err, meeting.ErrNotFound) {
+		return GetMeetingTranscript404ApplicationProblemPlusJSONResponse{MeetingNotFoundApplicationProblemPlusJSONResponse: meetingNotFound()}, nil
+	}
+	if err != nil {
+		return GetMeetingTranscript503ApplicationProblemPlusJSONResponse{UnavailableApplicationProblemPlusJSONResponse: h.unavailable(ctx, "get meeting failed", err, "meeting_id", request.MeetingId)}, nil
+	}
+	if m.Transcript == nil {
+		return GetMeetingTranscript404ApplicationProblemPlusJSONResponse{MeetingNotFoundApplicationProblemPlusJSONResponse: MeetingNotFoundApplicationProblemPlusJSONResponse(problem(404, "No transcript", "The meeting has no transcript."))}, nil
+	}
+	if request.Params.Format != nil && *request.Params.Format == Srt {
+		return GetMeetingTranscript200TextResponse(m.Transcript.SRT()), nil
+	}
+	return GetMeetingTranscript200TextResponse(m.Transcript.TXT()), nil
+}
+
+// TranscribeMeeting queues the transcription again (RM-33).
+func (h *Server) TranscribeMeeting(ctx context.Context, request TranscribeMeetingRequestObject) (TranscribeMeetingResponseObject, error) {
+	m, err := h.meetings.Retranscribe(ctx, request.MeetingId)
+	switch {
+	case errors.Is(err, meeting.ErrNotFound):
+		return TranscribeMeeting404ApplicationProblemPlusJSONResponse{MeetingNotFoundApplicationProblemPlusJSONResponse: meetingNotFound()}, nil
+	case errors.Is(err, meeting.ErrInvalid):
+		return TranscribeMeeting409ApplicationProblemPlusJSONResponse(problem(409, "Cannot transcribe now", "The meeting is in progress, already transcribing, or has no audio.")), nil
+	case err != nil:
+		return TranscribeMeeting503ApplicationProblemPlusJSONResponse{UnavailableApplicationProblemPlusJSONResponse: h.unavailable(ctx, "transcribe meeting failed", err, "meeting_id", request.MeetingId)}, nil
+	}
+	return TranscribeMeeting202JSONResponse(meetingResponse(m, h.now())), nil
+}
+
+// SummarizeMeeting regenerates the digest (RM-32).
+func (h *Server) SummarizeMeeting(ctx context.Context, request SummarizeMeetingRequestObject) (SummarizeMeetingResponseObject, error) {
+	m, err := h.meetings.Resummarize(ctx, request.MeetingId)
+	switch {
+	case errors.Is(err, meeting.ErrNotFound):
+		return SummarizeMeeting404ApplicationProblemPlusJSONResponse{MeetingNotFoundApplicationProblemPlusJSONResponse: meetingNotFound()}, nil
+	case errors.Is(err, meeting.ErrInvalid):
+		return SummarizeMeeting409ApplicationProblemPlusJSONResponse(problem(409, "No transcript", "There is no transcript to summarize.")), nil
+	case err != nil:
+		return SummarizeMeeting503ApplicationProblemPlusJSONResponse{UnavailableApplicationProblemPlusJSONResponse: h.unavailable(ctx, "summarize meeting failed", err, "meeting_id", request.MeetingId)}, nil
+	}
+	return SummarizeMeeting202JSONResponse(meetingResponse(m, h.now())), nil
 }
 
 func (h *Server) DeleteMeeting(ctx context.Context, request DeleteMeetingRequestObject) (DeleteMeetingResponseObject, error) {
@@ -172,7 +246,43 @@ func meetingResponse(m meeting.Meeting, now time.Time) Meeting {
 		reason := MeetingEndReason(m.EndReason)
 		out.EndReason = &reason
 	}
+	if m.TranscriptError != "" {
+		out.TranscriptError = &m.TranscriptError
+	}
+	if m.Transcript != nil {
+		out.Transcript = transcriptResponse(*m.Transcript)
+	}
+	if m.Summary != nil {
+		sum := *m.Summary
+		out.Summary = &MeetingSummary{Text: sum.Text, Agreements: orEmpty(sum.Agreements), Actions: orEmpty(sum.Actions), Model: sum.Model, GeneratedAt: sum.GeneratedAt, Language: optionalString(sum.Language)}
+	}
 	return out
+}
+
+func transcriptResponse(t meeting.Transcript) *MeetingTranscript {
+	out := &MeetingTranscript{Text: t.Text, Diarized: t.Diarized, Language: optionalString(t.Language), Model: optionalString(t.Model), Segments: make([]MeetingSegment, 0, len(t.Segments))}
+	for _, s := range t.Segments {
+		out.Segments = append(out.Segments, MeetingSegment{Start: s.Start, End: s.End, Speaker: s.Speaker, Text: s.Text})
+	}
+	if len(t.Speakers) > 0 {
+		speakers := t.Speakers
+		out.Speakers = &speakers
+	}
+	return out
+}
+
+func optionalString(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+func orEmpty(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
 }
 
 // ── raw audio endpoints (outside the generated router: streaming and Range) ──

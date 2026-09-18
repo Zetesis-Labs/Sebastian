@@ -114,9 +114,14 @@ server:
   # Meeting recordings (docs/implementation/14): the audio lives on this
   # volume; SEBASTIAN_AGENT_SECRET (key in existingSecret) lets the agent
   # stream it in.
+  # OPENAI_API_KEY (key in existingSecret) transcribes and summarizes them;
+  # without it meetings record but end in no_transcript.
   meetings:
     dir: /data/meetings
     maxDuration: 3h
+    retentionDays: 90       # RM-45; 0 keeps everything
+    summary: true           # RM-32
+    summaryModel: gpt-5.4-mini
     persistence:
       enabled: true
       size: 5Gi

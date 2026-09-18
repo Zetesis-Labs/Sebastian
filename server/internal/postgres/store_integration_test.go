@@ -448,6 +448,26 @@ func TestMeetingLifecycleLeavesDomainEventsAndKeepsTheTrace(t *testing.T) {
 	if err := meetings.Update(ctx, m, "meeting.ended"); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
+	// Block D: transcript, digest and the failure reason round-trip as JSON.
+	tr := meeting.Transcript{Language: "es", Diarized: true, Segments: []meeting.Segment{{Start: 0, End: 1.5, Speaker: "Hablante 1", Text: "Hola"}}, Speakers: map[string]string{"Hablante 1": "Ana"}}
+	tr.Text = tr.PlainText()
+	m.Transcript, m.Summary, m.TranscriptError = &tr, &meeting.Summary{Text: "resumen", Agreements: []string{}, Actions: []string{"x"}, Model: "mini", GeneratedAt: now}, "was: timeout"
+	if err := meetings.Update(ctx, m, "meeting.transcribed"); err != nil {
+		t.Fatalf("Update transcript: %v", err)
+	}
+	got, err = meetings.Get(ctx, m.ID)
+	if err != nil || got.Transcript == nil || got.Transcript.Segments[0].Speaker != "Hablante 1" || got.Transcript.Speakers["Hablante 1"] != "Ana" || got.Summary == nil || got.Summary.Actions[0] != "x" || got.TranscriptError != "was: timeout" {
+		t.Fatalf("transcript round-trip: %+v %+v %v", got.Transcript, got.Summary, err)
+	}
+	if found, _ := meetings.List(ctx, meeting.Filter{DeviceID: deviceID, Query: "hola", Limit: 5}); len(found) != 1 {
+		t.Fatalf("search in the transcript (RM-42): %d", len(found))
+	}
+	if found, _ := meetings.List(ctx, meeting.Filter{DeviceID: deviceID, Query: "nada", Limit: 5}); len(found) != 0 {
+		t.Fatalf("search miss: %d", len(found))
+	}
+	if expired, _ := meetings.EndedBefore(ctx, now.Add(2*time.Minute), 10); len(expired) != 1 || expired[0].ID != m.ID {
+		t.Fatalf("EndedBefore: %+v", expired)
+	}
 	if _, active, _ := meetings.Active(ctx, deviceID); active {
 		t.Fatal("a cut meeting frees the unit")
 	}
@@ -471,7 +491,7 @@ func TestMeetingLifecycleLeavesDomainEventsAndKeepsTheTrace(t *testing.T) {
 		WHERE d.aggregate_type = 'meeting' AND d.aggregate_id = ? ORDER BY d.occurred_at, o.subject`, m.ID.String()).Scan(ctx, &subjects); err != nil {
 		t.Fatalf("list events: %v", err)
 	}
-	want := "evt.sebastian.v1.meeting.requested,evt.sebastian.v1.meeting.started,evt.sebastian.v1.meeting.ended,evt.sebastian.v1.meeting.deleted"
+	want := "evt.sebastian.v1.meeting.requested,evt.sebastian.v1.meeting.started,evt.sebastian.v1.meeting.ended,evt.sebastian.v1.meeting.transcribed,evt.sebastian.v1.meeting.deleted"
 	if strings.Join(subjects, ",") != want {
 		t.Fatalf("outbox subjects = %v", subjects)
 	}

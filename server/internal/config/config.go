@@ -26,6 +26,13 @@ type Config struct {
 	AgentSecret         string        // shared with the agent for its server-side calls (meeting audio)
 	MeetingsDir         string        // where meeting audio lives
 	MeetingMaxDuration  time.Duration // RM-24 default
+	MeetingRetention    int           // days (RM-45); 0 disables
+	MeetingSummary      bool          // RM-32, per control room
+	OpenAIAPIKey        string        // RM-34; empty = meetings end in no_transcript
+	OpenAIBaseURL       string
+	TranscribeModel     string
+	SummaryModel        string
+	FFmpeg              string
 	DiscoveryEnabled    bool
 	ShutdownTimeout     time.Duration
 	DatabasePingTimeout time.Duration
@@ -58,6 +65,12 @@ func Load() (Config, error) {
 		AgentSecret:         strings.TrimSpace(os.Getenv("SEBASTIAN_AGENT_SECRET")),
 		MeetingsDir:         envOr("SEBASTIAN_MEETINGS_DIR", "meetings"),
 		MeetingMaxDuration:  3 * time.Hour,
+		MeetingRetention:    90,
+		OpenAIAPIKey:        strings.TrimSpace(os.Getenv("OPENAI_API_KEY")),
+		OpenAIBaseURL:       strings.TrimRight(envOr("OPENAI_BASE_URL", "https://api.openai.com/v1"), "/"),
+		TranscribeModel:     envOr("SEBASTIAN_TRANSCRIBE_MODEL", "gpt-4o-transcribe-diarize"),
+		SummaryModel:        envOr("SEBASTIAN_SUMMARY_MODEL", "gpt-5.4-mini"),
+		FFmpeg:              envOr("SEBASTIAN_FFMPEG", "ffmpeg"),
 		TokenTTL:            time.Hour,
 		ShutdownTimeout:     10 * time.Second,
 		DatabasePingTimeout: 2 * time.Second,
@@ -77,6 +90,12 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	if cfg.DiscoveryEnabled, err = boolean("SEBASTIAN_DISCOVERY_ENABLED", true); err != nil {
+		return Config{}, err
+	}
+	if cfg.MeetingSummary, err = boolean("SEBASTIAN_MEETING_SUMMARY", true); err != nil {
+		return Config{}, err
+	}
+	if cfg.MeetingRetention, err = integer("SEBASTIAN_MEETING_RETENTION_DAYS", cfg.MeetingRetention); err != nil {
 		return Config{}, err
 	}
 	if cfg.SyslogPort, err = integer("SEBASTIAN_SYSLOG_PORT", cfg.SyslogPort); err != nil {

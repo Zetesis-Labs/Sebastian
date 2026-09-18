@@ -88,6 +88,18 @@ func (f *fakeStore) List(_ context.Context, flt Filter) ([]Meeting, error) {
 	return out, nil
 }
 
+func (f *fakeStore) EndedBefore(_ context.Context, before time.Time, _ int) ([]Meeting, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []Meeting
+	for _, m := range f.rows {
+		if Final(m.State) && !m.Keep && m.DeletedAt.IsZero() && m.EndedAt.Before(before) {
+			out = append(out, m)
+		}
+	}
+	return out, nil
+}
+
 func (f *fakeStore) Drop(_ context.Context, id uuid.UUID) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -552,5 +564,69 @@ func TestAStopDuringTheUploadIsNotUndoneByIt(t *testing.T) {
 	got, _ := h.s.Get(ctx, m.ID)
 	if got.State != StateTranscribing || got.EndReason != EndDashboard || got.AudioBytes != 21 {
 		t.Fatalf("the stop must survive the upload: %+v", got)
+	}
+}
+
+// Block D at the service edge: transcript, digest, renames, keep, retention.
+func TestTranscriptDigestRenameAndRetention(t *testing.T) {
+	h := newHarness(t)
+	m := h.started(t)
+	ctx := context.Background()
+	h.advance(time.Minute)
+	if _, err := h.s.Stop(ctx, m.ID, EndDashboard); err != nil {
+		t.Fatal(err)
+	}
+	h.cmd.wait(t)
+	if _, err := h.s.Audio(ctx, m.ID, 0, strings.NewReader("OggS")); err != nil {
+		t.Fatal(err)
+	}
+	m, _ = h.s.Get(ctx, m.ID)
+	if m.State != StateTranscribing {
+		t.Fatalf("state = %s", m.State)
+	}
+	tr := Transcript{Diarized: true, Segments: []Segment{{Start: 0, End: 2, Speaker: "Hablante 1", Text: "Hola"}}}
+	tr.Text = tr.PlainText()
+	if _, err := h.s.Transcribed(ctx, m, tr); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := h.s.Get(ctx, m.ID)
+	if got.State != StateReady || got.Transcript == nil || got.Transcript.Text != "Hablante 1: Hola\n" {
+		t.Fatalf("transcribed: %+v", got)
+	}
+	if _, err := h.s.Summarized(ctx, got, Summary{Language: "es", Text: "resumen"}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = h.s.Get(ctx, m.ID)
+	if got.Summary == nil || got.Summary.Text != "resumen" || got.Transcript.Language != "es" {
+		t.Fatalf("summarized: %+v %+v", got.Summary, got.Transcript)
+	}
+	keep := true
+	got, err := h.s.Patch(ctx, m.ID, map[string]string{"Hablante 1": "Ana"}, &keep)
+	if err != nil || !got.Keep || got.Transcript.SpeakerName("Hablante 1") != "Ana" || got.Transcript.Text != "Ana: Hola\n" {
+		t.Fatalf("patch: %+v %v", got, err)
+	}
+	if strings.Join(h.store.events, ",") != "meeting.requested,meeting.started,meeting.ended,meeting.transcribed" {
+		t.Fatalf("events = %v", h.store.events)
+	}
+	var summaries []Meeting
+	h.s.OnSummarize = func(m Meeting) { summaries = append(summaries, m) }
+	if _, err := h.s.Resummarize(ctx, m.ID); err != nil || len(summaries) != 1 {
+		t.Fatalf("resummarize: %v %d", err, len(summaries))
+	}
+	// Retention: kept → survives; unkept → gone after 90 days (RM-45).
+	h.advance(91 * 24 * time.Hour)
+	if n := h.s.Retain(ctx, 90); n != 0 {
+		t.Fatalf("a kept meeting survives retention: deleted %d", n)
+	}
+	keep = false
+	if _, err := h.s.Patch(ctx, m.ID, nil, &keep); err != nil {
+		t.Fatal(err)
+	}
+	if n := h.s.Retain(ctx, 90); n != 1 {
+		t.Fatalf("retention must delete it: %d", n)
+	}
+	got, _ = h.s.Get(ctx, m.ID)
+	if got.DeletedAt.IsZero() {
+		t.Fatal("deleted keeps the trace (RM-46)")
 	}
 }
