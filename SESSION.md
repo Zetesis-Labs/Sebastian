@@ -159,3 +159,29 @@ misma imagen que el firmware manda por I2C). Script en el scratchpad
 version: 1.0.7 — no DFU needed`, `AEC config applied & verified`. Diagnóstico
 rápido para la próxima placa: si el anillo se enciende y sigue al sonido pero el
 scan no ve `0x2C`, es esto.
+
+## Re-provisioning desde la web sin reteclear (mañana del 18)
+
+Rubén: "lo ideal sería enchufar el dispositivo a la web, darle a *load* y que
+los datos del device salgan en la interfaz". Hecho y probado en la unidad `68:ee`:
+
+- Firmware: `sebastian.config.get` → `sebastian.config.dump {json}` con lo que
+  hay en NVS (sin la contraseña: `wifi.passwordSet`), y **la ventana USB se
+  mantiene abierta 120 s** tras cada `get` (`HOLD_AFTER_GET_US`,
+  `sebastian_provisioning_hold()` consultado en `app.zig` antes de ceder el PHY
+  a TinyUSB). Una config sin `wifi.password` conserva la guardada.
+- Web (`web-installer`): botón **Load from device** en el paso 3, el puerto se
+  reutiliza entre carga y envío (cuenta atrás visible), el campo de contraseña
+  queda **bloqueado** ("Guardada en la placa") y editarla es pulsar **Cambiar**.
+  Campos nuevos de syslog (IP/puerto): el firmware ya los guardaba, el
+  formulario no los enviaba.
+
+Dos trampas que costaron una vuelta cada una:
+
+- **`usb_serial_jtag_write_bytes` no llega al host en esta placa** mientras la
+  consola secundaria (polling) usa el mismo FIFO; el ack `sebastian.config.ok`
+  solo llegaba porque el `ESP_LOGI` lo repetía. Las respuestas salen ahora por
+  `stdout` (`printf` + `fflush`), que es lo que demostrablemente llega.
+- La respuesta llega **troceada por USB**: una regex sobre el buffer acepta la
+  primera `}` (fin del bloque `wifi`) como fin del JSON. Solo vale una línea
+  completa terminada en salto de línea que parsee.

@@ -347,6 +347,8 @@ pub extern fn lk_example_network_connect() bool;
 // provisioned creds, falling back to the compiled default.
 pub extern fn sebastian_net_connect() bool;
 pub extern fn sebastian_provisioning_start() void;
+/// True while a `sebastian.config.get` keeps the USB-serial window open (120 s).
+pub extern fn sebastian_provisioning_hold() bool;
 // Mirror ESP_LOG to a remote UDP syslog server (config in NVS). Call after the
 // network is up; no-op if syslog_ip is unprovisioned. See syslog_sink.c.
 pub extern fn sebastian_syslog_start() void;

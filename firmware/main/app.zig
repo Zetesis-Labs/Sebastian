@@ -730,6 +730,13 @@ export fn app_main() callconv(.c) void {
         @divTrunc(c.esp_timer_get_time() - boot_us, 1000),
     ));
     if (elapsed < USB_PROVISION_WINDOW_MS) c.vTaskDelay(USB_PROVISION_WINDOW_MS - elapsed);
+    // The installer's "load from device" holds the window so the edited config
+    // can come back on the same port (provisioning.c, 120 s after each get).
+    if (c.sebastian_provisioning_hold()) {
+        log.info("USB-serial window held open by the installer", .{});
+        while (c.sebastian_provisioning_hold()) c.vTaskDelay(100);
+        log.info("USB-serial window released", .{});
+    }
     _ = usb_mic.initUac();
     if (mic_src.create(board.recordHandle())) |src| usb_mic.bindMicSource(src);
     logHeap("post-uac");

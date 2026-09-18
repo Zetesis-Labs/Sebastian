@@ -10,12 +10,15 @@
 // The esp_wifi/nvs/cJSON/usb_serial_jtag APIs are far easier in C than through
 // hand-written Zig bindings, so this lives here like token_http.c.
 
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_system.h"
+#include "esp_timer.h"
 #include "esp_wifi.h"
 #include "nvs.h"
 #include "nvs_flash.h"
@@ -33,6 +36,12 @@ static const char *TAG = "provisioning";
 #define PROV_PREFIX "sebastian.config.v1 "
 #define PROV_SCHEMA "sebastian.config.v1"
 #define PROFILE_PREFIX "sebastian.profile.set "
+#define GET_CMD "sebastian.config.get"
+#define DUMP_PREFIX "sebastian.config.dump "
+// A config.get keeps the USB-serial window open this long so the installer can
+// show the stored config, let the operator edit it and send it back on the same
+// port (see app.zig: the window normally closes 5 s after boot).
+#define HOLD_AFTER_GET_US (120LL * 1000 * 1000)
 
 #define NET_CONNECTED (1 << 0)
 #define NET_FAILED (1 << 1)
@@ -41,15 +50,21 @@ static const char *TAG = "provisioning";
 static EventGroupHandle_t net_events;
 static int retry_attempt;
 static bool usj_ready; // usb_serial_jtag driver installed (also used for replies)
+static int64_t hold_until_us;
 
-// ── Replies go to USB-Serial-JTAG (where the installer listens), not the UART
-//    primary console, so log noise and the ack/err lines stay on the right pipe.
+bool sebastian_provisioning_hold(void) {
+    return esp_timer_get_time() < hold_until_us;
+}
+
+// ── Replies go out through stdout, i.e. the console — whose secondary output is
+//    the USB-Serial-JTAG the installer listens on. Writing through the driver
+//    (usb_serial_jtag_write_bytes) never reached the host on this board while the
+//    console's polling writer owns the same FIFO; stdout is what demonstrably
+//    arrives (2026-09-18). The log echo is truncated: the dump is ~300 bytes.
 static void reply(const char *line) {
-    if (usj_ready) {
-        usb_serial_jtag_write_bytes((const uint8_t *)line, strlen(line), pdMS_TO_TICKS(100));
-        usb_serial_jtag_write_bytes((const uint8_t *)"\n", 1, pdMS_TO_TICKS(100));
-    }
-    ESP_LOGI(TAG, "%s", line);
+    printf("%s\n", line);
+    fflush(stdout);
+    ESP_LOGI(TAG, "reply: %.*s", 32, line);
 }
 
 // ── NVS ──────────────────────────────────────────────────────────────────────
@@ -266,7 +281,92 @@ static void handle_profile_set(const char *json) {
     esp_restart();
 }
 
+// Read back what is stored in NVS, in the sebastian.config.v1 shape the installer
+// edits, so an already provisioned unit can be re-provisioned without retyping
+// everything. Only keys present in NVS are emitted (the installer merges them
+// over its defaults). The WiFi password never leaves the device: `passwordSet`
+// tells the installer there is one, and a config without `wifi.password` keeps it.
+static void dump_str(nvs_handle_t h, cJSON *obj, const char *json_key, const char *nvs_key) {
+    char buf[256];
+    size_t len = sizeof(buf);
+    if (nvs_get_str(h, nvs_key, buf, &len) == ESP_OK) cJSON_AddStringToObject(obj, json_key, buf);
+}
+
+static void dump_bool(nvs_handle_t h, cJSON *obj, const char *json_key, const char *nvs_key) {
+    uint8_t v;
+    if (nvs_get_u8(h, nvs_key, &v) == ESP_OK) cJSON_AddBoolToObject(obj, json_key, v != 0);
+}
+
+static void dump_i32(nvs_handle_t h, cJSON *obj, const char *json_key, const char *nvs_key) {
+    int32_t v;
+    if (nvs_get_i32(h, nvs_key, &v) == ESP_OK) cJSON_AddNumberToObject(obj, json_key, v);
+}
+
+static void handle_config_get(void) {
+    hold_until_us = esp_timer_get_time() + HOLD_AFTER_GET_US;
+    nvs_ensure_init();
+    nvs_handle_t h;
+    esp_err_t oe = nvs_open(NVS_NS, NVS_READONLY, &h);
+    if (oe != ESP_OK && oe != ESP_ERR_NVS_NOT_FOUND) {
+        ESP_LOGE(TAG, "dump: open=%s", esp_err_to_name(oe));
+        reply("sebastian.config.err nvs_open");
+        return;
+    }
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "schema", PROV_SCHEMA);
+    cJSON_AddBoolToObject(root, "provisioned", false);
+    if (oe == ESP_OK) {
+        cJSON *wifi = cJSON_AddObjectToObject(root, "wifi");
+        dump_str(h, wifi, "ssid", "wifi_ssid");
+        char pass[65];
+        size_t plen = sizeof(pass);
+        bool has_pass = nvs_get_str(h, "wifi_pass", pass, &plen) == ESP_OK && plen > 1;
+        cJSON_AddBoolToObject(wifi, "passwordSet", has_pass);
+        cJSON_ReplaceItemInObject(root, "provisioned", cJSON_CreateBool(cJSON_HasObjectItem(wifi, "ssid")));
+
+        cJSON *lk = cJSON_AddObjectToObject(root, "livekit");
+        dump_str(h, lk, "tokenServerUrl", "token_url");
+
+        cJSON *tel = cJSON_AddObjectToObject(root, "telemetry");
+        dump_str(h, tel, "syslogIp", "syslog_ip");
+        dump_i32(h, tel, "syslogPort", "syslog_port");
+
+        dump_str(h, root, "mode", "mode");
+        cJSON *audio = cJSON_AddObjectToObject(root, "audio");
+        dump_bool(h, audio, "fullDuplex", "full_duplex");
+        dump_bool(h, audio, "fixedBeam", "fixed_beam");
+        dump_i32(h, audio, "fixedBeamAzimuthDeg", "beam_az");
+
+        char profs[1024];
+        size_t len = sizeof(profs);
+        if (nvs_get_str(h, "profiles", profs, &len) == ESP_OK) {
+            cJSON *arr = cJSON_Parse(profs);
+            if (arr) cJSON_AddItemToObject(root, "profiles", arr);
+        }
+        dump_str(h, root, "activeProfile", "active_prof");
+        nvs_close(h);
+    }
+    char *s = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (!s) { reply("sebastian.config.err oom"); return; }
+    size_t n = strlen(DUMP_PREFIX) + strlen(s) + 1;
+    char *line = malloc(n);
+    if (line) {
+        snprintf(line, n, "%s%s", DUMP_PREFIX, s);
+        reply(line);
+        free(line);
+    } else {
+        reply("sebastian.config.err oom");
+    }
+    cJSON_free(s);
+    ESP_LOGI(TAG, "dump sent (%u bytes); USB window held open 120 s", (unsigned)n);
+}
+
 static void handle_line(const char *line) {
+    if (strcmp(line, GET_CMD) == 0) {
+        handle_config_get();
+        return;
+    }
     if (strncmp(line, PROFILE_PREFIX, strlen(PROFILE_PREFIX)) == 0) {
         handle_profile_set(line + strlen(PROFILE_PREFIX));
         return;
