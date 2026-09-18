@@ -254,14 +254,26 @@ export const REFLASH_ONLY: Record<string, string> = {
 
 // A pushed config never carries the WiFi password unless the operator typed one
 // (RF-44); the desired document is the form minus empty secrets.
+// Only the governable paths travel (spec §3.4): the installer-only fields the
+// form carries along never reach the unit.
 export function desiredDocument(form: Record<string, unknown>): Record<string, unknown> {
-  const doc: Record<string, unknown> = { ...form, schema: 'sebastian.config.v1' }
-  const wifi = { ...((form.wifi as Record<string, unknown>) ?? {}) }
+  const doc: Record<string, unknown> = { schema: 'sebastian.config.v1' }
+  if (typeof form.mode === 'string') doc.mode = form.mode
+  for (const path of GOVERNABLE_PATHS) {
+    const [section, key] = path.split('.')
+    if (!key) continue
+    const holder = form[section]
+    if (!holder || typeof holder !== 'object' || !(key in (holder as object))) continue
+    const value = (holder as Record<string, unknown>)[key]
+    if (value === undefined) continue
+    const target = (doc[section] as Record<string, unknown>) ?? {}
+    target[key] = value
+    doc[section] = target
+  }
+  const wifi = { ...((doc.wifi as Record<string, unknown>) ?? {}) }
   if (!wifi.password) delete wifi.password
   if (!wifi.ssid) delete doc.wifi
   else doc.wifi = wifi
-  delete doc.adoption
-  delete doc.configVersion
   return doc
 }
 
