@@ -117,6 +117,29 @@ cleanup:
     return result;
 }
 
+int sebastian_report_running_config(const char *base_url, const char *device_id, const char *secret) {
+    char *body = sebastian_config_dump_json();
+    if (!body) return -7;
+    char url[300];
+    snprintf(url, sizeof(url), "%s/v1/devices/%s/running-config", base_url, device_id);
+    esp_http_client_handle_t client = open_client(url, HTTP_METHOD_PUT, device_id, secret, NULL);
+    int result;
+    if (client == NULL) { result = -1; goto done; }
+    esp_http_client_set_header(client, "Content-Type", "application/json");
+    const int len = (int)strlen(body);
+    if (esp_http_client_open(client, len) != ESP_OK) { result = -2; goto cleanup; }
+    if (esp_http_client_write(client, body, len) != len) { result = -2; goto cleanup; }
+    esp_http_client_fetch_headers(client);
+    const int code = esp_http_client_get_status_code(client);
+    result = code == 204 ? 0 : (code > 0 ? code : -3);
+cleanup:
+    esp_http_client_close(client);
+    esp_http_client_cleanup(client);
+done:
+    sebastian_config_dump_free(body);
+    return result;
+}
+
 static bool json_string_field(const char *body, const char *field, char *out, size_t out_size) {
     cJSON *root = cJSON_Parse(body);
     const cJSON *item = root ? cJSON_GetObjectItem(root, field) : NULL;

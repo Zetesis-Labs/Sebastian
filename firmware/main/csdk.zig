@@ -356,6 +356,7 @@ pub extern fn sebastian_get_device_secret(out: [*]u8, size: usize) bool;
 pub extern fn sebastian_get_org_secret(out: [*]u8, size: usize) bool;
 pub extern fn sebastian_enroll(base_url: [*:0]const u8, device_id: [*:0]const u8, org_secret: [*:0]const u8, device_secret: [*:0]const u8) c_int;
 pub extern fn sebastian_ensure_device_secret() bool;
+pub extern fn sebastian_report_running_config(base_url: [*:0]const u8, device_id: [*:0]const u8, secret: [*:0]const u8) c_int;
 pub extern fn sebastian_mark_bound() void;
 pub extern fn sebastian_clear_bound() void;
 pub extern fn sebastian_is_bound() bool;

@@ -253,3 +253,11 @@ Trampas nuevas:
 - `sebastian.config.get` devuelve `adoption.deviceSecret` (placa en mano); el
   instalador lo enseña en el campo avanzado "Device secret".
 - Placas con firmware anterior: la adopción falla con `no_secret` → reflashear.
+
+### RF-42: la placa reporta lo que ejecuta (noche del 18)
+
+- `sebastian_report_running_config` (session_http.c) hace PUT del volcado
+  sin secretos (`config_dump(false)`) una vez por arranque, reintentando en
+  cada poll; el server lo guarda en `devices.running_config(_at)` (migración
+  `20260918145510_running_config`). La ficha parte de la deseada o, si no
+  hay, de la reportada, y marca en ámbar los campos que difieren.

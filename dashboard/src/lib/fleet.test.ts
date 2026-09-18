@@ -5,6 +5,7 @@ import {
   configSync,
   desiredDocument,
   failureMessage,
+  differsFromRunning,
   fichaIssues,
   formGroups,
   groupDevices,
@@ -112,6 +113,21 @@ describe('timeline', () => {
   })
   it('says when a unit never contacted and is not on the LAN', () => {
     expect(timeline({ state: 'joining', adoptedAt: '2026-09-18T11:59:40Z' }, now)).toEqual(['sin contacto todavía', 'adoptado hace 20 s', 'no se ve en la red'])
+  })
+})
+
+describe('running vs desired field by field (RF-42)', () => {
+  const running = { mode: 'half_duplex', wifi: { ssid: 'Pizarro', passwordSet: true }, session: { silenceTimeoutMs: 45000 } }
+  it('flags a field whose form value differs from what the unit runs', () => {
+    expect(differsFromRunning(running, 'mode', 'full_duplex')).toBe(true)
+    expect(differsFromRunning(running, 'mode', 'half_duplex')).toBe(false)
+    expect(differsFromRunning(running, 'session.silenceTimeoutMs', 30000)).toBe(true)
+  })
+  it('never compares the password, and an empty SSID means the running one', () => {
+    expect(differsFromRunning(running, 'wifi.password', 'x')).toBe(false)
+    expect(differsFromRunning(running, 'wifi.ssid', '')).toBe(false)
+    expect(differsFromRunning(running, 'wifi.ssid', 'Otra')).toBe(true)
+    expect(differsFromRunning(undefined, 'mode', 'full_duplex')).toBe(false)
   })
 })
 

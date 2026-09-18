@@ -89,6 +89,8 @@ type Detail struct {
 	Device
 	HasDeviceSecret bool
 	DesiredConfig   json.RawMessage // nil when none
+	RunningConfig   json.RawMessage // nil until the unit reports (RF-42)
+	RunningConfigAt time.Time
 	Sessions        []Session
 }
 
@@ -116,6 +118,9 @@ type Store interface {
 	DesiredConfig(ctx context.Context, id string) (json.RawMessage, string, error)
 	SetDesiredConfig(ctx context.Context, id string, config json.RawMessage, version string) error
 	ClearDesiredConfig(ctx context.Context, id string) error
+	// RunningConfig is what the unit last reported it runs; nil when never.
+	RunningConfig(ctx context.Context, id string) (json.RawMessage, time.Time, error)
+	SetRunningConfig(ctx context.Context, id string, config json.RawMessage, at time.Time) error
 	// CredentialDigests returns the current and the pending (regenerated, not
 	// yet confirmed) secret digests; nil when unset.
 	CredentialDigests(ctx context.Context, id string) (current, pending []byte, err error)
@@ -261,11 +266,28 @@ func (s *Service) Get(ctx context.Context, id string) (Detail, error) {
 	if err != nil {
 		return Detail{}, err
 	}
+	running, runningAt, err := s.store.RunningConfig(ctx, id)
+	if err != nil {
+		return Detail{}, err
+	}
 	sessions, err := s.store.Sessions(ctx, id)
 	if err != nil {
 		return Detail{}, err
 	}
-	return Detail{Device: row, HasDeviceSecret: row.Adopted, DesiredConfig: cfg, Sessions: sessions}, nil
+	return Detail{Device: row, HasDeviceSecret: row.Adopted, DesiredConfig: cfg, RunningConfig: running, RunningConfigAt: runningAt, Sessions: sessions}, nil
+}
+
+// ReportRunningConfig stores what the unit says it runs (RF-42). Secrets and
+// the WiFi password never land here, whatever the unit sent.
+func (s *Service) ReportRunningConfig(ctx context.Context, id, secret string, doc map[string]any) error {
+	if err := s.authenticate(ctx, id, secret); err != nil {
+		return err
+	}
+	canonical, err := json.Marshal(withoutSecrets(doc))
+	if err != nil {
+		return err
+	}
+	return s.store.SetRunningConfig(ctx, id, canonical, s.now().UTC())
 }
 
 func (s *Service) SetDesiredProfile(ctx context.Context, id, name string) error {

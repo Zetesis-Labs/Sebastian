@@ -217,6 +217,35 @@ func (s *Store) ClearDesiredConfig(ctx context.Context, id string) error {
 	return err
 }
 
+func (s *Store) RunningConfig(ctx context.Context, id string) (json.RawMessage, time.Time, error) {
+	var row struct {
+		Config json.RawMessage `bun:"running_config"`
+		At     *time.Time      `bun:"running_config_at"`
+	}
+	err := s.db.NewSelect().TableExpr("devices").ColumnExpr("running_config, running_config_at").
+		Where("id = ?", id).Where("forgotten_at IS NULL").Scan(ctx, &row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, time.Time{}, device.ErrNotFound
+	}
+	if err != nil {
+		return nil, time.Time{}, fmt.Errorf("running config: %w", err)
+	}
+	if row.At == nil {
+		return nil, time.Time{}, nil
+	}
+	return row.Config, *row.At, nil
+}
+
+func (s *Store) SetRunningConfig(ctx context.Context, id string, config json.RawMessage, at time.Time) error {
+	err := s.updateDevice(ctx, id, func(q *bun.UpdateQuery) *bun.UpdateQuery {
+		return q.Set("running_config = ?", string(config)).Set("running_config_at = ?", at)
+	})
+	if err != nil && !errors.Is(err, device.ErrNotFound) {
+		return fmt.Errorf("set running config: %w", err)
+	}
+	return err
+}
+
 func (s *Store) CredentialDigests(ctx context.Context, id string) ([]byte, []byte, error) {
 	var row struct {
 		Current []byte `bun:"credential_digest"`

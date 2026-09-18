@@ -15,6 +15,10 @@
 // Parse + schema-check + store a sebastian.config.v1 document. Never restarts.
 bool sebastian_provisioning_apply(const char *json, char *err, size_t err_size);
 bool sebastian_get_token_url(char *out, size_t out_size);
+// The stored config as JSON, without secrets (for the RF-42 report). Free with
+// sebastian_config_dump_free. NULL when NVS cannot be opened.
+char *sebastian_config_dump_json(void);
+void sebastian_config_dump_free(char *s);
 bool sebastian_get_device_secret(char *out, size_t out_size);
 // Generate the unit's own secret if it has none (born with the unit, RF-51).
 bool sebastian_ensure_device_secret(void);
@@ -40,6 +44,9 @@ int sebastian_session_create(const char *base_url, const char *device_id, const 
 // adopted it, the HTTP status when it refused, or negative for transport/parse
 // errors.
 int sebastian_enroll(const char *base_url, const char *device_id, const char *org_secret, const char *device_secret);
+// PUT {base}/v1/devices/{id}/running-config with the stored config (RF-42).
+// Returns 0 on 204, the HTTP status when refused, negative on transport errors.
+int sebastian_report_running_config(const char *base_url, const char *device_id, const char *secret);
 // GET with optional device credentials, capturing one response header. Returns
 // the body length (>= 0), or negative: -1 init, -2 open, -3 http (status in
 // *status), -4 read.

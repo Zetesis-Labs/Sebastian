@@ -66,6 +66,7 @@ func TestDeriveStateFunctionalSpecTable(t *testing.T) {
 type fakeStore struct {
 	devices  map[string]*Device
 	configs  map[string]json.RawMessage
+	running  map[string]json.RawMessage
 	versions map[string]string
 	digests  map[string][2][]byte
 	forgot   []string
@@ -73,7 +74,7 @@ type fakeStore struct {
 }
 
 func newFakeStore(devices ...Device) *fakeStore {
-	f := &fakeStore{devices: map[string]*Device{}, configs: map[string]json.RawMessage{}, versions: map[string]string{}, digests: map[string][2][]byte{}, renamed: map[string]string{}}
+	f := &fakeStore{devices: map[string]*Device{}, configs: map[string]json.RawMessage{}, running: map[string]json.RawMessage{}, versions: map[string]string{}, digests: map[string][2][]byte{}, renamed: map[string]string{}}
 	for i := range devices {
 		d := devices[i]
 		f.devices[d.ID] = &d
@@ -125,6 +126,23 @@ func (f *fakeStore) SetDesiredConfig(_ context.Context, id string, cfg json.RawM
 	}
 	f.configs[id], f.versions[id] = cfg, v
 	f.devices[id].DesiredConfig = v
+	return nil
+}
+func (f *fakeStore) RunningConfig(_ context.Context, id string) (json.RawMessage, time.Time, error) {
+	if _, ok := f.devices[id]; !ok {
+		return nil, time.Time{}, ErrNotFound
+	}
+	cfg, ok := f.running[id]
+	if !ok {
+		return nil, time.Time{}, nil
+	}
+	return cfg, now, nil
+}
+func (f *fakeStore) SetRunningConfig(_ context.Context, id string, cfg json.RawMessage, _ time.Time) error {
+	if _, ok := f.devices[id]; !ok {
+		return ErrNotFound
+	}
+	f.running[id] = cfg
 	return nil
 }
 func (f *fakeStore) ClearDesiredConfig(_ context.Context, id string) error {
@@ -273,6 +291,39 @@ func TestEnrollRejectsBadProofExpiryAndMissingOrgSecret(t *testing.T) {
 	s.room.OrgSecret = ""
 	if _, err := s.EnrollChallenge(id); !errors.Is(err, ErrNoOrgSecret) {
 		t.Fatalf("no org secret: %v", err)
+	}
+}
+
+// ── running config (RF-42) ──────────────────────────────────────────────────
+
+func TestReportRunningConfigStripsSecretsAndNeedsTheDeviceSecret(t *testing.T) {
+	store := newFakeStore(Device{ID: "a", Adopted: true})
+	store.digests["a"] = [2][]byte{DigestSecret(unitSecret), nil}
+	s := newTestService(store, nil, &fakeAdopter{})
+	doc := map[string]any{
+		"schema":   "sebastian.config.v1",
+		"mode":     "half_duplex",
+		"wifi":     map[string]any{"ssid": "Pizarro", "password": "never", "passwordSet": true},
+		"adoption": map[string]any{"orgSecret": "org", "deviceSecret": "dev", "orgSecretSet": true},
+	}
+	if err := s.ReportRunningConfig(context.Background(), "a", "wrong", doc); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("wrong secret: %v", err)
+	}
+	if err := s.ReportRunningConfig(context.Background(), "a", unitSecret, doc); err != nil {
+		t.Fatal(err)
+	}
+	stored := string(store.running["a"])
+	for _, forbidden := range []string{"never", `"orgSecret"`, `"deviceSecret"`} {
+		if strings.Contains(stored, forbidden) {
+			t.Fatalf("secret leaked into the running config: %s", stored)
+		}
+	}
+	if !strings.Contains(stored, `"ssid":"Pizarro"`) || !strings.Contains(stored, `"orgSecretSet":true`) {
+		t.Fatalf("running config lost data: %s", stored)
+	}
+	detail, err := s.Get(context.Background(), "a")
+	if err != nil || detail.RunningConfig == nil || detail.RunningConfigAt.IsZero() {
+		t.Fatalf("detail without the running config: %+v %v", detail, err)
 	}
 }
 

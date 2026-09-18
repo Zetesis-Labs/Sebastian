@@ -490,15 +490,16 @@ static void dump_i32(nvs_handle_t h, cJSON *obj, const char *json_key, const cha
     if (nvs_get_i32(h, nvs_key, &v) == ESP_OK) cJSON_AddNumberToObject(obj, json_key, v);
 }
 
-static void handle_config_get(void) {
-    hold_until_us = esp_timer_get_time() + HOLD_AFTER_GET_US;
+// The stored config as a sebastian.config.v1 document. in_hand: the reader has
+// the unit on a USB cable, so its own secret may go out; over the network
+// (RF-42 report) no secret ever does.
+static cJSON *config_dump(bool in_hand) {
     nvs_ensure_init();
     nvs_handle_t h;
     esp_err_t oe = nvs_open(NVS_NS, NVS_READONLY, &h);
     if (oe != ESP_OK && oe != ESP_ERR_NVS_NOT_FOUND) {
         ESP_LOGE(TAG, "dump: open=%s", esp_err_to_name(oe));
-        reply("sebastian.config.err nvs_open");
-        return;
+        return NULL;
     }
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "schema", PROV_SCHEMA);
@@ -540,14 +541,32 @@ static void handle_config_get(void) {
         slen = sizeof(sec);
         // The unit is in hand (USB): its own secret is readable here, so an
         // operator who lost it does not have to regenerate.
-        if (nvs_get_str(h, "dev_secret", sec, &slen) == ESP_OK && slen > 1) cJSON_AddStringToObject(ad, "deviceSecret", sec);
-        cJSON_AddBoolToObject(ad, "deviceSecretSet", slen > 1);
+        const bool has_dev = nvs_get_str(h, "dev_secret", sec, &slen) == ESP_OK && slen > 1;
+        if (has_dev && in_hand) cJSON_AddStringToObject(ad, "deviceSecret", sec);
+        cJSON_AddBoolToObject(ad, "deviceSecretSet", has_dev);
         cJSON *sess = cJSON_AddObjectToObject(root, "session");
         dump_i32(h, sess, "silenceTimeoutMs", "silence_ms");
         dump_i32(h, sess, "voiceLevel", "voice_lvl");
         dump_str(h, root, "configVersion", "cfg_ver");
         nvs_close(h);
     }
+    return root;
+}
+
+char *sebastian_config_dump_json(void) {
+    cJSON *root = config_dump(false);
+    if (!root) return NULL;
+    char *s = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    return s;
+}
+
+void sebastian_config_dump_free(char *s) { cJSON_free(s); }
+
+static void handle_config_get(void) {
+    hold_until_us = esp_timer_get_time() + HOLD_AFTER_GET_US;
+    cJSON *root = config_dump(true);
+    if (!root) { reply("sebastian.config.err nvs_open"); return; }
     char *s = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
     if (!s) { reply("sebastian.config.err oom"); return; }

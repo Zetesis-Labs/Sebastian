@@ -15,7 +15,10 @@ type DeviceList = components['schemas']['DeviceList']
 // Server functions must return serializable values; the free-form config
 // document is typed as JSON on the wire.
 export type Json = string | number | boolean | null | Json[] | { [key: string]: Json }
-export type DeviceDetailWire = Omit<DeviceDetail, 'desiredConfig'> & { desiredConfig?: { [key: string]: Json } }
+export type DeviceDetailWire = Omit<DeviceDetail, 'desiredConfig' | 'runningConfig'> & {
+  desiredConfig?: { [key: string]: Json }
+  runningConfig?: { [key: string]: Json }
+}
 
 function apiConfiguration() {
   const baseURL = process.env.SEBASTIAN_API_URL
