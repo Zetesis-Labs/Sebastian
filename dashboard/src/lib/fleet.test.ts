@@ -6,6 +6,7 @@ import {
   desiredDocument,
   failureMessage,
   fichaIssues,
+  formGroups,
   groupDevices,
   seedFromRoom,
   isValidIPv4,
@@ -115,6 +116,14 @@ describe('timeline', () => {
 })
 
 describe('ficha form', () => {
+  it('hides the conversation and the duplex mode for a micro-usb unit', () => {
+    const usb = formGroups('micro-usb')
+    expect(usb.map((g) => g.title)).toEqual(['Red WiFi', 'Control room', 'Audio'])
+    expect(usb.some((g) => g.mode)).toBe(false)
+    const agent = formGroups('agente')
+    expect(agent.map((g) => g.title)).toEqual(['Red WiFi', 'Control room', 'Audio', 'Conversación'])
+    expect(agent.find((g) => g.title === 'Audio')?.mode).toBe(true)
+  })
   it('an empty SSID keeps the stored network instead of failing validation', () => {
     const issues = [{ path: 'wifi.ssid', severity: 'error' }, { path: 'telemetry.syslogIp', severity: 'error' }]
     expect(fichaIssues(issues, { wifi: { ssid: '' } }).map((i) => i.path)).toEqual(['telemetry.syslogIp'])

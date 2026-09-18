@@ -170,12 +170,27 @@ export function configSync(device: Pick<Device, 'reportedConfigVersion' | 'desir
 
 // The ficha's form: only what the control room governs (spec §3.4), grouped
 // the way the operator thinks. `mode` renders the mode selector first.
-export const FORM_GROUPS: { title: string; hint: string; mode?: boolean; paths: string[] }[] = [
-  { title: 'Red WiFi', hint: 'Déjalo vacío para no tocar la red del altavoz.', paths: ['wifi.ssid', 'wifi.password', 'wifi.hidden'] },
-  { title: 'Control room', hint: 'Lo que la adopción escribió en el altavoz.', paths: ['livekit.tokenServerUrl', 'telemetry.syslogIp', 'telemetry.syslogPort'] },
-  { title: 'Audio', hint: 'Modo de conversación y haz del micro.', mode: true, paths: ['audio.fixedBeam', 'audio.fixedBeamAzimuthDeg'] },
-  { title: 'Conversación', hint: 'Cuándo se cierra una sesión y cuánta voz hace falta para abrirla.', paths: ['session.silenceTimeoutMs', 'session.voiceLevel'] },
-]
+// A unit in the micro-usb profile has no conversation: the duplex mode and
+// the session timers do not apply to it; WiFi, control room and the mic beam do.
+export type FormGroup = { title: string; hint: string; mode?: boolean; paths: string[] }
+
+export function formGroups(profile: string | undefined): FormGroup[] {
+  const agent = profile !== 'micro-usb'
+  return [
+    { title: 'Red WiFi', hint: 'Déjalo vacío para no tocar la red del altavoz.', paths: ['wifi.ssid', 'wifi.password', 'wifi.hidden'] },
+    {
+      title: 'Control room',
+      hint: 'Lo que la adopción escribió en el altavoz. La URL del token server es también su enlace de control.',
+      paths: ['livekit.tokenServerUrl', 'telemetry.syslogIp', 'telemetry.syslogPort'],
+    },
+    agent
+      ? { title: 'Audio', hint: 'Modo de conversación y haz del micro.', mode: true, paths: ['audio.fixedBeam', 'audio.fixedBeamAzimuthDeg'] }
+      : { title: 'Audio', hint: 'Haz del micro. En el perfil micro-usb no hay conversación: el modo no aplica.', paths: ['audio.fixedBeam', 'audio.fixedBeamAzimuthDeg'] },
+    ...(agent
+      ? [{ title: 'Conversación', hint: 'Cuándo se cierra una sesión y cuánta voz hace falta para abrirla.', paths: ['session.silenceTimeoutMs', 'session.voiceLevel'] }]
+      : []),
+  ]
+}
 
 // An empty SSID in the ficha means "keep the stored network", not an error.
 export function fichaIssues<T extends { path: string }>(issues: T[], form: { wifi: { ssid: string } }): T[] {

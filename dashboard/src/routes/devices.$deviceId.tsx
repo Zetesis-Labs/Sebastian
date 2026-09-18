@@ -12,7 +12,7 @@ import {
   type Json,
 } from '../lib/api'
 import { formatDate } from '../lib/format'
-import { FORM_GROUPS, GOVERNABLE_PATHS, STATE_HINT, STATE_LABEL, STATE_TONE, configSync, desiredDocument, fichaIssues, seedFromRoom, shortRoom, timeline } from '../lib/fleet'
+import { GOVERNABLE_PATHS, STATE_HINT, STATE_LABEL, STATE_TONE, configSync, desiredDocument, fichaIssues, formGroups, seedFromRoom, shortRoom, timeline } from '../lib/fleet'
 import { defaultConfig, mergeConfig, type DeviceConfig } from '@installer/config'
 import { MODES, SHARED, getField, setField, type FieldMeta } from '@installer/modes'
 import { validate } from '@installer/validate'
@@ -165,6 +165,11 @@ function DevicePage() {
           {detail.desiredProfile && detail.desiredProfile !== detail.reportedProfile && (
             <span className="device-pending">aplicando “{detail.desiredProfile}” en el próximo poll…</span>
           )}
+          <span className="device-meta">
+            {(detail.desiredProfile ?? detail.reportedProfile) === 'micro-usb'
+              ? 'Micro USB: el altavoz es un micrófono para el ordenador; sigue en la red para gobernarlo desde aquí.'
+              : 'Agente: conversa con Sebastian por LiveKit.'}
+          </span>
         </div>
       </section>
 
@@ -181,7 +186,7 @@ function DevicePage() {
             {sync === 'none' && `sin configuración deseada · ejecuta ${running}`}
           </span>
         </div>
-        {FORM_GROUPS.map((group) => (
+        {formGroups(detail.desiredProfile ?? detail.reportedProfile).map((group) => (
           <fieldset key={group.title} className="config-group">
             <legend>
               <span>{group.title}</span>
