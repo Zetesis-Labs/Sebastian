@@ -206,8 +206,10 @@ altavoz. Si no, la rechaza, no cambia nada y lo anuncia (RF-36).
 aunque estén vinculadas a otro control room sano. Conocer el secreto es el
 permiso.
 
-**RF-34 Unidad de fábrica.** Un altavoz sin secreto de organización acepta la
-primera adopción solo con consentimiento físico: tras recibir la petición, el
+**RF-34 Unidad de fábrica.** Un altavoz sin secreto de organización y sin
+control room (nunca adoptado, u olvidado) acepta la adopción solo con
+consentimiento físico; su secreto propio, que nace con él, no cuenta como
+dueño. Tras recibir la petición, el
 anillo parpadea en ámbar durante 30 s y hay que pulsar MUTE en ese tiempo. Si
 no se pulsa, la adopción caduca y el dashboard lo indica. La adopción exitosa
 graba el secreto de organización del control room adoptante.
