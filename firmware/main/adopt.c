@@ -122,17 +122,19 @@ static bool hmac_matches(const char *secret, const char *nonce_hex, const char *
     return diff == 0;
 }
 
-// Who may adopt: the organization secret, the device secret, or — for a factory
-// unit that has neither — whoever presses MUTE within 30 s (RF-32..34).
+// Who may adopt: the organization secret, the device secret, or — for a unit
+// nobody owns (no organization secret and not bound to a control room; the
+// device secret is born with the unit, so it never counts as ownership) —
+// whoever presses MUTE within 30 s (RF-32..34).
 typedef enum { AUTH_OK, AUTH_DENIED, AUTH_CONSENT } auth_t;
 
 static auth_t authorize(const char *nonce_hex, const char *cfg, const uint8_t mac[32]) {
     char org[129] = {0}, dev[129] = {0};
     const bool has_org = sebastian_get_org_secret(org, sizeof(org));
     const bool has_dev = sebastian_get_device_secret(dev, sizeof(dev));
-    if (!has_org && !has_dev) return AUTH_CONSENT;
     if (has_org && hmac_matches(org, nonce_hex, cfg, mac)) return AUTH_OK;
     if (has_dev && hmac_matches(dev, nonce_hex, cfg, mac)) return AUTH_OK;
+    if (!has_org && !sebastian_is_bound()) return AUTH_CONSENT;
     return AUTH_DENIED;
 }
 

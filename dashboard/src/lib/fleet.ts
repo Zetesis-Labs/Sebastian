@@ -32,7 +32,7 @@ export const STATE_HINT: Record<DeviceState, string> = {
   managed_elsewhere: 'Se ve en la red, vinculado a otro control room. Solo lectura.',
   unadopted: 'Se ve en la red y no tiene control room.',
   orphan: 'Se ve en la red; su control room le está fallando.',
-  registered: 'Ha contactado con este control room sin secreto de altavoz: firmware antiguo, o aún no ha podido darse de alta (¿falta el secreto de organización aquí?).',
+  registered: 'Ha contactado con este control room, pero este no tiene su secreto: nunca fue adoptado (adóptalo: pedirá MUTE), o aún no ha podido darse de alta (¿falta el secreto de organización aquí?).',
 }
 
 // Colour of the state badge and the row border.
