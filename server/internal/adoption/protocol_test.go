@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"sync"
 	"testing"
 	"time"
 )
 
 // fakeDevice implements adopt.c's side of the protocol on a loopback UDP port.
 type fakeDevice struct {
+	mu         sync.Mutex // the serve goroutine and the test share the fields below
 	t          *testing.T
 	conn       net.PacketConn
 	orgSecret  string
@@ -37,6 +39,18 @@ func newFakeDevice(t *testing.T) *fakeDevice {
 
 func (d *fakeDevice) addr() string { return d.conn.LocalAddr().String() }
 
+func (d *fakeDevice) set(fn func(*fakeDevice)) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	fn(d)
+}
+
+func (d *fakeDevice) storedCfg() string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.gotCfg
+}
+
 func (d *fakeDevice) reply(to net.Addr, m message) {
 	body, _ := json.Marshal(m)
 	_, _ = d.conn.WriteTo(body, to)
@@ -53,6 +67,14 @@ func (d *fakeDevice) serve() {
 		if err := json.Unmarshal(buf[:n], &m); err != nil {
 			continue
 		}
+		d.mu.Lock()
+		d.handle(from, m)
+		d.mu.Unlock()
+	}
+}
+
+func (d *fakeDevice) handle(from net.Addr, m message) {
+	{
 		switch m.T {
 		case "hello":
 			d.nonce = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -60,18 +82,18 @@ func (d *fakeDevice) serve() {
 		case "adopt":
 			if m.N != d.nonce {
 				d.reply(from, message{T: "err", Why: "nonce"})
-				continue
+				return
 			}
 			if d.factory {
 				d.reply(from, message{T: "wait", Why: "consent"})
 				if !d.pressMute {
 					time.Sleep(50 * time.Millisecond)
 					d.reply(from, message{T: "err", Why: "consent-timeout"})
-					continue
+					return
 				}
 			} else if m.Mac != Sign(d.orgSecret, m.N, m.Cfg) && m.Mac != Sign(d.devSecret, m.N, m.Cfg) {
 				d.reply(from, message{T: "err", Why: "auth"})
-				continue
+				return
 			}
 			if d.busy {
 				d.reply(from, message{T: "queued"})
@@ -79,7 +101,7 @@ func (d *fakeDevice) serve() {
 			}
 			if d.rejectWith != "" {
 				d.reply(from, message{T: "err", Why: d.rejectWith})
-				continue
+				return
 			}
 			d.gotCfg = m.Cfg
 			d.reply(from, message{T: "ok"})
@@ -114,8 +136,8 @@ func TestAdoptWithOrganizationSecret(t *testing.T) {
 	if err := client.Adopt(context.Background(), "10.0.0.125", cfg, "org-secret", func(p Phase) { phases = append(phases, p) }); err != nil {
 		t.Fatal(err)
 	}
-	if dev.gotCfg != cfg {
-		t.Fatalf("device stored %q", dev.gotCfg)
+	if dev.storedCfg() != cfg {
+		t.Fatalf("device stored %q", dev.storedCfg())
 	}
 	if len(phases) != 1 || phases[0] != PhaseHello {
 		t.Fatalf("phases %v", phases)
@@ -124,7 +146,7 @@ func TestAdoptWithOrganizationSecret(t *testing.T) {
 
 func TestAdoptWithDeviceSecretAndQueuedConversation(t *testing.T) {
 	dev := newFakeDevice(t)
-	dev.busy = true
+	dev.set(func(d *fakeDevice) { d.busy = true })
 	client := NewClientWithDialer(dialTo(dev.addr()))
 	var phases []Phase
 	if err := client.Adopt(context.Background(), "x", `{"schema":"sebastian.config.v1"}`, "dev-secret", func(p Phase) { phases = append(phases, p) }); err != nil {
@@ -142,14 +164,14 @@ func TestAdoptDeniedWithWrongSecret(t *testing.T) {
 	if !errors.Is(err, ErrDenied) {
 		t.Fatalf("expected ErrDenied, got %v", err)
 	}
-	if dev.gotCfg != "" {
+	if dev.storedCfg() != "" {
 		t.Fatal("device must not store a config it rejected")
 	}
 }
 
 func TestFactoryUnitNeedsConsent(t *testing.T) {
 	dev := newFakeDevice(t)
-	dev.factory = true
+	dev.set(func(d *fakeDevice) { d.factory = true })
 	client := NewClientWithDialer(dialTo(dev.addr()))
 	var phases []Phase
 	err := client.Adopt(context.Background(), "x", `{"schema":"sebastian.config.v1"}`, "anything", func(p Phase) { phases = append(phases, p) })
@@ -160,7 +182,7 @@ func TestFactoryUnitNeedsConsent(t *testing.T) {
 		t.Fatalf("phases %v", phases)
 	}
 
-	dev.pressMute = true
+	dev.set(func(d *fakeDevice) { d.pressMute = true })
 	if err := client.Adopt(context.Background(), "x", `{"schema":"sebastian.config.v1"}`, "anything", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +190,7 @@ func TestFactoryUnitNeedsConsent(t *testing.T) {
 
 func TestAdoptReportsStoreRejection(t *testing.T) {
 	dev := newFakeDevice(t)
-	dev.rejectWith = "wifi"
+	dev.set(func(d *fakeDevice) { d.rejectWith = "wifi" })
 	client := NewClientWithDialer(dialTo(dev.addr()))
 	err := client.Adopt(context.Background(), "x", `{"schema":"sebastian.config.v1"}`, "org-secret", nil)
 	if !errors.Is(err, ErrRejected) || err.Error() != "the device rejected the config: wifi" {
