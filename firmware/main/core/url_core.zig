@@ -14,3 +14,14 @@ pub fn origin(url: []const u8) []const u8 {
     const slash = std.mem.indexOfScalar(u8, rest, '/') orelse return url;
     return url[0 .. scheme_end + 3 + slash];
 }
+
+/// True when `value` can travel as a query value verbatim: letters, digits and
+/// the punctuation our events use (":" "." "-" "_"). Everything else would
+/// need percent-encoding, which the device does not do.
+pub fn isQuerySafe(value: []const u8) bool {
+    for (value) |ch| {
+        const ok = std.ascii.isAlphanumeric(ch) or ch == ':' or ch == '.' or ch == '-' or ch == '_';
+        if (!ok) return false;
+    }
+    return true;
+}

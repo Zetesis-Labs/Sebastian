@@ -33,7 +33,7 @@ func TestDeriveStateFunctionalSpecTable(t *testing.T) {
 		{"adopted here and polling", adopted, nil, StateAdopted},
 		{"adopted here, silent, not on LAN", silent, nil, StateAbsent},
 		{"adopted here and announcing us", silent, &discovery.Seen{ControlRoom: self, LastError: "ok"}, StateAdopted},
-		{"announces us but never adopted (legacy /token)", registered, &discovery.Seen{ControlRoom: self}, StateRegistered},
+		{"announces us but never adopted", registered, &discovery.Seen{ControlRoom: self}, StateRegistered},
 		{"polls without secret, not on LAN", registered, nil, StateRegistered},
 		{"on LAN, no control room", nil, &discovery.Seen{ControlRoom: ""}, StateUnadopted},
 		{"on LAN, another control room, healthy", nil, &discovery.Seen{ControlRoom: "http://10.0.100.10:8787", LastError: "ok"}, StateManagedElsewhere},
@@ -364,6 +364,40 @@ func TestListMergesInventoryWithTheLAN(t *testing.T) {
 	}
 	if strings.Join(order, ",") != "aaaa,cccc,dddd,bbbb" {
 		t.Fatalf("order %v (ours first, then orphan, unadopted, absent last)", order)
+	}
+}
+
+// RF-36/42: the unit's last event reaches the owner from the poll (stored in
+// the row) or from the LAN announce — whichever this control room saw last.
+func TestListKeepsTheNewestEventFromPollOrLAN(t *testing.T) {
+	const self = "http://10.0.0.188:8787"
+	store := newFakeStore(
+		Device{ID: "aaaa", Enabled: true, Adopted: true, ProfileReportedAt: now, LastEvent: "cfg-rejected:wifi", LastEventAt: now.Add(-time.Minute)},
+		Device{ID: "bbbb", Enabled: true, Adopted: true, ProfileReportedAt: now, LastEvent: "adopt-denied:10.0.0.77", LastEventAt: now},
+		Device{ID: "cccc", Enabled: true, Adopted: true, ProfileReportedAt: now, LastEvent: "wifi-rollback", LastEventAt: now.Add(-time.Minute)},
+	)
+	lan := discovery.Static{On: true, Items: []discovery.Seen{
+		{ID: "aaaa", ControlRoom: self, LastEvent: "adopt-denied:10.0.0.9", LastEventAt: now, SeenAt: now},
+		{ID: "bbbb", ControlRoom: self, LastEvent: "cfg-rejected:json", LastEventAt: now.Add(-time.Hour), SeenAt: now},
+		{ID: "cccc", ControlRoom: self, LastEvent: "", LastEventAt: now, SeenAt: now},
+	}}
+	s := newTestService(store, lan, &fakeAdopter{})
+	list, err := s.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]Device{}
+	for _, d := range list {
+		got[d.ID] = d
+	}
+	if got["aaaa"].LastEvent != "adopt-denied:10.0.0.9" || !got["aaaa"].LastEventAt.Equal(now) {
+		t.Fatalf("a newer LAN event must win: %+v", got["aaaa"])
+	}
+	if got["bbbb"].LastEvent != "adopt-denied:10.0.0.77" {
+		t.Fatalf("a newer poll event must win: %+v", got["bbbb"])
+	}
+	if got["cccc"].LastEvent != "wifi-rollback" {
+		t.Fatalf("an empty LAN event must not erase the stored one: %+v", got["cccc"])
 	}
 }
 

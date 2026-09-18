@@ -59,6 +59,11 @@ int sebastian_http_get_auth(const char *url, const char *device_id, const char *
 void sebastian_announce_start(const char *id, const char *prof, const char *cr);
 // Update one TXT record (err, cfg, cr, prof).
 void sebastian_announce_set(const char *key, const char *value);
+// The last event worth telling the owner (RF-36/42): "adopt-denied:<ip>",
+// "cfg-rejected:<why>" or the error recorded by the previous boot. Announced
+// under the TXT key "ev" and reported in every poll; kept until the next one.
+void sebastian_announce_event(const char *event);
+const char *sebastian_announce_last_event(void);
 const char *sebastian_fw_version(void);
 
 // ── adopt.c ─────────────────────────────────────────────────────────────────
@@ -71,7 +76,8 @@ bool sebastian_adopt_session_is_active(void);
 // xvf_ui grants it when the MUTE button toggles.
 bool sebastian_adopt_consent_pending(void);
 void sebastian_adopt_consent_grant(void);
-// Peer that last failed authentication ("adopt-denied:<ip>"), "" when none.
-const char *sebastian_adopt_last_denied(void);
+// True from the moment an adoption is accepted until the unit restarts: the
+// ring shows it in solid amber (RF-64).
+bool sebastian_adopt_accepted(void);
 // hex HMAC-SHA256(secret, a + "." + b) — the proof shared by adoption and enrolment.
 bool sebastian_hmac_sha256_hex(const char *secret, const char *a, const char *b, char out[65]);

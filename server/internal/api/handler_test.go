@@ -141,7 +141,7 @@ func testLogger() *slog.Logger {
 }
 
 func TestCreateSessionMapsAuthenticationFailure(t *testing.T) {
-	handler := NewHandler(stubSessions{err: session.ErrUnauthorized}, nil, nil, stubReadiness{}, testLogger(), false, time.Second)
+	handler := NewHandler(stubSessions{err: session.ErrUnauthorized}, nil, nil, stubReadiness{}, testLogger(), time.Second)
 
 	response, err := handler.CreateSession(context.Background(), CreateSessionRequestObject{
 		Params: CreateSessionParams{XDeviceId: "device", XDeviceSecret: "secret"},
@@ -154,23 +154,8 @@ func TestCreateSessionMapsAuthenticationFailure(t *testing.T) {
 	}
 }
 
-func TestLegacyTokenKeepsFirmwareContract(t *testing.T) {
-	handler := NewHandler(stubSessions{created: session.Created{
-		ID: uuid.New(), ServerURL: "ws://livekit:7880", Token: "jwt",
-	}}, nil, nil, stubReadiness{}, testLogger(), true, time.Second)
-
-	response, err := handler.GetLegacyToken(context.Background(), GetLegacyTokenRequestObject{})
-	if err != nil {
-		t.Fatalf("GetLegacyToken() error = %v", err)
-	}
-	value, ok := response.(GetLegacyToken200TextResponse)
-	if !ok || string(value) != "ws://livekit:7880\njwt" {
-		t.Fatalf("response = %#v", response)
-	}
-}
-
 func TestReadinessReportsDependencyFailure(t *testing.T) {
-	handler := NewHandler(stubSessions{}, nil, nil, stubReadiness{err: errors.New("down")}, testLogger(), false, time.Second)
+	handler := NewHandler(stubSessions{}, nil, nil, stubReadiness{err: errors.New("down")}, testLogger(), time.Second)
 	response, err := handler.GetReadiness(context.Background(), GetReadinessRequestObject{})
 	if err != nil {
 		t.Fatalf("GetReadiness() error = %v", err)
@@ -185,7 +170,7 @@ func TestListRecordingsMapsDomainModel(t *testing.T) {
 	handler := NewHandler(stubSessions{}, stubRecordings{items: []recording.Recording{{
 		ID: id, SessionID: uuid.New(), Room: "sebastian-room", Kind: recording.KindModel,
 		FileName: "model.wav", ObjectURL: "https://storage.example/model.wav", ContentType: "audio/wav",
-	}}}, nil, stubReadiness{}, testLogger(), false, time.Second)
+	}}}, nil, stubReadiness{}, testLogger(), time.Second)
 
 	response, err := handler.ListRecordings(context.Background(), ListRecordingsRequestObject{})
 	if err != nil {
@@ -198,7 +183,7 @@ func TestListRecordingsMapsDomainModel(t *testing.T) {
 }
 
 func TestRegisterRecordingMapsConflict(t *testing.T) {
-	handler := NewHandler(stubSessions{}, stubRecordings{err: recording.ErrConflict}, nil, stubReadiness{}, testLogger(), false, time.Second)
+	handler := NewHandler(stubSessions{}, stubRecordings{err: recording.ErrConflict}, nil, stubReadiness{}, testLogger(), time.Second)
 
 	response, err := handler.RegisterRecording(context.Background(), RegisterRecordingRequestObject{
 		Body: &RecordingRegistration{},
@@ -213,7 +198,7 @@ func TestRegisterRecordingMapsConflict(t *testing.T) {
 
 func TestGetDesiredProfileReturnsPlaintextAndReportsCurrent(t *testing.T) {
 	devices := &stubDevices{desired: "agente"}
-	handler := NewHandler(stubSessions{}, nil, devices, stubReadiness{}, testLogger(), false, time.Second)
+	handler := NewHandler(stubSessions{}, nil, devices, stubReadiness{}, testLogger(), time.Second)
 
 	current := "micro-usb"
 	response, err := handler.GetDesiredProfile(context.Background(), GetDesiredProfileRequestObject{
@@ -233,7 +218,7 @@ func TestGetDesiredProfileReturnsPlaintextAndReportsCurrent(t *testing.T) {
 }
 
 func TestSetDesiredProfileMapsUnknownDevice(t *testing.T) {
-	handler := NewHandler(stubSessions{}, nil, &stubDevices{err: device.ErrNotFound}, stubReadiness{}, testLogger(), false, time.Second)
+	handler := NewHandler(stubSessions{}, nil, &stubDevices{err: device.ErrNotFound}, stubReadiness{}, testLogger(), time.Second)
 
 	name := "agente"
 	response, err := handler.SetDesiredProfile(context.Background(), SetDesiredProfileRequestObject{
@@ -251,7 +236,7 @@ func TestSetDesiredProfileMapsUnknownDevice(t *testing.T) {
 func TestListDevicesOmitsUnsetProfileFields(t *testing.T) {
 	handler := NewHandler(stubSessions{}, nil, &stubDevices{items: []device.Device{
 		{ID: "e072a1f96ef0", DisplayName: "e072a1f96ef0", Enabled: true, ReportedProfile: "micro-usb"},
-	}}, stubReadiness{}, testLogger(), false, time.Second)
+	}}, stubReadiness{}, testLogger(), time.Second)
 
 	response, err := handler.ListDevices(context.Background(), ListDevicesRequestObject{})
 	if err != nil {
@@ -272,10 +257,10 @@ func TestListDevicesOmitsUnsetProfileFields(t *testing.T) {
 
 func TestGetDesiredProfileCarriesTheDesiredConfigHeaderAndReportsFirmware(t *testing.T) {
 	devices := &stubDevices{desired: "agente"}
-	handler := NewHandler(nil, nil, devices, stubReadiness{}, testLogger(), false, time.Second)
-	cfg, fw := "abc", "v1.2"
+	handler := NewHandler(nil, nil, devices, stubReadiness{}, testLogger(), time.Second)
+	cfg, fw, ev := "abc", "v1.2", "adopt-denied:10.0.0.77"
 	response, err := handler.GetDesiredProfile(context.Background(), GetDesiredProfileRequestObject{
-		DeviceId: "68ee", Params: GetDesiredProfileParams{Cfg: &cfg, Fw: &fw},
+		DeviceId: "68ee", Params: GetDesiredProfileParams{Cfg: &cfg, Fw: &fw, Ev: &ev},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -284,14 +269,14 @@ func TestGetDesiredProfileCarriesTheDesiredConfigHeaderAndReportsFirmware(t *tes
 	if !ok || text.Body != "agente" || text.Headers.XDesiredConfig == nil || *text.Headers.XDesiredConfig != "v1" {
 		t.Fatalf("unexpected response %#v", response)
 	}
-	if devices.poll.ConfigVersion != "abc" || devices.poll.Firmware != "v1.2" {
+	if devices.poll.ConfigVersion != "abc" || devices.poll.Firmware != "v1.2" || devices.poll.Event != "adopt-denied:10.0.0.77" {
 		t.Fatalf("poll not forwarded: %+v", devices.poll)
 	}
 }
 
 func TestGetDeviceConfigMapsAuthAndAbsence(t *testing.T) {
 	devices := &stubDevices{secret: "s3cret-s3cret-s3cret-s3cret-s3cret"}
-	handler := NewHandler(nil, nil, devices, stubReadiness{}, testLogger(), false, time.Second)
+	handler := NewHandler(nil, nil, devices, stubReadiness{}, testLogger(), time.Second)
 	response, _ := handler.GetDeviceConfig(context.Background(), GetDeviceConfigRequestObject{DeviceId: "68ee", Params: GetDeviceConfigParams{XDeviceSecret: "wrong"}})
 	if _, ok := response.(GetDeviceConfig401ApplicationProblemPlusJSONResponse); !ok {
 		t.Fatalf("expected 401, got %#v", response)
@@ -310,7 +295,7 @@ func TestGetDeviceConfigMapsAuthAndAbsence(t *testing.T) {
 
 func TestEnrollDeviceMapsUnavailableAuthAndSuccess(t *testing.T) {
 	devices := &stubDevices{}
-	handler := NewHandler(nil, nil, devices, stubReadiness{}, testLogger(), false, time.Second)
+	handler := NewHandler(nil, nil, devices, stubReadiness{}, testLogger(), time.Second)
 	response, _ := handler.GetEnrollmentChallenge(context.Background(), GetEnrollmentChallengeRequestObject{DeviceId: "68ee"})
 	if _, ok := response.(GetEnrollmentChallenge404ApplicationProblemPlusJSONResponse); !ok {
 		t.Fatalf("expected 404 without an organization secret, got %#v", response)
@@ -332,7 +317,7 @@ func TestEnrollDeviceMapsUnavailableAuthAndSuccess(t *testing.T) {
 
 func TestReportRunningConfigMapsAuthAndRecords(t *testing.T) {
 	devices := &stubDevices{secret: "s3cret-s3cret-s3cret-s3cret-s3cret"}
-	handler := NewHandler(nil, nil, devices, stubReadiness{}, testLogger(), false, time.Second)
+	handler := NewHandler(nil, nil, devices, stubReadiness{}, testLogger(), time.Second)
 	body := DeviceConfig{"schema": "sebastian.config.v1", "mode": "half_duplex"}
 	response, _ := handler.ReportRunningConfig(context.Background(), ReportRunningConfigRequestObject{DeviceId: "68ee", Params: ReportRunningConfigParams{XDeviceSecret: "wrong"}, Body: &body})
 	if _, ok := response.(ReportRunningConfig401ApplicationProblemPlusJSONResponse); !ok {
@@ -346,7 +331,7 @@ func TestReportRunningConfigMapsAuthAndRecords(t *testing.T) {
 
 func TestAdoptDeviceMapsNoAddressAndStartsAJob(t *testing.T) {
 	devices := &stubDevices{err: device.ErrNoAddress}
-	handler := NewHandler(nil, nil, devices, stubReadiness{}, testLogger(), false, time.Second)
+	handler := NewHandler(nil, nil, devices, stubReadiness{}, testLogger(), time.Second)
 	response, _ := handler.AdoptDevice(context.Background(), AdoptDeviceRequestObject{DeviceId: "dddd"})
 	if _, ok := response.(AdoptDevice400ApplicationProblemPlusJSONResponse); !ok {
 		t.Fatalf("expected 400, got %#v", response)
@@ -362,7 +347,7 @@ func TestAdoptDeviceMapsNoAddressAndStartsAJob(t *testing.T) {
 
 func TestListDevicesExposesTheFleetState(t *testing.T) {
 	devices := &stubDevices{items: []device.Device{{ID: "cccc", DisplayName: "cccc", Enabled: true, State: device.StateOrphan, IP: "10.0.0.130", ControlRoom: "http://10.0.100.10:8787", LastError: "timeout"}}}
-	handler := NewHandler(nil, nil, devices, stubReadiness{}, testLogger(), false, time.Second)
+	handler := NewHandler(nil, nil, devices, stubReadiness{}, testLogger(), time.Second)
 	response, _ := handler.ListDevices(context.Background(), ListDevicesRequestObject{})
 	list := response.(ListDevices200JSONResponse)
 	if len(list.Items) != 1 || list.Items[0].State != "orphan" || *list.Items[0].Ip != "10.0.0.130" || *list.Items[0].LastError != "timeout" {

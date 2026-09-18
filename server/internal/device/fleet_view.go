@@ -104,6 +104,9 @@ func fleetView(rows []Device, seen []discovery.Seen, self string, leaving map[st
 		}
 		sn := sn
 		d.IP, d.Firmware, d.ControlRoom, d.LastError, d.SeenOnLanAt = sn.IP, sn.Firmware, sn.ControlRoom, sn.LastError, sn.SeenAt
+		if sn.LastEvent != "" && sn.LastEventAt.After(d.LastEventAt) {
+			d.LastEvent, d.LastEventAt = sn.LastEvent, sn.LastEventAt
+		}
 		if d.ReportedConfig == "" {
 			d.ReportedConfig = sn.ConfigVersion
 		}

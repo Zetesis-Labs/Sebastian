@@ -217,9 +217,11 @@ de adopción: aceptada (y la unidad reiniciando), rechazada por secreto, sin
 respuesta, esperando el botón, caducada.
 
 **RF-36 Intento denegado visible para el dueño.** Cuando un altavoz rechaza una
-adopción, su siguiente anuncio lo dice, y el control room que lo gestiona lo
-muestra en su ficha ("intento de adopción rechazado desde 10.0.0.77 a las
-12:31"). Un tercero no puede adoptar y el dueño se entera de que lo intentó.
+adopción, su siguiente anuncio y su siguiente poll lo dicen (evento
+`adopt-denied:<ip>`), y el control room que lo gestiona lo muestra en la fila y
+en la ficha ("intento de adopción rechazado desde 10.0.0.77 a las 12:31"; la
+hora es la del primer contacto que lo trajo). Un tercero no puede adoptar y el
+dueño se entera de que lo intentó, esté o no en la misma red.
 
 **RF-37 Olvidar.** *Olvidar* en un altavoz adoptado aquí lo devuelve al estado
 *Sin adoptar*: borra el control room y los dos secretos en la unidad, conserva
@@ -284,7 +286,9 @@ ejecuta (sin secretos ni contraseña) en cada arranque, con
 el reporte siempre refleja lo último. La ficha parte de la deseada si la hay y,
 si no, de la reportada; bajo cada campo que difiere muestra "En el altavoz
 ahora: …". Si el altavoz no aplica en 3 polls, la ficha lo marca como "no
-aplicada" con el motivo reportado por la unidad.
+aplicada"; si la unidad rechazó el documento, lo dice con su motivo (evento
+`cfg-rejected:<motivo>` en el poll y en el anuncio), y el aviso desaparece en
+cuanto la unidad ejecuta la versión deseada.
 
 **RF-43 Campos que exigen reflashear** se muestran en la ficha con su valor
 actual, deshabilitados y con la explicación ("canal del micro: requiere
@@ -325,10 +329,10 @@ con una conversación en curso salvo que hayan pasado 2 min desde la orden.
 120 s tras una carga desde el instalador, provisioning completo por serie
 incluidos ambos secretos.
 
-**RF-67** Reset de fábrica físico: MUTE mantenido 10 s durante el arranque
-borra control room y secretos, conserva la WiFi, y el anillo lo confirma en
-rojo. (Pendiente de confirmar que MUTE es legible por el ESP32 en el
-arranque; si no, la vía de rescate es el USB.)
+*(RF-67, reset de fábrica físico, se descartó el 2026-09-18: la vía de rescate
+de una unidad cuyo control room ya no existe es el USB — el instalador lee su
+configuración y su secreto de altavoz con *Load from device* y la
+reprovisiona.)*
 
 ## 11. Errores y mensajes al operador
 
@@ -379,5 +383,5 @@ arranque; si no, la vía de rescate es el USB.)
 | RF-01…06 | 0 — instalador en el dashboard |
 | RF-12, RF-51, RF-53 | 1 — secreto por altavoz y `/v1/sessions` |
 | RF-10, RF-13, RF-20…24, RF-60…62 | 2 — anuncio y vista en red |
-| RF-30…39, RF-50, RF-52, RF-54, RF-63, RF-64, RF-67 | 3 — adopción |
+| RF-30…39, RF-50, RF-52, RF-54, RF-63, RF-64 | 3 — adopción |
 | RF-11, RF-40…46, RF-65 | 4 — configuración deseada |

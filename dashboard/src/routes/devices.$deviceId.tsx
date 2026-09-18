@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
+import { Link, createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
 import {
   clearDesiredConfig,
+  forgetDevice,
   getDevice,
   regenerateSecret,
   renameDevice,
@@ -12,7 +13,7 @@ import {
   type Json,
 } from '../lib/api'
 import { formatDate } from '../lib/format'
-import { GOVERNABLE_PATHS, STATE_HINT, STATE_LABEL, STATE_TONE, configSync, desiredDocument, differsFromRunning, fichaIssues, formGroups, runningValue, seedFromRoom, shortRoom, timeAgo, timeline } from '../lib/fleet'
+import { GOVERNABLE_PATHS, STATE_HINT, STATE_LABEL, STATE_TONE, canForget, configSync, desiredDocument, differsFromRunning, eventMessage, fichaIssues, formGroups, runningValue, seedFromRoom, shortRoom, timeAgo, timeline } from '../lib/fleet'
 import { applyMode, defaultConfig, mergeConfig, type DeviceConfig, type OperatingMode } from '@installer/config'
 import { MODES, SHARED, getField, setField, type FieldMeta } from '@installer/modes'
 import { validate } from '@installer/validate'
@@ -50,6 +51,7 @@ function DevicePage() {
   const { detail: loaded, room } = Route.useLoaderData() as { detail: DeviceDetail; room: ControlRoomPublic }
   const detail = loaded
   const router = useRouter()
+  const navigate = useNavigate()
   const [form, setForm] = useState<DeviceConfig>(() => seedForm(detail, room))
   const [dirty, setDirty] = useState(false)
   const [name, setName] = useState(detail.displayName)
@@ -78,6 +80,7 @@ function DevicePage() {
   const sync = configSync(detail, new Date())
   const running = detail.reportedConfigVersion ?? '—'
   const desired = detail.desiredConfigVersion ?? '—'
+  const event = eventMessage(detail, detail.lastEventAt ? formatDate(detail.lastEventAt) : '')
 
   async function act(label: string, fn: () => Promise<unknown>, done: string) {
     setBusy(true)
@@ -140,9 +143,10 @@ function DevicePage() {
         <Detail label="Último contacto" value={detail.profileReportedAt ? formatDate(detail.profileReportedAt) : 'nunca'} />
         <Detail label="Adoptado" value={detail.adoptedAt ? formatDate(detail.adoptedAt) : 'no'} />
         <Detail label="En la red" value={detail.seenOnLanAt ? `${formatDate(detail.seenOnLanAt)}${detail.controlRoom ? ` · ${shortRoom(detail.controlRoom)}` : ' · sin control room'}` : 'no se ve'} />
-        <Detail label="Último error" value={detail.lastError && detail.lastError !== 'ok' ? detail.lastError : 'ninguno'} />
+        <Detail label="Último contacto (resultado)" value={detail.lastError && detail.lastError !== 'ok' ? detail.lastError : 'ok'} />
       </section>
 
+      {event && <p className={`device-notice ${event.tone}`}>{event.text}</p>}
       {msg && <p className={`device-notice ${msg.tone}`}>{msg.text}</p>}
 
       <section className="device-panel">
@@ -251,7 +255,7 @@ function DevicePage() {
         <p className="device-meta">
           {detail.hasDeviceSecret
             ? 'Este altavoz abre sesiones con un secreto propio. Regenerarlo emite otro que le llega en su próxima configuración; el antiguo vale hasta que use el nuevo.'
-            : 'Sin secreto de altavoz: abre sesiones por el endpoint legado. Adóptalo para emitir uno.'}
+            : 'Este control room no tiene el secreto de este altavoz, así que no puede abrir sesiones aquí. Adóptalo para recibirlo.'}
         </p>
         <div className="device-actions">
           <button type="button" className="chip-button" disabled={busy || !detail.hasDeviceSecret} onClick={() => void act('Generando…', async () => { const r = await regenerateSecret({ data: { deviceId: detail.id } }); setSecret(r.deviceSecret) }, 'Secreto regenerado.')}>
@@ -260,6 +264,16 @@ function DevicePage() {
         </div>
         {secret && <SecretDialog secret={secret} onClose={() => setSecret(null)} />}
       </section>
+
+      {canForget(detail.state) && (
+        <ForgetPanel
+          detail={detail}
+          busy={busy}
+          onForget={() =>
+            act('Olvidando…', () => forgetDevice({ data: { deviceId: detail.id } }), 'Olvidado.').then(() => navigate({ to: '/devices' }))
+          }
+        />
+      )}
 
       <section className="device-panel">
         <div className="section-heading">
@@ -349,5 +363,46 @@ function Detail({ label, value }: Readonly<{ label: string; value: string }>) {
       <span>{label}</span>
       <strong>{value}</strong>
     </div>
+  )
+}
+
+// RF-37: forgetting asks the operator to type the unit's id (its MAC) — no
+// browser dialog, so it works the same everywhere.
+function ForgetPanel({ detail, busy, onForget }: Readonly<{ detail: DeviceDetail; busy: boolean; onForget: () => void }>) {
+  const [typed, setTyped] = useState('')
+  const [open, setOpen] = useState(false)
+  const matches = typed.trim().toLowerCase() === detail.id.toLowerCase()
+  return (
+    <section className="device-panel danger-zone">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">Olvidar</p>
+          <h2>Devolver el altavoz a fábrica</h2>
+        </div>
+      </div>
+      <p className="device-meta">
+        Borra en la placa el control room y los dos secretos (conserva la WiFi) y la retira del inventario. Su historial de sesiones se conserva. Vuelve a aparecer como «Sin adoptar» al reiniciar.
+      </p>
+      {!open ? (
+        <div className="device-actions">
+          <button type="button" className="chip-button danger" disabled={busy} onClick={() => setOpen(true)}>Olvidar este altavoz…</button>
+        </div>
+      ) : (
+        <form
+          className="adopt-ip"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (matches) onForget()
+          }}
+        >
+          <label>
+            <span>Escribe su id ({detail.id}) para confirmar</span>
+            <input value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" spellCheck={false} className="mono" autoFocus />
+          </label>
+          <button type="submit" className="chip-button danger" disabled={busy || !matches}>Olvidar</button>
+          <button type="button" className="chip-button" onClick={() => { setOpen(false); setTyped('') }}>Cancelar</button>
+        </form>
+      )}
+    </section>
   )
 }

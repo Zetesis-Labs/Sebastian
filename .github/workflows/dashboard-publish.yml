@@ -49,6 +49,14 @@ jobs:
             0x0 build/bootloader/bootloader.bin
             0x8000 build/partition_table/partition-table.bin
             0x10000 build/sebastian.bin
+      # The version shown next to the flash button is the one the image
+      # reports (esp_app_desc), so the installer never lies about what it ships.
+      - name: Stamp the firmware version into the installer manifest
+        run: |
+          VERSION="$(jq -r .project_version firmware/build/project_description.json)"
+          jq --arg v "$VERSION" '.version = $v' web-installer/public/manifest.json > manifest.tmp
+          mv manifest.tmp web-installer/public/manifest.json
+          echo "installer ships firmware $VERSION"
       - name: Build and push dashboard
         run: |
           VERSION="v${{ inputs.version }}"

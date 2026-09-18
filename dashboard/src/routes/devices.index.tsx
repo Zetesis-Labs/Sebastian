@@ -1,20 +1,22 @@
 import { useEffect, useState } from 'react'
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import { adoptDevice, forgetDevice, getAdoptionJob, getDevices, type AdoptionJob, type Device } from '../lib/api'
+import { SecretDialog } from '../components/SecretDialog'
 import { formatDate } from '../lib/format'
 import {
+  canAdopt,
+  canForget,
+  eventMessage,
+  groupDevices,
+  isValidIPv4,
   JOB_DONE,
+  jobMessage,
   SECTION_TITLE,
   STATE_HINT,
   STATE_LABEL,
   STATE_TONE,
-  TRANSITIONAL,
-  canAdopt,
-  canForget,
-  groupDevices,
-  isValidIPv4,
-  jobMessage,
   timeline,
+  TRANSITIONAL,
   type Section,
 } from '../lib/fleet'
 
@@ -204,8 +206,16 @@ function Devices() {
   )
 }
 
+// The unit's last event (RF-36/42), with the moment this control room saw it.
+function EventLine({ device }: Readonly<{ device: Device }>) {
+  const message = eventMessage(device, device.lastEventAt ? formatDate(device.lastEventAt) : '')
+  if (!message) return null
+  return <p className={`device-meta ${message.tone}`}>{message.text}</p>
+}
+
 function JobLine({ job }: Readonly<{ job: AdoptionJob }>) {
   const message = jobMessage(job)
+  const [showSecret, setShowSecret] = useState(false)
   return (
     <p className={`device-job ${message.tone}`}>
       {message.text}
@@ -217,10 +227,12 @@ function JobLine({ job }: Readonly<{ job: AdoptionJob }>) {
           </Link>
           <br />
           <span className="device-secret-once">
-            Secreto del altavoz: <code>{job.deviceSecret}</code>
+            Secreto del altavoz: <code>{job.deviceSecret}</code>{' '}
+            <button type="button" className="chip-button" onClick={() => setShowSecret(true)}>Copiar o QR</button>
             <br />
             Es fijo: nace con la placa y no cambia al adoptarla. Se vuelve a leer por USB con «Load from device»; solo cambia si lo regeneras en la ficha.
           </span>
+          {showSecret && <SecretDialog secret={job.deviceSecret} onClose={() => setShowSecret(false)} />}
         </>
       )}
     </p>
@@ -286,6 +298,7 @@ function DeviceRow({
         {device.lastError && device.lastError !== 'ok' && (
           <p className="device-meta warn">Último contacto: {device.lastError}</p>
         )}
+        <EventLine device={device} />
         {job && <JobLine job={job} />}
         {job?.phase === 'failed' && job.error === 'auth' && handover === null && (
           <button type="button" className="chip-button primary device-retry" onClick={() => onHandoverChange('')}>

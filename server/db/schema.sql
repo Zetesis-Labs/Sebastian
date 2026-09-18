@@ -41,6 +41,11 @@ CREATE TABLE devices (
   running_config_at timestamptz,
   reported_config_version varchar,
   reported_firmware varchar,
+  -- The last event the unit reported in its poll (RF-36/42): adopt-denied:<ip>,
+  -- cfg-rejected:<why> or an error of its previous boot; last_event_at is the
+  -- first poll that carried that value.
+  last_event varchar,
+  last_event_at timestamptz,
   forgotten_at timestamptz,
   CONSTRAINT devices_agent_profiles_devices
     FOREIGN KEY (agent_profile_id) REFERENCES agent_profiles(id)

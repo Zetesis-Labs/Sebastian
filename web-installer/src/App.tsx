@@ -21,6 +21,7 @@ export default function App() {
   const [holdLeft, setHoldLeft] = useState<number | null>(null);
   const [sourceMsg, setSourceMsg] = useState("Checking published firmware…");
   const [installReady, setInstallReady] = useState(false);
+  const [firmwareVersion, setFirmwareVersion] = useState<string | null>(null);
   const [log, setLog] = useState<string[]>([]);
   const [room, setRoom] = useState<ControlRoomPrefill | null>(null);
 
@@ -56,6 +57,7 @@ export default function App() {
         const manifest = await res.json();
         const part = manifest?.builds?.[0]?.parts?.[0]?.path;
         if (!part) throw new Error();
+        setFirmwareVersion(typeof manifest?.version === "string" ? manifest.version : null);
         // Validate it's a REAL ESP image, not an SPA-fallback index.html. A dev
         // server returns HTML (200) for a missing .bin; ESP Web Tools would then
         // flash that HTML over the bootloader and brick the chip. Require the
@@ -69,7 +71,7 @@ export default function App() {
         const firstByte = new Uint8Array(await bin.arrayBuffer())[0];
         if (firstByte !== 0xe9) throw new Error("not-an-esp-image");
         setInstallReady(true);
-        setSourceMsg("Factory image ready to flash.");
+        setSourceMsg(import.meta.env.VITE_EMBEDDED ? "Factory image packaged with this control room, ready to flash." : "Factory image ready to flash.");
       } catch {
         setInstallReady(false);
         setSourceMsg("No valid firmware image published. Provision an already flashed board (step 3) or use an external .bin (Advanced).");
@@ -260,7 +262,15 @@ export default function App() {
                 </span>
                 {/* @ts-expect-error web component */}
               </esp-web-install-button>
-              <p className={cx("text-sm", toneCls(installReady ? "" : "warn"))}>{sourceMsg}</p>
+              <p className={cx("text-sm", toneCls(installReady ? "" : "warn"))}>
+                {sourceMsg}
+                {installReady && firmwareVersion && (
+                  <>
+                    {" "}
+                    <span className="font-mono text-fg-muted">Firmware {firmwareVersion}</span>
+                  </>
+                )}
+              </p>
               <p className="text-sm text-fg-muted">
                 Is the board already flashed? Skip this step and go directly to{" "}
                 <a href="#enviar" className="font-semibold text-brand hover:underline">

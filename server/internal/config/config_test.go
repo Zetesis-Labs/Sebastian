@@ -13,7 +13,6 @@ func TestLoad(t *testing.T) {
 	t.Setenv("LIVEKIT_API_SECRET", "secret")
 	t.Setenv("SEBASTIAN_ADMIN_SECRET", "admin-secret")
 	t.Setenv("SEBASTIAN_TOKEN_TTL", "30m")
-	t.Setenv("SEBASTIAN_LEGACY_TOKEN_ENABLED", "true")
 
 	cfg, err := Load()
 	if err != nil {
@@ -21,9 +20,6 @@ func TestLoad(t *testing.T) {
 	}
 	if cfg.TokenTTL != 30*time.Minute {
 		t.Fatalf("TokenTTL = %s, want 30m", cfg.TokenTTL)
-	}
-	if !cfg.LegacyTokenEnabled {
-		t.Fatal("LegacyTokenEnabled = false, want true")
 	}
 }
 

@@ -140,29 +140,51 @@ func (s *Store) RecordSession(ctx context.Context, record session.Record) error 
 		}).Exec(ctx); err != nil {
 			return fmt.Errorf("insert session: %w", err)
 		}
-		if _, err := tx.NewInsert().Model(&domainEventModel{
-			ID:            record.EventID,
-			AggregateType: "session",
-			AggregateID:   record.SessionID.String(),
-			EventType:     "session.created",
-			EventVersion:  1,
-			Payload:       payload,
-			OccurredAt:    record.OccurredAt,
-		}).Exec(ctx); err != nil {
-			return fmt.Errorf("insert domain event: %w", err)
-		}
-		if _, err := tx.NewInsert().Model(&outboxEventModel{
-			ID:            record.EventID,
-			EventID:       record.EventID,
-			Subject:       "evt.sebastian.v1.session.created",
-			Payload:       payload,
-			CreatedAt:     record.OccurredAt,
-			NextAttemptAt: record.OccurredAt,
-		}).Exec(ctx); err != nil {
-			return fmt.Errorf("insert outbox event: %w", err)
-		}
-		return nil
+		return appendEvent(ctx, tx, domainEvent{
+			ID: record.EventID, AggregateType: "session", AggregateID: record.SessionID.String(),
+			Type: "session.created", Payload: payload, At: record.OccurredAt,
+		})
 	})
+}
+
+// domainEvent is what every state change of interest leaves behind (spec 12
+// §12 observability): a row in domain_events and its copy in the outbox that
+// cmd/outbox publishes to NATS as evt.sebastian.v1.<type>.
+type domainEvent struct {
+	ID            uuid.UUID // zero = generated
+	AggregateType string
+	AggregateID   string
+	Type          string
+	Payload       json.RawMessage
+	At            time.Time
+}
+
+func deviceEvent(eventType, id string, payload map[string]any, at time.Time) domainEvent {
+	body, _ := json.Marshal(payload)
+	return domainEvent{AggregateType: "device", AggregateID: id, Type: eventType, Payload: body, At: at}
+}
+
+func appendEvent(ctx context.Context, db bun.IDB, e domainEvent) error {
+	if e.ID == uuid.Nil {
+		id, err := uuid.NewV7()
+		if err != nil {
+			return fmt.Errorf("generate event id: %w", err)
+		}
+		e.ID = id
+	}
+	if _, err := db.NewInsert().Model(&domainEventModel{
+		ID: e.ID, AggregateType: e.AggregateType, AggregateID: e.AggregateID,
+		EventType: e.Type, EventVersion: 1, Payload: e.Payload, OccurredAt: e.At,
+	}).Exec(ctx); err != nil {
+		return fmt.Errorf("insert domain event %s: %w", e.Type, err)
+	}
+	if _, err := db.NewInsert().Model(&outboxEventModel{
+		ID: e.ID, EventID: e.ID, Subject: "evt.sebastian.v1." + e.Type,
+		Payload: e.Payload, CreatedAt: e.At, NextAttemptAt: e.At,
+	}).Exec(ctx); err != nil {
+		return fmt.Errorf("insert outbox event %s: %w", e.Type, err)
+	}
+	return nil
 }
 
 func (s *Store) Ping(ctx context.Context) error {
@@ -351,26 +373,11 @@ func (s *Store) CreateRecording(ctx context.Context, record recording.CreateReco
 		if err != nil {
 			return fmt.Errorf("encode recording event: %w", err)
 		}
-		if _, err := tx.NewInsert().Model(&domainEventModel{
-			ID:            record.EventID,
-			AggregateType: "recording",
-			AggregateID:   record.ID.String(),
-			EventType:     "recording.registered",
-			EventVersion:  1,
-			Payload:       payload,
-			OccurredAt:    record.Now,
-		}).Exec(ctx); err != nil {
-			return fmt.Errorf("insert recording event: %w", err)
-		}
-		if _, err := tx.NewInsert().Model(&outboxEventModel{
-			ID:            record.EventID,
-			EventID:       record.EventID,
-			Subject:       "evt.sebastian.v1.recording.registered",
-			Payload:       payload,
-			CreatedAt:     record.Now,
-			NextAttemptAt: record.Now,
-		}).Exec(ctx); err != nil {
-			return fmt.Errorf("insert recording outbox event: %w", err)
+		if err := appendEvent(ctx, tx, domainEvent{
+			ID: record.EventID, AggregateType: "recording", AggregateID: record.ID.String(),
+			Type: "recording.registered", Payload: payload, At: record.Now,
+		}); err != nil {
+			return err
 		}
 		created = recordingRow{
 			ID: record.ID, SessionID: sessionRow.ID, Room: sessionRow.RoomName,

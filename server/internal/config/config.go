@@ -18,8 +18,6 @@ type Config struct {
 	AdminSecret         string
 	RoomPrefix          string
 	TokenTTL            time.Duration
-	LegacyTokenEnabled  bool
-	LegacyDeviceID      string
 	ControlRoomName     string
 	PublicAPIURL        string // what devices use to reach this control room
 	SyslogIP            string
@@ -49,7 +47,6 @@ func Load() (Config, error) {
 		LiveKitAPISecret:    strings.TrimSpace(os.Getenv("LIVEKIT_API_SECRET")),
 		AdminSecret:         strings.TrimSpace(os.Getenv("SEBASTIAN_ADMIN_SECRET")),
 		RoomPrefix:          envOr("SEBASTIAN_ROOM_PREFIX", "sebastian"),
-		LegacyDeviceID:      envOr("SEBASTIAN_LEGACY_DEVICE_ID", "esp32-respeaker"),
 		ControlRoomName:     strings.TrimSpace(os.Getenv("SEBASTIAN_CONTROL_ROOM_NAME")),
 		PublicAPIURL:        strings.TrimRight(strings.TrimSpace(os.Getenv("SEBASTIAN_PUBLIC_API_URL")), "/"),
 		SyslogIP:            strings.TrimSpace(os.Getenv("SEBASTIAN_SYSLOG_IP")),
@@ -68,9 +65,6 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	if cfg.DatabasePingTimeout, err = duration("SEBASTIAN_DATABASE_PING_TIMEOUT", cfg.DatabasePingTimeout); err != nil {
-		return Config{}, err
-	}
-	if cfg.LegacyTokenEnabled, err = boolean("SEBASTIAN_LEGACY_TOKEN_ENABLED", false); err != nil {
 		return Config{}, err
 	}
 	if cfg.DiscoveryEnabled, err = boolean("SEBASTIAN_DISCOVERY_ENABLED", true); err != nil {

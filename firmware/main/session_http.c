@@ -2,7 +2,7 @@
 // secret, block 1 of docs/implementation/11-fleet-adoption-control-room.md),
 // a GET that carries the device credentials and captures one response header
 // (the desired-config poll), and the enrolment that turns the organization
-// secret into a device secret (RF-51). Same shape as token_http.c; C because
+// secret into a device secret (RF-51). C because
 // esp_http_client_config_t and cJSON are painful to bind from Zig.
 #include "sebastian_fleet.h"
 

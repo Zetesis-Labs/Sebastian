@@ -29,7 +29,6 @@ type Device struct {
 type Credentials struct {
 	DeviceID string
 	Secret   string
-	Legacy   bool
 }
 
 type Created struct {
@@ -68,45 +67,37 @@ type Service struct {
 	serverURL  string
 	roomPrefix string
 	tokenTTL   time.Duration
-	legacyID   string
 	now        func() time.Time
 }
 
-func NewService(store Store, livekit LiveKit, serverURL, roomPrefix string, tokenTTL time.Duration, legacyID string) *Service {
+func NewService(store Store, livekit LiveKit, serverURL, roomPrefix string, tokenTTL time.Duration) *Service {
 	return &Service{
 		store:      store,
 		livekit:    livekit,
 		serverURL:  serverURL,
 		roomPrefix: roomPrefix,
 		tokenTTL:   tokenTTL,
-		legacyID:   legacyID,
 		now:        time.Now,
 	}
 }
 
 func (s *Service) Create(ctx context.Context, credentials Credentials) (Created, error) {
-	deviceID := credentials.DeviceID
-	if credentials.Legacy {
-		deviceID = s.legacyID
-	}
-	device, err := s.store.FindDevice(ctx, deviceID)
+	device, err := s.store.FindDevice(ctx, credentials.DeviceID)
 	if err != nil {
 		if errors.Is(err, ErrUnauthorized) {
 			return Created{}, ErrUnauthorized
 		}
 		return Created{}, fmt.Errorf("find device: %w", ErrUnavailable)
 	}
-	if !credentials.Legacy {
-		digest := DigestSecret(credentials.Secret)
-		switch {
-		case len(device.CredentialDigest) > 0 && subtle.ConstantTimeCompare(digest, device.CredentialDigest) == 1:
-		case len(device.PendingDigest) > 0 && subtle.ConstantTimeCompare(digest, device.PendingDigest) == 1:
-			if err := s.store.ConfirmSecret(ctx, device.ID, digest); err != nil {
-				return Created{}, fmt.Errorf("confirm secret: %w: %w", ErrUnavailable, err)
-			}
-		default:
-			return Created{}, ErrUnauthorized
+	digest := DigestSecret(credentials.Secret)
+	switch {
+	case len(device.CredentialDigest) > 0 && subtle.ConstantTimeCompare(digest, device.CredentialDigest) == 1:
+	case len(device.PendingDigest) > 0 && subtle.ConstantTimeCompare(digest, device.PendingDigest) == 1:
+		if err := s.store.ConfirmSecret(ctx, device.ID, digest); err != nil {
+			return Created{}, fmt.Errorf("confirm secret: %w: %w", ErrUnavailable, err)
 		}
+	default:
+		return Created{}, ErrUnauthorized
 	}
 
 	sessionID, err := uuid.NewV7()

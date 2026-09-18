@@ -6,6 +6,7 @@ package discovery
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net"
 	"sort"
@@ -33,6 +34,8 @@ type Seen struct {
 	Profile       string
 	ControlRoom   string
 	LastError     string
+	LastEvent     string    // TXT "ev": adopt-denied:<ip>, cfg-rejected:<why>, boot error
+	LastEventAt   time.Time // when this browser first saw the current LastEvent
 	ConfigVersion string
 	SeenAt        time.Time
 }
@@ -74,7 +77,8 @@ func (m *MDNS) Run(ctx context.Context) {
 		cycle, cancel := context.WithTimeout(ctx, browseCycle)
 		err := dnssd.LookupType(cycle, serviceType, m.add, func(dnssd.BrowseEntry) {})
 		cancel()
-		if err != nil && ctx.Err() == nil {
+		// The cycle ending on its own deadline is the normal way out of LookupType.
+		if err != nil && !errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
 			m.logger.Warn("mdns browse failed — LAN discovery off until it recovers", "error", err)
 			select {
 			case <-ctx.Done():
@@ -96,9 +100,11 @@ func (m *MDNS) add(e dnssd.BrowseEntry) {
 		Profile:       e.Text["prof"],
 		ControlRoom:   e.Text["cr"],
 		LastError:     e.Text["err"],
+		LastEvent:     e.Text["ev"],
 		ConfigVersion: e.Text["cfg"],
 		SeenAt:        m.now(),
 	}
+	entry.LastEventAt = entry.SeenAt
 	for _, ip := range e.IPs {
 		if v4 := ip.To4(); v4 != nil {
 			entry.IP = v4.String()
@@ -109,6 +115,9 @@ func (m *MDNS) add(e dnssd.BrowseEntry) {
 		entry.IP = e.IPs[0].String()
 	}
 	m.mu.Lock()
+	if prev, ok := m.seen[id]; ok && prev.LastEvent == entry.LastEvent {
+		entry.LastEventAt = prev.LastEventAt
+	}
 	m.seen[id] = entry
 	m.mu.Unlock()
 }

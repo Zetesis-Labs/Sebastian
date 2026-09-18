@@ -64,7 +64,7 @@ export interface paths {
         };
         /**
          * Desired device profile for reconciliation polls
-         * @description Device-facing. The firmware polls this endpoint, reporting its running profile via `current`, and receives the desired profile name (empty body when none is set). Unknown devices are auto-registered so new units appear in the admin inventory on first contact. Same exposure posture as /token: keep it off the public internet until device credentials land.
+         * @description Device-facing. The firmware polls this endpoint, reporting its running profile via `current`, and receives the desired profile name (empty body when none is set). Unknown devices are auto-registered so new units appear in the admin inventory on first contact.
          */
         get: operations["getDesiredProfile"];
         put?: never;
@@ -358,27 +358,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/token": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Firmware-compatible two-line LiveKit connection response
-         * @deprecated
-         * @description Transitional endpoint. It must be explicitly enabled and should not be exposed publicly.
-         */
-        get: operations["getLegacyToken"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -469,6 +448,13 @@ export interface components {
             controlRoom?: string;
             /** @description What the device reports about its last control-room contact (empty = ok). */
             lastError?: string;
+            /** @description The unit's last event worth telling the owner (RF-36/42): adopt-denied:<ip>, cfg-rejected:<why>, or the error of its previous boot. Kept until the unit reports another. */
+            lastEvent?: string;
+            /**
+             * Format: date-time
+             * @description When this control room first saw lastEvent.
+             */
+            lastEventAt?: string;
             reportedConfigVersion?: string;
             desiredConfigVersion?: string;
             /** Format: date-time */
@@ -712,6 +698,8 @@ export interface operations {
                 cfg?: string;
                 /** @description Firmware version the device is running. */
                 fw?: string;
+                /** @description The unit's last event worth telling the owner (RF-36/42): adopt-denied:<ip>, cfg-rejected:<why>, or the error recorded by its previous boot. Empty when none. */
+                ev?: string;
             };
             header?: never;
             path: {
@@ -1333,44 +1321,6 @@ export interface operations {
                 };
             };
             503: components["responses"]["Unavailable"];
-        };
-    };
-    getLegacyToken: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description LiveKit URL followed by the JWT, separated by a newline. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": string;
-                };
-            };
-            /** @description The compatibility endpoint is disabled. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description LiveKit or persistence is unavailable. */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
         };
     };
 }

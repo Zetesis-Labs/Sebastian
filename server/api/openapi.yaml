@@ -85,9 +85,7 @@ paths:
         Device-facing. The firmware polls this endpoint, reporting its running
         profile via `current`, and receives the desired profile name (empty
         body when none is set). Unknown devices are auto-registered so new
-        units appear in the admin inventory on first contact. Same exposure
-        posture as /token: keep it off the public internet until device
-        credentials land.
+        units appear in the admin inventory on first contact.
       tags: [devices]
       parameters:
         - name: deviceId
@@ -111,6 +109,12 @@ paths:
         - name: fw
           in: query
           description: Firmware version the device is running.
+          schema:
+            type: string
+            maxLength: 64
+        - name: ev
+          in: query
+          description: "The unit's last event worth telling the owner (RF-36/42): adopt-denied:<ip>, cfg-rejected:<why>, or the error recorded by its previous boot. Empty when none."
           schema:
             type: string
             maxLength: 64
@@ -683,32 +687,6 @@ paths:
                 $ref: "#/components/schemas/Problem"
         "503":
           $ref: "#/components/responses/Unavailable"
-  /token:
-    get:
-      operationId: getLegacyToken
-      summary: Firmware-compatible two-line LiveKit connection response
-      description: Transitional endpoint. It must be explicitly enabled and should not be exposed publicly.
-      deprecated: true
-      tags: [compatibility]
-      responses:
-        "200":
-          description: LiveKit URL followed by the JWT, separated by a newline.
-          content:
-            text/plain:
-              schema:
-                type: string
-        "404":
-          description: The compatibility endpoint is disabled.
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/Problem"
-        "503":
-          description: LiveKit or persistence is unavailable.
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/Problem"
 components:
   securitySchemes:
     DeviceSecret:
@@ -922,6 +900,13 @@ components:
         lastError:
           type: string
           description: What the device reports about its last control-room contact (empty = ok).
+        lastEvent:
+          type: string
+          description: "The unit's last event worth telling the owner (RF-36/42): adopt-denied:<ip>, cfg-rejected:<why>, or the error of its previous boot. Kept until the unit reports another."
+        lastEventAt:
+          type: string
+          format: date-time
+          description: When this control room first saw lastEvent.
         reportedConfigVersion:
           type: string
         desiredConfigVersion:

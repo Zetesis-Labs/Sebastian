@@ -21,7 +21,6 @@ services:
       LIVEKIT_URL: ws://${LIVEKIT_NODE_IP:?define LIVEKIT_NODE_IP en .devcontainer/.env}:7880
       LIVEKIT_API_KEY: devkey
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?define LIVEKIT_API_SECRET en .devcontainer/.env}
-      SEBASTIAN_LEGACY_TOKEN_ENABLED: "true"
       SEBASTIAN_ADMIN_SECRET: dev-admin-secret-change-me
       SEBASTIAN_API_URL: http://127.0.0.1:8787
     ports:

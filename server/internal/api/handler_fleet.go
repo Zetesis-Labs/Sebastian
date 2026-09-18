@@ -54,7 +54,8 @@ func (h *Server) GetDevice(ctx context.Context, request GetDeviceRequestObject) 
 		Id: base.Id, DisplayName: base.DisplayName, Enabled: base.Enabled, State: base.State,
 		AdoptedAt: base.AdoptedAt, DesiredProfile: base.DesiredProfile, ReportedProfile: base.ReportedProfile,
 		ProfileReportedAt: base.ProfileReportedAt, Firmware: base.Firmware, Ip: base.Ip, ControlRoom: base.ControlRoom,
-		LastError: base.LastError, ReportedConfigVersion: base.ReportedConfigVersion, DesiredConfigVersion: base.DesiredConfigVersion,
+		LastError: base.LastError, LastEvent: base.LastEvent, LastEventAt: base.LastEventAt,
+		ReportedConfigVersion: base.ReportedConfigVersion, DesiredConfigVersion: base.DesiredConfigVersion,
 		SeenOnLanAt: base.SeenOnLanAt, HasDeviceSecret: detail.HasDeviceSecret, Sessions: sessions,
 	}
 	if detail.RunningConfig != nil {
