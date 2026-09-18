@@ -40,9 +40,16 @@ paths:
     post:
       operationId: createSession
       summary: Create a device session and dispatch its assigned agent
+      description: With `kind=meeting` the agent is dispatched in meeting mode for that meeting (design 14 §3.2).
       tags: [sessions]
       security:
         - DeviceSecret: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SessionRequest"
       parameters:
         - name: X-Device-Id
           in: header
@@ -124,6 +131,10 @@ paths:
           headers:
             X-Desired-Config:
               description: Version of the desired config; the device fetches it when different from `cfg`.
+              schema:
+                type: string
+            X-Meeting:
+              description: "A pending meeting order (RM-06): start:<meetingId> or stop:<meetingId>. Absent when none."
               schema:
                 type: string
           content:
@@ -577,6 +588,193 @@ paths:
                 $ref: "#/components/schemas/Problem"
         "503":
           $ref: "#/components/responses/Unavailable"
+  /v1/admin/devices/{deviceId}/meetings:
+    post:
+      operationId: startMeeting
+      summary: Ask the unit to record a meeting (RM-03)
+      description: >-
+        Creates a meeting in state `requested` and sends the unit the order
+        over the LAN, signed with the organization secret; the unit's next
+        poll carries it too (RM-06). One meeting per unit (RM-05); only in
+        the agente profile (RM-44).
+      tags: [administration, meetings]
+      security:
+        - AdminSecret: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MeetingStart"
+      responses:
+        "202":
+          description: Meeting requested.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Meeting"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/DeviceNotFound"
+        "409":
+          description: A meeting is already in progress on this unit (RM-05).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "422":
+          description: The unit cannot record (not adopted here, or not in the agente profile).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/admin/meetings:
+    get:
+      operationId: listMeetings
+      summary: Meetings, newest first (RM-40)
+      tags: [administration, meetings]
+      security:
+        - AdminSecret: []
+      parameters:
+        - name: deviceId
+          in: query
+          schema:
+            type: string
+        - name: state
+          in: query
+          schema:
+            $ref: "#/components/schemas/MeetingState"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        "200":
+          description: Meetings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeetingList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/admin/meetings/{meetingId}:
+    get:
+      operationId: getMeeting
+      summary: One meeting (RM-41)
+      tags: [administration, meetings]
+      security:
+        - AdminSecret: []
+      parameters:
+        - $ref: "#/components/parameters/MeetingId"
+      responses:
+        "200":
+          description: The meeting.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Meeting"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/MeetingNotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    delete:
+      operationId: deleteMeeting
+      summary: Delete audio and content irreversibly, keeping the trace (RM-46)
+      tags: [administration, meetings]
+      security:
+        - AdminSecret: []
+      parameters:
+        - $ref: "#/components/parameters/MeetingId"
+      responses:
+        "204":
+          description: Deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/MeetingNotFound"
+        "409":
+          description: The meeting is still in progress.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/admin/meetings/{meetingId}/stop:
+    post:
+      operationId: stopMeeting
+      summary: Stop a meeting (RM-22; the agent uses it for RM-21)
+      tags: [administration, meetings]
+      security:
+        - AdminSecret: []
+      parameters:
+        - $ref: "#/components/parameters/MeetingId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MeetingStop"
+      responses:
+        "202":
+          description: Stopping.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Meeting"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/MeetingNotFound"
+        "409":
+          description: The meeting is not in progress.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/devices/{deviceId}/meeting:
+    put:
+      operationId: reportMeeting
+      summary: The unit confirms it records, or that it stopped and why (RM-52)
+      tags: [devices, meetings]
+      security:
+        - DeviceSecret: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+        - name: X-Device-Secret
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MeetingReport"
+      responses:
+        "204":
+          description: Recorded.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/MeetingNotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/admin/recordings:
     get:
       operationId: listRecordings
@@ -706,7 +904,20 @@ components:
         type: string
         minLength: 1
         maxLength: 128
+    MeetingId:
+      name: meetingId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
   responses:
+    MeetingNotFound:
+      description: The meeting does not exist.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
     DeviceNotFound:
       description: Device not found.
       content:
@@ -1102,6 +1313,97 @@ components:
           type: string
           maxLength: 63
           description: Firmware profile name. Empty or absent clears the desired state.
+    MeetingState:
+      type: string
+      description: "requested = asked, the unit has not confirmed; recording; closing = stop asked, file being closed; transcribing; ready; no_transcript = audio only, retryable; cut = the unit vanished, audio kept up to that point."
+      enum: [requested, recording, closing, transcribing, ready, no_transcript, cut]
+    Meeting:
+      type: object
+      required: [id, deviceId, state, requestedBy, requestedAt, durationMs, audioBytes, hasAudio, keep]
+      properties:
+        id:
+          type: string
+          format: uuid
+        deviceId:
+          type: string
+        state:
+          $ref: "#/components/schemas/MeetingState"
+        requestedBy:
+          type: string
+          enum: [gesture, dashboard, voice]
+        requestedAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: string
+          format: date-time
+        endedAt:
+          type: string
+          format: date-time
+        endReason:
+          type: string
+          enum: [gesture, dashboard, voice, silence, max_duration, device_lost, room_lost]
+        durationMs:
+          type: integer
+          format: int64
+          description: Recorded duration; while recording, the live duration so far (RM-14).
+        audioBytes:
+          type: integer
+          format: int64
+        hasAudio:
+          type: boolean
+        keep:
+          type: boolean
+          description: Excluded from retention (RM-45).
+        deletedAt:
+          type: string
+          format: date-time
+    MeetingList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Meeting"
+    MeetingStart:
+      type: object
+      properties:
+        requestedBy:
+          type: string
+          enum: [gesture, dashboard, voice]
+          default: dashboard
+    MeetingStop:
+      type: object
+      properties:
+        reason:
+          type: string
+          enum: [dashboard, voice, silence]
+          default: dashboard
+    MeetingReport:
+      type: object
+      required: [meetingId, state]
+      properties:
+        meetingId:
+          type: string
+          format: uuid
+        state:
+          type: string
+          enum: [recording, stopped]
+        reason:
+          type: string
+          enum: [gesture, room_lost]
+          description: Why the unit stopped (only with `stopped`).
+    SessionRequest:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum: [conversation, meeting]
+          default: conversation
+        meetingId:
+          type: string
+          format: uuid
     RecordingSummary:
       type: object
       additionalProperties: false

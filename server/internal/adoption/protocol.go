@@ -8,6 +8,14 @@
 //
 // mac = HMAC-SHA256(secret, nonce + "." + cfg). The device accepts its
 // organization secret or its own device secret.
+//
+// The same conversation carries orders to an adopted unit (meeting
+// recordings, docs/implementation/14 §3.2):
+//
+//	→ {"t":"cmd","n":"<nonce>","cmd":"record-start|record-stop","id":"<meeting uuid>","mac":"<64 hex>"}
+//	← {"t":"ok"} | {"t":"err","why":"auth|profile|busy|idle"}
+//
+// mac = HMAC-SHA256(orgSecret, nonce + "." + cmd + "." + id).
 package adoption
 
 import (
@@ -20,6 +28,8 @@ import (
 	"fmt"
 	"net"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -53,6 +63,9 @@ func Sign(secret, nonce, cfg string) string {
 
 // Error kinds the device (or the transport) can produce.
 var (
+	ErrProfile        = errors.New("the device is not in a profile that records")
+	ErrBusy           = errors.New("the device is already recording")
+	ErrIdle           = errors.New("the device is not recording")
 	ErrNoReply        = errors.New("no reply from the device")
 	ErrDenied         = errors.New("the device rejected the secret")
 	ErrNonce          = errors.New("the device rejected the nonce")
@@ -67,6 +80,13 @@ type message struct {
 	Mac string `json:"mac,omitempty"`
 	Why string `json:"why,omitempty"`
 	Dev string `json:"dev,omitempty"` // ok: the unit's own device secret (RF-51)
+	Cmd string `json:"cmd,omitempty"` // cmd: the order
+	ID  string `json:"id,omitempty"`  // cmd: the meeting it refers to
+}
+
+// SignCommand is the proof for an order: HMAC(secret, nonce.cmd.id).
+func SignCommand(secret, nonce, cmd, id string) string {
+	return Sign(secret, nonce, cmd+"."+id)
 }
 
 // Dialer opens the UDP conversation; swapped in tests.
@@ -136,6 +156,35 @@ func (c *Client) Adopt(ctx context.Context, ip string, cfg, secret string, progr
 	}
 }
 
+// Command delivers a signed order and waits for the unit's verdict.
+func (c *Client) Command(ctx context.Context, ip, cmd string, meetingID uuid.UUID, secret string) error {
+	conn, err := c.dial(ctx, net.JoinHostPort(ip, fmt.Sprint(Port)))
+	if err != nil {
+		return fmt.Errorf("dial %s: %w", ip, err)
+	}
+	defer conn.Close()
+	nonce, err := hello(ctx, conn)
+	if err != nil {
+		return err
+	}
+	id := meetingID.String()
+	if err := send(conn, message{T: "cmd", N: nonce, Cmd: cmd, ID: id, Mac: SignCommand(secret, nonce, cmd, id)}); err != nil {
+		return err
+	}
+	for {
+		reply, err := receive(ctx, conn, replyTimeout)
+		if err != nil {
+			return err
+		}
+		switch reply.T {
+		case "ok":
+			return nil
+		case "err":
+			return errorFor(reply.Why)
+		}
+	}
+}
+
 func hello(ctx context.Context, conn net.Conn) (string, error) {
 	for range helloAttempts {
 		if err := send(conn, message{T: "hello"}); err != nil {
@@ -197,6 +246,12 @@ func errorFor(why string) error {
 		return ErrNonce
 	case "consent-timeout":
 		return ErrConsentTimeout
+	case "profile":
+		return ErrProfile
+	case "busy":
+		return ErrBusy
+	case "idle":
+		return ErrIdle
 	default:
 		return fmt.Errorf("%w: %s", ErrRejected, why)
 	}

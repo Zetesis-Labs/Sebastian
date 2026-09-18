@@ -23,6 +23,9 @@ type Config struct {
 	SyslogIP            string
 	SyslogPort          int
 	OrgSecret           string
+	AgentSecret         string        // shared with the agent for its server-side calls (meeting audio)
+	MeetingsDir         string        // where meeting audio lives
+	MeetingMaxDuration  time.Duration // RM-24 default
 	DiscoveryEnabled    bool
 	ShutdownTimeout     time.Duration
 	DatabasePingTimeout time.Duration
@@ -52,6 +55,9 @@ func Load() (Config, error) {
 		SyslogIP:            strings.TrimSpace(os.Getenv("SEBASTIAN_SYSLOG_IP")),
 		SyslogPort:          514,
 		OrgSecret:           strings.TrimSpace(os.Getenv("SEBASTIAN_ORG_SECRET")),
+		AgentSecret:         strings.TrimSpace(os.Getenv("SEBASTIAN_AGENT_SECRET")),
+		MeetingsDir:         envOr("SEBASTIAN_MEETINGS_DIR", "meetings"),
+		MeetingMaxDuration:  3 * time.Hour,
 		TokenTTL:            time.Hour,
 		ShutdownTimeout:     10 * time.Second,
 		DatabasePingTimeout: 2 * time.Second,
@@ -65,6 +71,9 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	if cfg.DatabasePingTimeout, err = duration("SEBASTIAN_DATABASE_PING_TIMEOUT", cfg.DatabasePingTimeout); err != nil {
+		return Config{}, err
+	}
+	if cfg.MeetingMaxDuration, err = duration("SEBASTIAN_MEETING_MAX_DURATION", cfg.MeetingMaxDuration); err != nil {
 		return Config{}, err
 	}
 	if cfg.DiscoveryEnabled, err = boolean("SEBASTIAN_DISCOVERY_ENABLED", true); err != nil {

@@ -22,6 +22,7 @@ services:
       LIVEKIT_API_KEY: devkey
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?define LIVEKIT_API_SECRET en .devcontainer/.env}
       SEBASTIAN_ADMIN_SECRET: dev-admin-secret-change-me
+      SEBASTIAN_AGENT_SECRET: dev-agent-secret-change-me
       SEBASTIAN_API_URL: http://127.0.0.1:8787
     ports:
       - "8787:8787" # Sebastian Server — el device lo busca en la IP del Mac en la LAN

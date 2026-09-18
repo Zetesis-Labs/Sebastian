@@ -15,6 +15,7 @@ import (
 	"github.com/zetesis-labs/sebastian/server/internal/database"
 	"github.com/zetesis-labs/sebastian/server/internal/database/migrations"
 	"github.com/zetesis-labs/sebastian/server/internal/device"
+	"github.com/zetesis-labs/sebastian/server/internal/meeting"
 	"github.com/zetesis-labs/sebastian/server/internal/outbox"
 	"github.com/zetesis-labs/sebastian/server/internal/recording"
 	"github.com/zetesis-labs/sebastian/server/internal/session"
@@ -391,5 +392,93 @@ func TestDeviceLifecycleLeavesDomainEventsAndKeepsTheLastEvent(t *testing.T) {
 	want := "evt.sebastian.v1.device.adopted,evt.sebastian.v1.device.config_desired,evt.sebastian.v1.device.secret_regenerated,evt.sebastian.v1.device.forgotten"
 	if strings.Join(subjects, ",") != want {
 		t.Fatalf("outbox subjects = %v", subjects)
+	}
+}
+
+// T-A7: a meeting's life leaves its events in the outbox atomically, the
+// active-per-unit lookup honours RM-05, and delete keeps the trace (RM-46).
+func TestMeetingLifecycleLeavesDomainEventsAndKeepsTheTrace(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not set")
+	}
+	ctx := context.Background()
+	db, err := database.Open(databaseURL)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	store := NewStore(db)
+	deviceID := "mtg" + strings.ReplaceAll(uuid.NewString(), "-", "")[:8]
+	if err := store.MarkAdopted(ctx, deviceID, []byte("digest")); err != nil {
+		t.Fatalf("MarkAdopted: %v", err)
+	}
+	meetings := store.Meetings()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	m := meeting.Meeting{ID: uuid.Must(uuid.NewV7()), DeviceID: deviceID, State: meeting.StateRequested, RequestedBy: meeting.OriginDashboard, RequestedAt: now, CreatedAt: now, UpdatedAt: now}
+	t.Cleanup(func() {
+		_, _ = db.ExecContext(ctx, `DELETE FROM outbox_events WHERE event_id IN (SELECT id FROM domain_events WHERE aggregate_type IN ('meeting','device') AND aggregate_id IN (?, ?))`, m.ID.String(), deviceID)
+		_, _ = db.ExecContext(ctx, `DELETE FROM domain_events WHERE aggregate_type IN ('meeting','device') AND aggregate_id IN (?, ?)`, m.ID.String(), deviceID)
+		_, _ = db.ExecContext(ctx, `DELETE FROM meetings WHERE id = ?`, m.ID)
+		_, _ = db.ExecContext(ctx, `DELETE FROM devices WHERE id = ?`, deviceID)
+	})
+	if err := meetings.Insert(ctx, m); err != nil {
+		t.Fatalf("Insert: %v", err)
+	}
+	if _, active, err := meetings.Active(ctx, deviceID); err != nil || !active {
+		t.Fatalf("a requested meeting blocks the unit (RM-05): %v %v", active, err)
+	}
+	m.State, m.StartedAt, m.LastAudioAt, m.UpdatedAt = meeting.StateRecording, now.Add(2*time.Second), now.Add(2*time.Second), now.Add(2*time.Second)
+	if err := meetings.Update(ctx, m, "meeting.started"); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	m.AudioBytes, m.AudioPath = 4096, m.ID.String()+".ogg"
+	if err := meetings.Update(ctx, m, ""); err != nil {
+		t.Fatalf("Update without event: %v", err)
+	}
+	got, err := meetings.Get(ctx, m.ID)
+	if err != nil || got.State != meeting.StateRecording || got.AudioBytes != 4096 || !got.StartedAt.Equal(m.StartedAt) {
+		t.Fatalf("Get: %+v %v", got, err)
+	}
+	inProgress, _ := meetings.InProgress(ctx)
+	if len(inProgress) == 0 || inProgress[len(inProgress)-1].ID != m.ID {
+		t.Fatalf("InProgress must list it: %v", inProgress)
+	}
+	m.State, m.EndReason, m.EndedAt, m.DurationMs, m.UpdatedAt = meeting.StateCut, meeting.EndDeviceLost, now.Add(time.Minute), 58_000, now.Add(time.Minute)
+	if err := meetings.Update(ctx, m, "meeting.ended"); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if _, active, _ := meetings.Active(ctx, deviceID); active {
+		t.Fatal("a cut meeting frees the unit")
+	}
+	listed, err := meetings.List(ctx, meeting.Filter{DeviceID: deviceID, Limit: 10})
+	if err != nil || len(listed) != 1 || listed[0].EndReason != meeting.EndDeviceLost {
+		t.Fatalf("List: %+v %v", listed, err)
+	}
+	if err := meetings.Delete(ctx, m.ID, now.Add(2*time.Minute)); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	trace, _ := meetings.Get(ctx, m.ID)
+	if trace.DeletedAt.IsZero() || trace.AudioPath != "" || trace.DurationMs != 58_000 {
+		t.Fatalf("the trace stays without content (RM-46): %+v", trace)
+	}
+	if err := meetings.Delete(ctx, uuid.New(), now); !errors.Is(err, meeting.ErrNotFound) {
+		t.Fatalf("deleting an unknown meeting: %v", err)
+	}
+	var subjects []string
+	if err := db.NewRaw(`
+		SELECT o.subject FROM outbox_events o JOIN domain_events d ON d.id = o.event_id
+		WHERE d.aggregate_type = 'meeting' AND d.aggregate_id = ? ORDER BY d.occurred_at, o.subject`, m.ID.String()).Scan(ctx, &subjects); err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	want := "evt.sebastian.v1.meeting.requested,evt.sebastian.v1.meeting.started,evt.sebastian.v1.meeting.ended,evt.sebastian.v1.meeting.deleted"
+	if strings.Join(subjects, ",") != want {
+		t.Fatalf("outbox subjects = %v", subjects)
+	}
+	if err := meetings.Drop(ctx, m.ID); err != nil {
+		t.Fatalf("Drop: %v", err)
+	}
+	if _, err := meetings.Get(ctx, m.ID); !errors.Is(err, meeting.ErrNotFound) {
+		t.Fatal("dropped meetings are gone")
 	}
 }

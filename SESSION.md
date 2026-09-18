@@ -321,3 +321,27 @@ miraba el anillo). `68ee8f4d8dd4` y `e072a1f895f4` siguen con firmware anterior.
   **RF-38** casa-2 la adopta por IP con ese secreto sin secreto de organización
   → `adopted` allí, `moved` aquí; «Recuperar» desde casa-mac con el mismo
   secreto la devuelve. Queda sin ver a ojo el ámbar fijo (RF-64).
+
+## Grabación de reuniones (spec 13, diseño 14) — bloque A en `feat/meetings-a`
+
+- Doc 14 en main: seis bloques (A server, B placa, C agente, D transcripción,
+  E control room, F voz), 48 kbit/s con troceo para OpenAI (25 MB/petición,
+  Ogg → WebM con `-c copy`), audio en el volumen del server.
+- Bloque A hecho con suite antes de código: `internal/meeting/core.go`
+  (máquina de estados pura, T-A1), `meeting.go` (cáscara: orden UDP `cmd`
+  firmada con el secreto de organización o cabecera `X-Meeting` del poll,
+  confirmación `PUT /v1/devices/{id}/meeting`, audio en streaming reanudable
+  por `Content-Range`, ticks: 30 s sin confirmar → se borra; 30 s sin audio →
+  `cut`; máximo → `closing`), store Postgres (`meetings`, migración
+  `20260918195057_meetings`) con eventos `meeting.*` al outbox, contrato
+  OpenAPI, handlers y dos rutas crudas fuera del router generado (subida
+  con plazo de lectura desactivado y descarga con `Range`). Sesiones aceptan
+  `{kind:"meeting", meetingId}` → `mode:"meeting"` en los metadatos del agente.
+- Trampa: `ReadTimeout` de 15 s del servidor HTTP mataría la subida; por eso
+  la ruta cruda levanta el plazo con `http.NewResponseController`.
+- Humo con `68ee` (firmware sin bloque B): 202 → `X-Meeting: start:<id>` en
+  su poll → orden UDP sin respuesta → caída a los 30 s. Env locales llevan
+  `SEBASTIAN_AGENT_SECRET`.
+- Siguiente: bloque B (firmware): `gesture_core.zig` sobre `GPI_READ_VALUES`
+  (resid 36; spike 0: qué bit es el botón), orden `cmd` en `adopt.c`,
+  `X-Meeting` en `control.zig`, sesión modo reunión, anillo rojo.

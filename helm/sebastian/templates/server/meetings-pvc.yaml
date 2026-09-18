@@ -1,0 +1,16 @@
+{{- if and .Values.server.enabled .Values.server.meetings.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "sebastian.fullname" . }}-meetings
+  labels:
+    {{- include "sebastian.labels" . | nindent 4 }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- if .Values.server.meetings.persistence.storageClass }}
+  storageClassName: {{ .Values.server.meetings.persistence.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.server.meetings.persistence.size }}
+{{- end }}

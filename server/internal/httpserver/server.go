@@ -12,9 +12,19 @@ import (
 	"github.com/zetesis-labs/sebastian/server/internal/api"
 )
 
-func New(address string, handler api.StrictServerInterface, logger *slog.Logger, adminSecret string) (*http.Server, error) {
+// Raw routes live outside the generated router: streaming uploads and Range
+// downloads, which the strict OpenAPI handlers cannot express.
+type Raw struct {
+	Pattern string // e.g. "PUT /v1/meetings/{id}/audio"
+	Handler http.Handler
+}
+
+func New(address string, handler api.StrictServerInterface, logger *slog.Logger, adminSecret string, raw ...Raw) (*http.Server, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /openapi.json", openAPISpecHandler(logger))
+	for _, r := range raw {
+		mux.Handle(r.Pattern, r.Handler)
+	}
 	strict := api.NewStrictHandlerWithOptions(handler, nil, api.StrictHTTPServerOptions{
 		RequestErrorHandlerFunc:  problemErrorHandler(logger, http.StatusBadRequest),
 		ResponseErrorHandlerFunc: problemErrorHandler(logger, http.StatusInternalServerError),

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/zetesis-labs/sebastian/server/internal/adoption"
 	apihttp "github.com/zetesis-labs/sebastian/server/internal/api"
@@ -17,6 +18,7 @@ import (
 	"github.com/zetesis-labs/sebastian/server/internal/discovery"
 	"github.com/zetesis-labs/sebastian/server/internal/httpserver"
 	livekitgateway "github.com/zetesis-labs/sebastian/server/internal/livekit"
+	"github.com/zetesis-labs/sebastian/server/internal/meeting"
 	postgresstore "github.com/zetesis-labs/sebastian/server/internal/postgres"
 	"github.com/zetesis-labs/sebastian/server/internal/recording"
 	"github.com/zetesis-labs/sebastian/server/internal/session"
@@ -66,9 +68,15 @@ func run(logger *slog.Logger) error {
 		OrgSecret:  cfg.OrgSecret,
 		AdoptPort:  adoption.Port,
 	}
-	devices := device.NewService(store, lan, adoption.NewClient(), room, logger)
-	handler := apihttp.NewHandler(sessions, recordings, devices, store, logger, cfg.DatabasePingTimeout)
-	server, err := httpserver.New(cfg.Address, handler, logger, cfg.AdminSecret)
+	lanClient := adoption.NewClient()
+	devices := device.NewService(store, lan, lanClient, room, logger)
+	meetings := meeting.NewService(store.Meetings(), devices, lanClient, cfg.MeetingsDir, meeting.Limits{MaxDuration: cfg.MeetingMaxDuration}, logger)
+	go meetings.Run(ctx, 5*time.Second)
+	handler := apihttp.NewHandler(sessions, recordings, devices, meetings, store, logger, cfg.DatabasePingTimeout)
+	server, err := httpserver.New(cfg.Address, handler, logger, cfg.AdminSecret,
+		httpserver.Raw{Pattern: "PUT /v1/meetings/{id}/audio", Handler: apihttp.MeetingAudioUpload(meetings, cfg.AgentSecret)},
+		httpserver.Raw{Pattern: "GET /v1/admin/meetings/{id}/audio", Handler: apihttp.MeetingAudioDownload(meetings)},
+	)
 	if err != nil {
 		return err
 	}

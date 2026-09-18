@@ -132,6 +132,171 @@ func (e HealthStatus) Valid() bool {
 	}
 }
 
+// Defines values for MeetingEndReason.
+const (
+	MeetingEndReasonDashboard   MeetingEndReason = "dashboard"
+	MeetingEndReasonDeviceLost  MeetingEndReason = "device_lost"
+	MeetingEndReasonGesture     MeetingEndReason = "gesture"
+	MeetingEndReasonMaxDuration MeetingEndReason = "max_duration"
+	MeetingEndReasonRoomLost    MeetingEndReason = "room_lost"
+	MeetingEndReasonSilence     MeetingEndReason = "silence"
+	MeetingEndReasonVoice       MeetingEndReason = "voice"
+)
+
+// Valid indicates whether the value is a known member of the MeetingEndReason enum.
+func (e MeetingEndReason) Valid() bool {
+	switch e {
+	case MeetingEndReasonDashboard:
+		return true
+	case MeetingEndReasonDeviceLost:
+		return true
+	case MeetingEndReasonGesture:
+		return true
+	case MeetingEndReasonMaxDuration:
+		return true
+	case MeetingEndReasonRoomLost:
+		return true
+	case MeetingEndReasonSilence:
+		return true
+	case MeetingEndReasonVoice:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MeetingRequestedBy.
+const (
+	MeetingRequestedByDashboard MeetingRequestedBy = "dashboard"
+	MeetingRequestedByGesture   MeetingRequestedBy = "gesture"
+	MeetingRequestedByVoice     MeetingRequestedBy = "voice"
+)
+
+// Valid indicates whether the value is a known member of the MeetingRequestedBy enum.
+func (e MeetingRequestedBy) Valid() bool {
+	switch e {
+	case MeetingRequestedByDashboard:
+		return true
+	case MeetingRequestedByGesture:
+		return true
+	case MeetingRequestedByVoice:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MeetingReportReason.
+const (
+	MeetingReportReasonGesture  MeetingReportReason = "gesture"
+	MeetingReportReasonRoomLost MeetingReportReason = "room_lost"
+)
+
+// Valid indicates whether the value is a known member of the MeetingReportReason enum.
+func (e MeetingReportReason) Valid() bool {
+	switch e {
+	case MeetingReportReasonGesture:
+		return true
+	case MeetingReportReasonRoomLost:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MeetingReportState.
+const (
+	MeetingReportStateRecording MeetingReportState = "recording"
+	MeetingReportStateStopped   MeetingReportState = "stopped"
+)
+
+// Valid indicates whether the value is a known member of the MeetingReportState enum.
+func (e MeetingReportState) Valid() bool {
+	switch e {
+	case MeetingReportStateRecording:
+		return true
+	case MeetingReportStateStopped:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MeetingStartRequestedBy.
+const (
+	MeetingStartRequestedByDashboard MeetingStartRequestedBy = "dashboard"
+	MeetingStartRequestedByGesture   MeetingStartRequestedBy = "gesture"
+	MeetingStartRequestedByVoice     MeetingStartRequestedBy = "voice"
+)
+
+// Valid indicates whether the value is a known member of the MeetingStartRequestedBy enum.
+func (e MeetingStartRequestedBy) Valid() bool {
+	switch e {
+	case MeetingStartRequestedByDashboard:
+		return true
+	case MeetingStartRequestedByGesture:
+		return true
+	case MeetingStartRequestedByVoice:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MeetingState.
+const (
+	MeetingStateClosing      MeetingState = "closing"
+	MeetingStateCut          MeetingState = "cut"
+	MeetingStateNoTranscript MeetingState = "no_transcript"
+	MeetingStateReady        MeetingState = "ready"
+	MeetingStateRecording    MeetingState = "recording"
+	MeetingStateRequested    MeetingState = "requested"
+	MeetingStateTranscribing MeetingState = "transcribing"
+)
+
+// Valid indicates whether the value is a known member of the MeetingState enum.
+func (e MeetingState) Valid() bool {
+	switch e {
+	case MeetingStateClosing:
+		return true
+	case MeetingStateCut:
+		return true
+	case MeetingStateNoTranscript:
+		return true
+	case MeetingStateReady:
+		return true
+	case MeetingStateRecording:
+		return true
+	case MeetingStateRequested:
+		return true
+	case MeetingStateTranscribing:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MeetingStopReason.
+const (
+	Dashboard MeetingStopReason = "dashboard"
+	Silence   MeetingStopReason = "silence"
+	Voice     MeetingStopReason = "voice"
+)
+
+// Valid indicates whether the value is a known member of the MeetingStopReason enum.
+func (e MeetingStopReason) Valid() bool {
+	switch e {
+	case Dashboard:
+		return true
+	case Silence:
+		return true
+	case Voice:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RecordingKind.
 const (
 	Agent      RecordingKind = "agent"
@@ -150,6 +315,24 @@ func (e RecordingKind) Valid() bool {
 	case Microphone:
 		return true
 	case Model:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SessionRequestKind.
+const (
+	SessionRequestKindConversation SessionRequestKind = "conversation"
+	SessionRequestKindMeeting      SessionRequestKind = "meeting"
+)
+
+// Valid indicates whether the value is a known member of the SessionRequestKind enum.
+func (e SessionRequestKind) Valid() bool {
+	switch e {
+	case SessionRequestKindConversation:
+		return true
+	case SessionRequestKindMeeting:
 		return true
 	default:
 		return false
@@ -348,6 +531,74 @@ type Health struct {
 // HealthStatus defines model for Health.Status.
 type HealthStatus string
 
+// Meeting defines model for Meeting.
+type Meeting struct {
+	AudioBytes int64      `json:"audioBytes"`
+	DeletedAt  *time.Time `json:"deletedAt,omitempty"`
+	DeviceId   string     `json:"deviceId"`
+
+	// DurationMs Recorded duration; while recording, the live duration so far (RM-14).
+	DurationMs int64              `json:"durationMs"`
+	EndReason  *MeetingEndReason  `json:"endReason,omitempty"`
+	EndedAt    *time.Time         `json:"endedAt,omitempty"`
+	HasAudio   bool               `json:"hasAudio"`
+	Id         openapi_types.UUID `json:"id"`
+
+	// Keep Excluded from retention (RM-45).
+	Keep        bool               `json:"keep"`
+	RequestedAt time.Time          `json:"requestedAt"`
+	RequestedBy MeetingRequestedBy `json:"requestedBy"`
+	StartedAt   *time.Time         `json:"startedAt,omitempty"`
+
+	// State requested = asked, the unit has not confirmed; recording; closing = stop asked, file being closed; transcribing; ready; no_transcript = audio only, retryable; cut = the unit vanished, audio kept up to that point.
+	State MeetingState `json:"state"`
+}
+
+// MeetingEndReason defines model for Meeting.EndReason.
+type MeetingEndReason string
+
+// MeetingRequestedBy defines model for Meeting.RequestedBy.
+type MeetingRequestedBy string
+
+// MeetingList defines model for MeetingList.
+type MeetingList struct {
+	Items []Meeting `json:"items"`
+}
+
+// MeetingReport defines model for MeetingReport.
+type MeetingReport struct {
+	MeetingId openapi_types.UUID `json:"meetingId"`
+
+	// Reason Why the unit stopped (only with `stopped`).
+	Reason *MeetingReportReason `json:"reason,omitempty"`
+	State  MeetingReportState   `json:"state"`
+}
+
+// MeetingReportReason Why the unit stopped (only with `stopped`).
+type MeetingReportReason string
+
+// MeetingReportState defines model for MeetingReport.State.
+type MeetingReportState string
+
+// MeetingStart defines model for MeetingStart.
+type MeetingStart struct {
+	RequestedBy *MeetingStartRequestedBy `json:"requestedBy,omitempty"`
+}
+
+// MeetingStartRequestedBy defines model for MeetingStart.RequestedBy.
+type MeetingStartRequestedBy string
+
+// MeetingState requested = asked, the unit has not confirmed; recording; closing = stop asked, file being closed; transcribing; ready; no_transcript = audio only, retryable; cut = the unit vanished, audio kept up to that point.
+type MeetingState string
+
+// MeetingStop defines model for MeetingStop.
+type MeetingStop struct {
+	Reason *MeetingStopReason `json:"reason,omitempty"`
+}
+
+// MeetingStopReason defines model for MeetingStop.Reason.
+type MeetingStopReason string
+
 // Problem defines model for Problem.
 type Problem struct {
 	Detail   *string `json:"detail,omitempty"`
@@ -411,11 +662,26 @@ type Session struct {
 	Token     string             `json:"token"`
 }
 
+// SessionRequest defines model for SessionRequest.
+type SessionRequest struct {
+	Kind      *SessionRequestKind `json:"kind,omitempty"`
+	MeetingId *openapi_types.UUID `json:"meetingId,omitempty"`
+}
+
+// SessionRequestKind defines model for SessionRequest.Kind.
+type SessionRequestKind string
+
 // DeviceId defines model for DeviceId.
 type DeviceId = string
 
+// MeetingId defines model for MeetingId.
+type MeetingId = openapi_types.UUID
+
 // DeviceNotFound defines model for DeviceNotFound.
 type DeviceNotFound = Problem
+
+// MeetingNotFound defines model for MeetingNotFound.
+type MeetingNotFound = Problem
 
 // Unauthorized defines model for Unauthorized.
 type Unauthorized = Problem
@@ -428,6 +694,13 @@ type adminSecretContextKey string
 
 // deviceSecretContextKey is the context key for DeviceSecret security scheme
 type deviceSecretContextKey string
+
+// ListMeetingsParams defines parameters for ListMeetings.
+type ListMeetingsParams struct {
+	DeviceId *string       `form:"deviceId,omitempty" json:"deviceId,omitempty"`
+	State    *MeetingState `form:"state,omitempty" json:"state,omitempty"`
+	Limit    *int          `form:"limit,omitempty" json:"limit,omitempty"`
+}
 
 // ListRecordingsParams defines parameters for ListRecordings.
 type ListRecordingsParams struct {
@@ -451,6 +724,11 @@ type GetDesiredProfileParams struct {
 
 	// Ev The unit's last event worth telling the owner (RF-36/42): adopt-denied:<ip>, cfg-rejected:<why>, or the error recorded by its previous boot. Empty when none.
 	Ev *string `form:"ev,omitempty" json:"ev,omitempty"`
+}
+
+// ReportMeetingParams defines parameters for ReportMeeting.
+type ReportMeetingParams struct {
+	XDeviceSecret string `json:"X-Device-Secret"`
 }
 
 // ReportRunningConfigParams defines parameters for ReportRunningConfig.
@@ -479,14 +757,26 @@ type SetDesiredProfileJSONRequestBody = DesiredProfile
 // ForgetDeviceJSONRequestBody defines body for ForgetDevice for application/json ContentType.
 type ForgetDeviceJSONRequestBody = AdoptionRequest
 
+// StartMeetingJSONRequestBody defines body for StartMeeting for application/json ContentType.
+type StartMeetingJSONRequestBody = MeetingStart
+
+// StopMeetingJSONRequestBody defines body for StopMeeting for application/json ContentType.
+type StopMeetingJSONRequestBody = MeetingStop
+
 // RegisterRecordingJSONRequestBody defines body for RegisterRecording for application/json ContentType.
 type RegisterRecordingJSONRequestBody = RecordingRegistration
 
 // EnrollDeviceJSONRequestBody defines body for EnrollDevice for application/json ContentType.
 type EnrollDeviceJSONRequestBody = EnrollmentRequest
 
+// ReportMeetingJSONRequestBody defines body for ReportMeeting for application/json ContentType.
+type ReportMeetingJSONRequestBody = MeetingReport
+
 // ReportRunningConfigJSONRequestBody defines body for ReportRunningConfig for application/json ContentType.
 type ReportRunningConfigJSONRequestBody = DeviceConfig
+
+// CreateSessionJSONRequestBody defines body for CreateSession for application/json ContentType.
+type CreateSessionJSONRequestBody = SessionRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
@@ -526,9 +816,24 @@ type ServerInterface interface {
 	// Return a device to factory (unadopted) and drop it from the inventory
 	// (POST /v1/admin/devices/{deviceId}/forget)
 	ForgetDevice(w http.ResponseWriter, r *http.Request, deviceId DeviceId)
+	// Ask the unit to record a meeting (RM-03)
+	// (POST /v1/admin/devices/{deviceId}/meetings)
+	StartMeeting(w http.ResponseWriter, r *http.Request, deviceId DeviceId)
 	// Issue a new per-device secret (shown once)
 	// (POST /v1/admin/devices/{deviceId}/secret)
 	RegenerateDeviceSecret(w http.ResponseWriter, r *http.Request, deviceId DeviceId)
+	// Meetings, newest first (RM-40)
+	// (GET /v1/admin/meetings)
+	ListMeetings(w http.ResponseWriter, r *http.Request, params ListMeetingsParams)
+	// Delete audio and content irreversibly, keeping the trace (RM-46)
+	// (DELETE /v1/admin/meetings/{meetingId})
+	DeleteMeeting(w http.ResponseWriter, r *http.Request, meetingId MeetingId)
+	// One meeting (RM-41)
+	// (GET /v1/admin/meetings/{meetingId})
+	GetMeeting(w http.ResponseWriter, r *http.Request, meetingId MeetingId)
+	// Stop a meeting (RM-22; the agent uses it for RM-21)
+	// (POST /v1/admin/meetings/{meetingId}/stop)
+	StopMeeting(w http.ResponseWriter, r *http.Request, meetingId MeetingId)
 	// List recent voice recordings
 	// (GET /v1/admin/recordings)
 	ListRecordings(w http.ResponseWriter, r *http.Request, params ListRecordingsParams)
@@ -553,6 +858,9 @@ type ServerInterface interface {
 	// Enrol a device that proves it holds the organization secret
 	// (POST /v1/devices/{deviceId}/enroll)
 	EnrollDevice(w http.ResponseWriter, r *http.Request, deviceId DeviceId)
+	// The unit confirms it records, or that it stopped and why (RM-52)
+	// (PUT /v1/devices/{deviceId}/meeting)
+	ReportMeeting(w http.ResponseWriter, r *http.Request, deviceId DeviceId, params ReportMeetingParams)
 	// The device reports the configuration it runs (RF-42)
 	// (PUT /v1/devices/{deviceId}/running-config)
 	ReportRunningConfig(w http.ResponseWriter, r *http.Request, deviceId DeviceId, params ReportRunningConfigParams)
@@ -894,6 +1202,38 @@ func (siw *ServerInterfaceWrapper) ForgetDevice(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
+// StartMeeting operation middleware
+func (siw *ServerInterfaceWrapper) StartMeeting(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "deviceId" -------------
+	var deviceId DeviceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "deviceId", r.PathValue("deviceId"), &deviceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "deviceId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, AdminSecretScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StartMeeting(w, r, deviceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // RegenerateDeviceSecret operation middleware
 func (siw *ServerInterfaceWrapper) RegenerateDeviceSecret(w http.ResponseWriter, r *http.Request) {
 
@@ -917,6 +1257,167 @@ func (siw *ServerInterfaceWrapper) RegenerateDeviceSecret(w http.ResponseWriter,
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RegenerateDeviceSecret(w, r, deviceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListMeetings operation middleware
+func (siw *ServerInterfaceWrapper) ListMeetings(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, AdminSecretScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListMeetingsParams
+
+	// ------------- Optional query parameter "deviceId" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "deviceId", r.URL.Query(), &params.DeviceId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "deviceId"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "deviceId", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "state" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "state", r.URL.Query(), &params.State, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "state"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "state", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListMeetings(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteMeeting operation middleware
+func (siw *ServerInterfaceWrapper) DeleteMeeting(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "meetingId" -------------
+	var meetingId MeetingId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "meetingId", r.PathValue("meetingId"), &meetingId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "meetingId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, AdminSecretScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteMeeting(w, r, meetingId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetMeeting operation middleware
+func (siw *ServerInterfaceWrapper) GetMeeting(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "meetingId" -------------
+	var meetingId MeetingId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "meetingId", r.PathValue("meetingId"), &meetingId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "meetingId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, AdminSecretScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMeeting(w, r, meetingId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StopMeeting operation middleware
+func (siw *ServerInterfaceWrapper) StopMeeting(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "meetingId" -------------
+	var meetingId MeetingId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "meetingId", r.PathValue("meetingId"), &meetingId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "meetingId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, AdminSecretScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StopMeeting(w, r, meetingId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1230,6 +1731,66 @@ func (siw *ServerInterfaceWrapper) EnrollDevice(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
+// ReportMeeting operation middleware
+func (siw *ServerInterfaceWrapper) ReportMeeting(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "deviceId" -------------
+	var deviceId DeviceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "deviceId", r.PathValue("deviceId"), &deviceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "deviceId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, DeviceSecretScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ReportMeetingParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-Device-Secret" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Device-Secret")]; found {
+		var XDeviceSecret string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Device-Secret", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Device-Secret", valueList[0], &XDeviceSecret, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Device-Secret", Err: err})
+			return
+		}
+
+		params.XDeviceSecret = XDeviceSecret
+
+	} else {
+		err := fmt.Errorf("Header parameter X-Device-Secret is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-Device-Secret", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReportMeeting(w, r, deviceId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ReportRunningConfig operation middleware
 func (siw *ServerInterfaceWrapper) ReportRunningConfig(w http.ResponseWriter, r *http.Request) {
 
@@ -1496,7 +2057,12 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/admin/devices/{deviceId}/desired-config", wrapper.SetDesiredConfig)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/admin/devices/{deviceId}/desired-profile", wrapper.SetDesiredProfile)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/admin/devices/{deviceId}/forget", wrapper.ForgetDevice)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/admin/devices/{deviceId}/meetings", wrapper.StartMeeting)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/admin/devices/{deviceId}/secret", wrapper.RegenerateDeviceSecret)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/admin/meetings", wrapper.ListMeetings)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/admin/meetings/{meetingId}", wrapper.DeleteMeeting)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/admin/meetings/{meetingId}", wrapper.GetMeeting)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/admin/meetings/{meetingId}/stop", wrapper.StopMeeting)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/admin/recordings", wrapper.ListRecordings)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/admin/recordings", wrapper.RegisterRecording)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/admin/recordings/summary", wrapper.GetRecordingsSummary)
@@ -1505,6 +2071,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/devices/{deviceId}/desired-profile", wrapper.GetDesiredProfile)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/devices/{deviceId}/enroll", wrapper.GetEnrollmentChallenge)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/devices/{deviceId}/enroll", wrapper.EnrollDevice)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/devices/{deviceId}/meeting", wrapper.ReportMeeting)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/devices/{deviceId}/running-config", wrapper.ReportRunningConfig)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/sessions", wrapper.CreateSession)
 
@@ -1512,6 +2079,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 }
 
 type DeviceNotFoundApplicationProblemPlusJSONResponse Problem
+
+type MeetingNotFoundApplicationProblemPlusJSONResponse Problem
 
 type UnauthorizedApplicationProblemPlusJSONResponse Problem
 
@@ -2202,6 +2771,105 @@ func (response ForgetDevice503ApplicationProblemPlusJSONResponse) VisitForgetDev
 	return err
 }
 
+type StartMeetingRequestObject struct {
+	DeviceId DeviceId `json:"deviceId"`
+	Body     *StartMeetingJSONRequestBody
+}
+
+type StartMeetingResponseObject interface {
+	VisitStartMeetingResponse(w http.ResponseWriter) error
+}
+
+type StartMeeting202JSONResponse Meeting
+
+func (response StartMeeting202JSONResponse) VisitStartMeetingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartMeeting401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response StartMeeting401ApplicationProblemPlusJSONResponse) VisitStartMeetingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartMeeting404ApplicationProblemPlusJSONResponse struct {
+	DeviceNotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response StartMeeting404ApplicationProblemPlusJSONResponse) VisitStartMeetingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartMeeting409ApplicationProblemPlusJSONResponse Problem
+
+func (response StartMeeting409ApplicationProblemPlusJSONResponse) VisitStartMeetingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartMeeting422ApplicationProblemPlusJSONResponse Problem
+
+func (response StartMeeting422ApplicationProblemPlusJSONResponse) VisitStartMeetingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartMeeting503ApplicationProblemPlusJSONResponse struct {
+	UnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response StartMeeting503ApplicationProblemPlusJSONResponse) VisitStartMeetingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type RegenerateDeviceSecretRequestObject struct {
 	DeviceId DeviceId `json:"deviceId"`
 }
@@ -2261,6 +2929,293 @@ type RegenerateDeviceSecret503ApplicationProblemPlusJSONResponse struct {
 }
 
 func (response RegenerateDeviceSecret503ApplicationProblemPlusJSONResponse) VisitRegenerateDeviceSecretResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMeetingsRequestObject struct {
+	Params ListMeetingsParams
+}
+
+type ListMeetingsResponseObject interface {
+	VisitListMeetingsResponse(w http.ResponseWriter) error
+}
+
+type ListMeetings200JSONResponse MeetingList
+
+func (response ListMeetings200JSONResponse) VisitListMeetingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMeetings401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ListMeetings401ApplicationProblemPlusJSONResponse) VisitListMeetingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMeetings503ApplicationProblemPlusJSONResponse struct {
+	UnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response ListMeetings503ApplicationProblemPlusJSONResponse) VisitListMeetingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMeetingRequestObject struct {
+	MeetingId MeetingId `json:"meetingId"`
+}
+
+type DeleteMeetingResponseObject interface {
+	VisitDeleteMeetingResponse(w http.ResponseWriter) error
+}
+
+type DeleteMeeting204Response struct {
+}
+
+func (response DeleteMeeting204Response) VisitDeleteMeetingResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteMeeting401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteMeeting401ApplicationProblemPlusJSONResponse) VisitDeleteMeetingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMeeting404ApplicationProblemPlusJSONResponse struct {
+	MeetingNotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteMeeting404ApplicationProblemPlusJSONResponse) VisitDeleteMeetingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMeeting409ApplicationProblemPlusJSONResponse Problem
+
+func (response DeleteMeeting409ApplicationProblemPlusJSONResponse) VisitDeleteMeetingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMeeting503ApplicationProblemPlusJSONResponse struct {
+	UnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteMeeting503ApplicationProblemPlusJSONResponse) VisitDeleteMeetingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMeetingRequestObject struct {
+	MeetingId MeetingId `json:"meetingId"`
+}
+
+type GetMeetingResponseObject interface {
+	VisitGetMeetingResponse(w http.ResponseWriter) error
+}
+
+type GetMeeting200JSONResponse Meeting
+
+func (response GetMeeting200JSONResponse) VisitGetMeetingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMeeting401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response GetMeeting401ApplicationProblemPlusJSONResponse) VisitGetMeetingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMeeting404ApplicationProblemPlusJSONResponse struct {
+	MeetingNotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response GetMeeting404ApplicationProblemPlusJSONResponse) VisitGetMeetingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMeeting503ApplicationProblemPlusJSONResponse struct {
+	UnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response GetMeeting503ApplicationProblemPlusJSONResponse) VisitGetMeetingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StopMeetingRequestObject struct {
+	MeetingId MeetingId `json:"meetingId"`
+	Body      *StopMeetingJSONRequestBody
+}
+
+type StopMeetingResponseObject interface {
+	VisitStopMeetingResponse(w http.ResponseWriter) error
+}
+
+type StopMeeting202JSONResponse Meeting
+
+func (response StopMeeting202JSONResponse) VisitStopMeetingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StopMeeting401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response StopMeeting401ApplicationProblemPlusJSONResponse) VisitStopMeetingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StopMeeting404ApplicationProblemPlusJSONResponse struct {
+	MeetingNotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response StopMeeting404ApplicationProblemPlusJSONResponse) VisitStopMeetingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StopMeeting409ApplicationProblemPlusJSONResponse Problem
+
+func (response StopMeeting409ApplicationProblemPlusJSONResponse) VisitStopMeetingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StopMeeting503ApplicationProblemPlusJSONResponse struct {
+	UnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response StopMeeting503ApplicationProblemPlusJSONResponse) VisitStopMeetingResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -2607,6 +3562,7 @@ type GetDesiredProfileResponseObject interface {
 
 type GetDesiredProfile200ResponseHeaders struct {
 	XDesiredConfig *string
+	XMeeting       *string
 }
 
 type GetDesiredProfile200TextResponse struct {
@@ -2619,6 +3575,9 @@ func (response GetDesiredProfile200TextResponse) VisitGetDesiredProfileResponse(
 	w.Header().Set("Content-Type", "text/plain")
 	if response.Headers.XDesiredConfig != nil {
 		w.Header().Set("X-Desired-Config", fmt.Sprint(*response.Headers.XDesiredConfig))
+	}
+	if response.Headers.XMeeting != nil {
+		w.Header().Set("X-Meeting", fmt.Sprint(*response.Headers.XMeeting))
 	}
 	w.WriteHeader(200)
 
@@ -2743,6 +3702,72 @@ func (response EnrollDevice503ApplicationProblemPlusJSONResponse) VisitEnrollDev
 	return err
 }
 
+type ReportMeetingRequestObject struct {
+	DeviceId DeviceId `json:"deviceId"`
+	Params   ReportMeetingParams
+	Body     *ReportMeetingJSONRequestBody
+}
+
+type ReportMeetingResponseObject interface {
+	VisitReportMeetingResponse(w http.ResponseWriter) error
+}
+
+type ReportMeeting204Response struct {
+}
+
+func (response ReportMeeting204Response) VisitReportMeetingResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type ReportMeeting401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ReportMeeting401ApplicationProblemPlusJSONResponse) VisitReportMeetingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReportMeeting404ApplicationProblemPlusJSONResponse struct {
+	MeetingNotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ReportMeeting404ApplicationProblemPlusJSONResponse) VisitReportMeetingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReportMeeting503ApplicationProblemPlusJSONResponse struct {
+	UnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response ReportMeeting503ApplicationProblemPlusJSONResponse) VisitReportMeetingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ReportRunningConfigRequestObject struct {
 	DeviceId DeviceId `json:"deviceId"`
 	Params   ReportRunningConfigParams
@@ -2793,6 +3818,7 @@ func (response ReportRunningConfig503ApplicationProblemPlusJSONResponse) VisitRe
 
 type CreateSessionRequestObject struct {
 	Params CreateSessionParams
+	Body   *CreateSessionJSONRequestBody
 }
 
 type CreateSessionResponseObject interface {
@@ -2879,9 +3905,24 @@ type StrictServerInterface interface {
 	// Return a device to factory (unadopted) and drop it from the inventory
 	// (POST /v1/admin/devices/{deviceId}/forget)
 	ForgetDevice(ctx context.Context, request ForgetDeviceRequestObject) (ForgetDeviceResponseObject, error)
+	// Ask the unit to record a meeting (RM-03)
+	// (POST /v1/admin/devices/{deviceId}/meetings)
+	StartMeeting(ctx context.Context, request StartMeetingRequestObject) (StartMeetingResponseObject, error)
 	// Issue a new per-device secret (shown once)
 	// (POST /v1/admin/devices/{deviceId}/secret)
 	RegenerateDeviceSecret(ctx context.Context, request RegenerateDeviceSecretRequestObject) (RegenerateDeviceSecretResponseObject, error)
+	// Meetings, newest first (RM-40)
+	// (GET /v1/admin/meetings)
+	ListMeetings(ctx context.Context, request ListMeetingsRequestObject) (ListMeetingsResponseObject, error)
+	// Delete audio and content irreversibly, keeping the trace (RM-46)
+	// (DELETE /v1/admin/meetings/{meetingId})
+	DeleteMeeting(ctx context.Context, request DeleteMeetingRequestObject) (DeleteMeetingResponseObject, error)
+	// One meeting (RM-41)
+	// (GET /v1/admin/meetings/{meetingId})
+	GetMeeting(ctx context.Context, request GetMeetingRequestObject) (GetMeetingResponseObject, error)
+	// Stop a meeting (RM-22; the agent uses it for RM-21)
+	// (POST /v1/admin/meetings/{meetingId}/stop)
+	StopMeeting(ctx context.Context, request StopMeetingRequestObject) (StopMeetingResponseObject, error)
 	// List recent voice recordings
 	// (GET /v1/admin/recordings)
 	ListRecordings(ctx context.Context, request ListRecordingsRequestObject) (ListRecordingsResponseObject, error)
@@ -2906,6 +3947,9 @@ type StrictServerInterface interface {
 	// Enrol a device that proves it holds the organization secret
 	// (POST /v1/devices/{deviceId}/enroll)
 	EnrollDevice(ctx context.Context, request EnrollDeviceRequestObject) (EnrollDeviceResponseObject, error)
+	// The unit confirms it records, or that it stopped and why (RM-52)
+	// (PUT /v1/devices/{deviceId}/meeting)
+	ReportMeeting(ctx context.Context, request ReportMeetingRequestObject) (ReportMeetingResponseObject, error)
 	// The device reports the configuration it runs (RF-42)
 	// (PUT /v1/devices/{deviceId}/running-config)
 	ReportRunningConfig(ctx context.Context, request ReportRunningConfigRequestObject) (ReportRunningConfigResponseObject, error)
@@ -3288,6 +4332,42 @@ func (sh *strictHandler) ForgetDevice(w http.ResponseWriter, r *http.Request, de
 	}
 }
 
+// StartMeeting operation middleware
+func (sh *strictHandler) StartMeeting(w http.ResponseWriter, r *http.Request, deviceId DeviceId) {
+	var request StartMeetingRequestObject
+
+	request.DeviceId = deviceId
+
+	var body StartMeetingJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if !errors.Is(err, io.EOF) {
+			sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+			return
+		}
+	} else {
+		request.Body = &body
+	}
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StartMeeting(ctx, request.(StartMeetingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StartMeeting")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StartMeetingResponseObject); ok {
+		if err := validResponse.VisitStartMeetingResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // RegenerateDeviceSecret operation middleware
 func (sh *strictHandler) RegenerateDeviceSecret(w http.ResponseWriter, r *http.Request, deviceId DeviceId) {
 	var request RegenerateDeviceSecretRequestObject
@@ -3307,6 +4387,120 @@ func (sh *strictHandler) RegenerateDeviceSecret(w http.ResponseWriter, r *http.R
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RegenerateDeviceSecretResponseObject); ok {
 		if err := validResponse.VisitRegenerateDeviceSecretResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListMeetings operation middleware
+func (sh *strictHandler) ListMeetings(w http.ResponseWriter, r *http.Request, params ListMeetingsParams) {
+	var request ListMeetingsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListMeetings(ctx, request.(ListMeetingsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListMeetings")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListMeetingsResponseObject); ok {
+		if err := validResponse.VisitListMeetingsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteMeeting operation middleware
+func (sh *strictHandler) DeleteMeeting(w http.ResponseWriter, r *http.Request, meetingId MeetingId) {
+	var request DeleteMeetingRequestObject
+
+	request.MeetingId = meetingId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteMeeting(ctx, request.(DeleteMeetingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteMeeting")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteMeetingResponseObject); ok {
+		if err := validResponse.VisitDeleteMeetingResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetMeeting operation middleware
+func (sh *strictHandler) GetMeeting(w http.ResponseWriter, r *http.Request, meetingId MeetingId) {
+	var request GetMeetingRequestObject
+
+	request.MeetingId = meetingId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetMeeting(ctx, request.(GetMeetingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetMeeting")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetMeetingResponseObject); ok {
+		if err := validResponse.VisitGetMeetingResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// StopMeeting operation middleware
+func (sh *strictHandler) StopMeeting(w http.ResponseWriter, r *http.Request, meetingId MeetingId) {
+	var request StopMeetingRequestObject
+
+	request.MeetingId = meetingId
+
+	var body StopMeetingJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if !errors.Is(err, io.EOF) {
+			sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+			return
+		}
+	} else {
+		request.Body = &body
+	}
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StopMeeting(ctx, request.(StopMeetingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StopMeeting")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StopMeetingResponseObject); ok {
+		if err := validResponse.VisitStopMeetingResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -3534,6 +4728,40 @@ func (sh *strictHandler) EnrollDevice(w http.ResponseWriter, r *http.Request, de
 	}
 }
 
+// ReportMeeting operation middleware
+func (sh *strictHandler) ReportMeeting(w http.ResponseWriter, r *http.Request, deviceId DeviceId, params ReportMeetingParams) {
+	var request ReportMeetingRequestObject
+
+	request.DeviceId = deviceId
+	request.Params = params
+
+	var body ReportMeetingJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReportMeeting(ctx, request.(ReportMeetingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReportMeeting")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReportMeetingResponseObject); ok {
+		if err := validResponse.VisitReportMeetingResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ReportRunningConfig operation middleware
 func (sh *strictHandler) ReportRunningConfig(w http.ResponseWriter, r *http.Request, deviceId DeviceId, params ReportRunningConfigParams) {
 	var request ReportRunningConfigRequestObject
@@ -3574,6 +4802,16 @@ func (sh *strictHandler) CreateSession(w http.ResponseWriter, r *http.Request, p
 
 	request.Params = params
 
+	var body CreateSessionJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if !errors.Is(err, io.EOF) {
+			sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+			return
+		}
+	} else {
+		request.Body = &body
+	}
+
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.CreateSession(ctx, request.(CreateSessionRequestObject))
 	}
@@ -3599,91 +4837,110 @@ func (sh *strictHandler) CreateSession(w http.ResponseWriter, r *http.Request, p
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
+	"EljLIjlJ9pOr91f/GwAA//8=",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

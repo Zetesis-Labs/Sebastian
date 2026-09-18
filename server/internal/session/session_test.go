@@ -146,3 +146,17 @@ func TestCreateAcceptsThePendingSecretAndConfirmsIt(t *testing.T) {
 		t.Fatalf("expected ErrUnauthorized, got %v", err)
 	}
 }
+
+// Design 14 §3.2: a meeting session dispatches the agent in meeting mode.
+func TestDispatchMetadataCarriesTheMeetingMode(t *testing.T) {
+	dev := Device{ID: "68ee", ProfileID: uuid.New(), AgentConfig: json.RawMessage(`{"language":"es"}`)}
+	plain := dispatchMetadata(dev, Credentials{DeviceID: "68ee"})
+	if _, has := plain["mode"]; has || plain["device_id"] != "68ee" {
+		t.Fatalf("a conversation carries no mode: %v", plain)
+	}
+	id := uuid.New()
+	meeting := dispatchMetadata(dev, Credentials{DeviceID: "68ee", Kind: KindMeeting, MeetingID: id})
+	if meeting["mode"] != "meeting" || meeting["meeting_id"] != id {
+		t.Fatalf("meeting metadata: %v", meeting)
+	}
+}

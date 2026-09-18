@@ -67,6 +67,13 @@ persistencia usa Bun con consultas SQL-first escritas en
   /v1/admin/devices/{id}`, `POST …/adopt` y `POST …/forget` (202 + job en
   `GET /v1/admin/adoptions/{jobId}`), `PUT/DELETE …/desired-config`,
   `POST …/secret`, `GET /v1/admin/control-room`.
+- Reuniones (`docs/implementation/14-meeting-recordings-technical-design.md`):
+  `POST /v1/admin/devices/{id}/meetings`, `GET /v1/admin/meetings`,
+  `GET/DELETE /v1/admin/meetings/{id}`, `POST …/stop`,
+  `GET …/audio` (con `Range`); la placa confirma con
+  `PUT /v1/devices/{id}/meeting` y recibe la orden por UDP (`cmd`) o en la
+  cabecera `X-Meeting` del poll; el agente sube el audio con
+  `PUT /v1/meetings/{id}/audio` (chunked, reanudable con `Content-Range`).
 
 El `/token` legado sin autenticación se retiró (RF-12): las sesiones se abren
 solo con `POST /v1/sessions` y requieren `X-Device-Id` y `X-Device-Secret`.
@@ -86,6 +93,9 @@ solo con `POST /v1/sessions` y requieren `X-Device-Id` y `X-Device-Secret`.
 | `SEBASTIAN_PUBLIC_API_URL` | para adoptar | — (la URL con la que los devices llegan a este control room) |
 | `SEBASTIAN_CONTROL_ROOM_NAME` | no | `SEBASTIAN_PUBLIC_API_URL` |
 | `SEBASTIAN_ORG_SECRET` | para adoptar | — (secreto de organización que autoriza la adopción) |
+| `SEBASTIAN_AGENT_SECRET` | para grabar reuniones | — (lo comparte con el agente, que sube el audio con `X-Agent-Secret`) |
+| `SEBASTIAN_MEETINGS_DIR` | no | `meetings` (directorio del audio de reuniones) |
+| `SEBASTIAN_MEETING_MAX_DURATION` | no | `3h` (RM-24) |
 | `SEBASTIAN_SYSLOG_IP` / `SEBASTIAN_SYSLOG_PORT` | no | — / `514` (escrito en los devices adoptados) |
 | `SEBASTIAN_DISCOVERY_ENABLED` | no | `true` (escucha mDNS `_sebastian._tcp`; necesita red del host en Kubernetes) |
 

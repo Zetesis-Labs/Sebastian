@@ -360,6 +360,21 @@ func (s *Service) DeviceConfig(ctx context.Context, id, secret string) (json.Raw
 
 var ErrUnauthorized = errors.New("device: invalid credentials")
 
+// Authenticate checks a unit's secret (current or pending, which it then
+// confirms); what every device-facing endpoint does.
+func (s *Service) Authenticate(ctx context.Context, id, secret string) error {
+	return s.authenticate(ctx, id, secret)
+}
+
+// Address is the unit's LAN address as last announced, "" when not seen.
+func (s *Service) Address(id string) string {
+	ip, err := s.addressFor(id, "")
+	if err != nil {
+		return ""
+	}
+	return ip
+}
+
 func (s *Service) authenticate(ctx context.Context, id, secret string) error {
 	current, pending, err := s.store.CredentialDigests(ctx, id)
 	if err != nil {

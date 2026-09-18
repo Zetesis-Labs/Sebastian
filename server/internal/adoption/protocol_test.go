@@ -8,6 +8,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // fakeDevice implements adopt.c's side of the protocol on a loopback UDP port.
@@ -23,6 +25,9 @@ type fakeDevice struct {
 	nonce      string
 	gotCfg     string
 	rejectWith string
+	profile    string // "" = agente
+	recording  bool
+	gotCmd     string
 }
 
 func newFakeDevice(t *testing.T) *fakeDevice {
@@ -105,6 +110,29 @@ func (d *fakeDevice) handle(from net.Addr, m message) {
 			}
 			d.gotCfg = m.Cfg
 			d.reply(from, message{T: "ok", Dev: "unit-secret-unit-secret-unit-secret-1"})
+		case "cmd":
+			if m.N != d.nonce {
+				d.reply(from, message{T: "err", Why: "nonce"})
+				return
+			}
+			if m.Mac != SignCommand(d.orgSecret, m.N, m.Cmd, m.ID) {
+				d.reply(from, message{T: "err", Why: "auth"})
+				return
+			}
+			if d.profile != "" && d.profile != "agente" {
+				d.reply(from, message{T: "err", Why: "profile"})
+				return
+			}
+			switch {
+			case m.Cmd == "record-start" && d.recording:
+				d.reply(from, message{T: "err", Why: "busy"})
+			case m.Cmd == "record-stop" && !d.recording:
+				d.reply(from, message{T: "err", Why: "idle"})
+			default:
+				d.recording = m.Cmd == "record-start"
+				d.gotCmd = m.Cmd + ":" + m.ID
+				d.reply(from, message{T: "ok"})
+			}
 		}
 	}
 }
@@ -214,5 +242,39 @@ func TestAdoptNoReply(t *testing.T) {
 	_, err = client.Adopt(ctx, "x", `{}`, "s", nil)
 	if err == nil {
 		t.Fatal("expected an error")
+	}
+}
+
+// T-A3: the meeting order rides the adoption conversation, signed with the
+// organization secret; the unit's verdicts map to errors (design §3.2).
+func TestCommandIsSignedWithTheOrgSecretAndMapsTheVerdicts(t *testing.T) {
+	dev := newFakeDevice(t)
+	client := NewClientWithDialer(dialTo(dev.addr()))
+	id := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	ctx := context.Background()
+	if err := client.Command(ctx, "x", "record-start", id, "org-secret"); err != nil {
+		t.Fatal(err)
+	}
+	dev.mu.Lock()
+	got := dev.gotCmd
+	dev.mu.Unlock()
+	if got != "record-start:"+id.String() {
+		t.Fatalf("device got %q", got)
+	}
+	if err := client.Command(ctx, "x", "record-start", id, "org-secret"); !errors.Is(err, ErrBusy) {
+		t.Fatalf("a second start while recording: %v", err)
+	}
+	if err := client.Command(ctx, "x", "record-stop", id, "intruder"); !errors.Is(err, ErrDenied) {
+		t.Fatalf("wrong secret: %v", err)
+	}
+	if err := client.Command(ctx, "x", "record-stop", id, "org-secret"); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Command(ctx, "x", "record-stop", id, "org-secret"); !errors.Is(err, ErrIdle) {
+		t.Fatalf("stop without recording: %v", err)
+	}
+	dev.set(func(d *fakeDevice) { d.profile = "micro-usb" })
+	if err := client.Command(ctx, "x", "record-start", id, "org-secret"); !errors.Is(err, ErrProfile) {
+		t.Fatalf("micro-usb (RM-54): %v", err)
 	}
 }
