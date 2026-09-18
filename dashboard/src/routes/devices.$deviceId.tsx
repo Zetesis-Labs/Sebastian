@@ -13,7 +13,7 @@ import {
 } from '../lib/api'
 import { formatDate } from '../lib/format'
 import { GOVERNABLE_PATHS, STATE_HINT, STATE_LABEL, STATE_TONE, configSync, desiredDocument, differsFromRunning, fichaIssues, formGroups, runningValue, seedFromRoom, shortRoom, timeAgo, timeline } from '../lib/fleet'
-import { defaultConfig, mergeConfig, type DeviceConfig } from '@installer/config'
+import { applyMode, defaultConfig, mergeConfig, type DeviceConfig, type OperatingMode } from '@installer/config'
 import { MODES, SHARED, getField, setField, type FieldMeta } from '@installer/modes'
 import { validate } from '@installer/validate'
 import { SecretDialog } from '../components/SecretDialog'
@@ -201,7 +201,13 @@ function DevicePage() {
               {group.mode && (
                 <label className="config-field">
                   <span>Modo</span>
-                  <select value={form.mode} onChange={(e) => update('mode', e.target.value)}>
+                  <select
+                    value={form.mode}
+                    onChange={(e) => {
+                      setDirty(true)
+                      setForm((prev) => applyMode(prev, e.target.value as OperatingMode))
+                    }}
+                  >
                     {MODES.map((m) => (
                       <option key={m.id} value={m.id}>{m.title}</option>
                     ))}

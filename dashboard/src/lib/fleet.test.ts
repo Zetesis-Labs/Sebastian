@@ -96,6 +96,21 @@ describe('desired document (RF-44)', () => {
     const doc = desiredDocument({ mode: 'half_duplex', wifi: { ssid: 'Pizarro', password: '' }, adoption: { orgSecret: 'x' }, configVersion: 'old' })
     expect(doc).toEqual({ schema: 'sebastian.config.v1', mode: 'half_duplex', wifi: { ssid: 'Pizarro' } })
   })
+  it('carries only governable fields, with the mode as a string', () => {
+    const doc = desiredDocument({
+      mode: 'full_duplex',
+      audio: { fullDuplex: true, fixedBeam: true, fixedBeamAzimuthDeg: 0, micChannel: 'right' },
+      livekit: { tokenServerUrl: 'http://x/token', agentName: 'sebastian', room: 'r' },
+      telemetry: { syslogIp: '', syslogPort: 514, grafanaUrl: 'g' },
+    })
+    expect(doc).toEqual({
+      schema: 'sebastian.config.v1',
+      mode: 'full_duplex',
+      audio: { fullDuplex: true, fixedBeam: true, fixedBeamAzimuthDeg: 0 },
+      livekit: { tokenServerUrl: 'http://x/token' },
+      telemetry: { syslogIp: '', syslogPort: 514 },
+    })
+  })
   it('keeps a typed password and drops wifi without ssid', () => {
     expect(desiredDocument({ wifi: { ssid: 'A', password: 'p' } }).wifi).toEqual({ ssid: 'A', password: 'p' })
     expect(desiredDocument({ wifi: { ssid: '', password: 'p' } }).wifi).toBeUndefined()
