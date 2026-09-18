@@ -24,6 +24,8 @@ from meeting_mode import (
 
 def test_meeting_mode_needs_mode_and_id() -> None:
     assert meeting_from_metadata('{"device_id":"68ee","mode":"meeting","meeting_id":"abc-1"}') == MeetingJob("abc-1")
+    assert meeting_from_metadata('{"mode":"meeting","meeting_id":"abc-1","silence_s":900}') == MeetingJob("abc-1", 900.0)
+    assert meeting_from_metadata('{"mode":"meeting","meeting_id":"abc-1","silence_s":"x"}') == MeetingJob("abc-1")
     assert meeting_from_metadata('{"device_id":"68ee"}') is None
     assert meeting_from_metadata('{"mode":"meeting"}') is None
     assert meeting_from_metadata('{"mode":"meeting","meeting_id":"  "}') is None

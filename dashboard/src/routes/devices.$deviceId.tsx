@@ -8,11 +8,16 @@ import {
   renameDevice,
   setDesiredConfig,
   setDeviceProfile,
+  setMeetingLimits,
+  startMeeting,
+  stopMeeting,
   type ControlRoomPublic,
   type DeviceDetail,
   type Json,
+  type Meeting,
 } from '../lib/api'
-import { formatDate } from '../lib/format'
+import { formatDate, formatDuration } from '../lib/format'
+import { MEETING_STATE_LABEL, MEETING_STATE_TONE, activeMeeting, canRecord, meetingLabel, recordingSince } from '../lib/meetings'
 import { GOVERNABLE_PATHS, STATE_HINT, STATE_LABEL, STATE_TONE, canForget, configSync, desiredDocument, differsFromRunning, eventMessage, fichaIssues, formGroups, runningValue, seedFromRoom, shortRoom, timeAgo, timeline } from '../lib/fleet'
 import { applyMode, defaultConfig, mergeConfig, type DeviceConfig, type OperatingMode } from '@installer/config'
 import { MODES, SHARED, getField, setField, type FieldMeta } from '@installer/modes'
@@ -48,7 +53,7 @@ const FIELD_BY_PATH = new Map<string, FieldMeta>(
 )
 
 function DevicePage() {
-  const { detail: loaded, room } = Route.useLoaderData() as { detail: DeviceDetail; room: ControlRoomPublic }
+  const { detail: loaded, room, meetings } = Route.useLoaderData() as { detail: DeviceDetail; room: ControlRoomPublic; meetings: Meeting[] }
   const detail = loaded
   const router = useRouter()
   const navigate = useNavigate()
@@ -178,6 +183,8 @@ function DevicePage() {
           </span>
         </div>
       </section>
+
+      <MeetingsPanel detail={detail} meetings={meetings} busy={busy} now={now} act={act} />
 
       <section className="device-panel">
         <div className="section-heading">
@@ -363,6 +370,82 @@ function Detail({ label, value }: Readonly<{ label: string; value: string }>) {
       <span>{label}</span>
       <strong>{value}</strong>
     </div>
+  )
+}
+
+// Spec 13 (RM-03/05/22/23/24/43/44): record and stop from the ficha, the
+// unit's own silence and maximum, and its last meetings.
+function MeetingsPanel({ detail, meetings, busy, now, act }: Readonly<{ detail: DeviceDetail; meetings: Meeting[]; busy: boolean; now: Date | null; act: (label: string, fn: () => Promise<unknown>, done: string) => Promise<void> }>) {
+  const offer = canRecord(detail)
+  const active = activeMeeting(meetings)
+  const [silence, setSilence] = useState(detail.meetingSilenceMin ?? 10)
+  const [hours, setHours] = useState(detail.meetingMaxHours ?? 3)
+  useEffect(() => {
+    setSilence(detail.meetingSilenceMin ?? 10)
+    setHours(detail.meetingMaxHours ?? 3)
+  }, [detail.meetingSilenceMin, detail.meetingMaxHours])
+  const limitsDirty = silence !== (detail.meetingSilenceMin ?? 10) || hours !== (detail.meetingMaxHours ?? 3)
+  return (
+    <section className="device-panel">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">Reuniones</p>
+          <h2>Grabar con este altavoz</h2>
+        </div>
+        {active && <span className="meeting-live">{active.state === 'recording' && active.startedAt && now ? recordingSince(active.startedAt, now) : MEETING_STATE_LABEL[active.state]}</span>}
+      </div>
+      {!offer.ok ? (
+        <p className="device-meta warn">{offer.reason}</p>
+      ) : (
+        <div className="device-actions" style={{ justifyContent: 'flex-start' }}>
+          {active ? (
+            <>
+              <button type="button" className="chip-button danger" disabled={busy} onClick={() => void act('Parando…', () => stopMeeting({ data: { meetingId: active.id } }), 'Parada pedida al altavoz.')}>Parar la grabación</button>
+              <Link to="/meetings/$meetingId" params={{ meetingId: active.id }} className="device-link">ver la reunión</Link>
+            </>
+          ) : (
+            <button type="button" className="chip-button primary" disabled={busy} onClick={() => void act('Pidiendo al altavoz…', () => startMeeting({ data: { deviceId: detail.id } }), 'Pedida: el anillo se pone rojo cuando empieza a grabar.')}>Grabar reunión</button>
+          )}
+          <span className="device-meta">El anillo rojo confirma la grabación; el botón MUTE (corta + larga) también la inicia y la para.</span>
+        </div>
+      )}
+      <form
+        className="config-form"
+        style={{ marginTop: 18 }}
+        onSubmit={(e) => {
+          e.preventDefault()
+          void act('Guardando límites…', () => setMeetingLimits({ data: { deviceId: detail.id, meetingSilenceMin: silence, meetingMaxHours: hours } }), 'Límites guardados; valen para la próxima grabación.')
+        }}
+      >
+        <label className="config-field">
+          <span>Corte por silencio (min)</span>
+          <input type="number" min={5} max={60} value={silence} onChange={(e) => setSilence(Number(e.target.value) || 0)} />
+          <small>Sin voz durante estos minutos, la grabación se para sola; el anillo avisa 30 s antes.</small>
+        </label>
+        <label className="config-field">
+          <span>Duración máxima (h)</span>
+          <input type="number" min={1} max={8} value={hours} onChange={(e) => setHours(Number(e.target.value) || 0)} />
+          <small>Una grabación nunca supera este máximo.</small>
+        </label>
+        {limitsDirty && (
+          <div className="device-actions" style={{ alignSelf: 'end' }}>
+            <button type="submit" className="chip-button primary" disabled={busy || silence < 5 || silence > 60 || hours < 1 || hours > 8}>Guardar límites</button>
+          </div>
+        )}
+      </form>
+      {meetings.length > 0 && (
+        <div className="device-list" style={{ marginTop: 22 }}>
+          {meetings.map((m) => (
+            <article key={m.id} className="device-row">
+              <div>
+                <Link to="/meetings/$meetingId" params={{ meetingId: m.id }} className="device-name">{formatDate(m.startedAt ?? m.requestedAt)} · {formatDuration(m.durationMs)}</Link>
+                <p className={`device-meta tone-${MEETING_STATE_TONE[m.state]}`}>{meetingLabel(m)}</p>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
   )
 }
 

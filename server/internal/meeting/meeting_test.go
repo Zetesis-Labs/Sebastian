@@ -630,3 +630,23 @@ func TestTranscriptDigestRenameAndRetention(t *testing.T) {
 		t.Fatal("deleted keeps the trace (RM-46)")
 	}
 }
+
+func TestTheUnitOwnMaximumRulesOverTheDefault(t *testing.T) {
+	h := newHarness(t)
+	h.units.detail.MeetingMaxHours = 1
+	m := h.started(t)
+	ctx := context.Background()
+	h.advance(59 * time.Minute)
+	// The audio clock stays alive (an aborted stream, not a clean end).
+	_, _ = h.s.Audio(ctx, m.ID, 0, &brokenReader{data: []byte("OggS"), err: io.ErrUnexpectedEOF})
+	h.s.Tick(ctx)
+	if got, _ := h.s.Get(ctx, m.ID); got.State != StateRecording {
+		t.Fatalf("59 min: %s", got.State)
+	}
+	h.advance(2 * time.Minute)
+	_, _ = h.s.Audio(ctx, m.ID, 4, &brokenReader{data: []byte("more"), err: io.ErrUnexpectedEOF})
+	h.s.Tick(ctx)
+	if got, _ := h.s.Get(context.Background(), m.ID); got.State != StateClosing || got.EndReason != EndMaxDuration {
+		t.Fatalf("the ficha said 1 h (RM-24): %+v", got)
+	}
+}

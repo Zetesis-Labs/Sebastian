@@ -75,11 +75,12 @@ async function apiSend<T = void>(path: string, method: string, body?: unknown): 
 const id = (value: string) => encodeURIComponent(value)
 
 export const getDashboard = createServerFn({ method: 'GET' }).handler(async () => {
-  const [recordings, summary] = await Promise.all([
+  const [recordings, summary, meetings] = await Promise.all([
     apiGet<RecordingList>('/v1/admin/recordings?limit=50'),
     apiGet<RecordingSummary>('/v1/admin/recordings/summary'),
+    apiGet<MeetingList>('/v1/admin/meetings?limit=6'),
   ])
-  return { recordings: recordings.items, summary }
+  return { recordings: recordings.items, summary, meetings: meetings.items }
 })
 
 export const getRecording = createServerFn({ method: 'GET' })
@@ -105,12 +106,13 @@ export type ControlRoomPublic = Omit<ControlRoomInfo, 'orgSecret'>
 export const getDevice = createServerFn({ method: 'GET' })
   .validator((deviceId: string) => deviceId)
   .handler(async ({ data }) => {
-    const [detail, room] = await Promise.all([
+    const [detail, room, meetings] = await Promise.all([
       apiGet<DeviceDetailWire>(`/v1/admin/devices/${id(data)}`),
       apiGet<ControlRoomInfo>('/v1/admin/control-room'),
+      apiGet<MeetingList>(`/v1/admin/meetings?deviceId=${id(data)}&limit=8`),
     ])
     const { orgSecret: _omit, ...publicRoom } = room
-    return { detail, room: publicRoom as ControlRoomPublic }
+    return { detail, room: publicRoom as ControlRoomPublic, meetings: meetings.items }
   })
 
 // Desired-state: the device reconciles on its next poll (~30 s) and reboots
@@ -164,4 +166,93 @@ export const regenerateSecret = createServerFn({ method: 'POST' })
 // secret; served by the /installer/control-room.json route, never bundled).
 export async function controlRoomForInstaller(): Promise<ControlRoomInfo> {
   return apiGet<ControlRoomInfo>('/v1/admin/control-room')
+}
+
+// ── meetings (docs/implementation/14 block E) ───────────────────────────────
+
+export type Meeting = components['schemas']['Meeting']
+type MeetingList = components['schemas']['MeetingList']
+
+export type MeetingQuery = { deviceId?: string; state?: string; q?: string; limit?: number }
+
+export const getMeetings = createServerFn({ method: 'GET' })
+  .validator((input: MeetingQuery) => input)
+  .handler(async ({ data }) => {
+    const params = new URLSearchParams()
+    if (data.deviceId) params.set('deviceId', data.deviceId)
+    if (data.state) params.set('state', data.state)
+    if (data.q) params.set('q', data.q)
+    params.set('limit', String(data.limit ?? 50))
+    return (await apiGet<MeetingList>(`/v1/admin/meetings?${params}`)).items
+  })
+
+export const getMeeting = createServerFn({ method: 'GET' })
+  .validator((meetingId: string) => meetingId)
+  .handler(async ({ data }) => apiGet<Meeting>(`/v1/admin/meetings/${id(data)}`))
+
+export const startMeeting = createServerFn({ method: 'POST' })
+  .validator((input: { deviceId: string }) => input)
+  .handler(async ({ data }) =>
+    apiSend<Meeting>(`/v1/admin/devices/${id(data.deviceId)}/meetings`, 'POST', { requestedBy: 'dashboard' }),
+  )
+
+export const stopMeeting = createServerFn({ method: 'POST' })
+  .validator((input: { meetingId: string }) => input)
+  .handler(async ({ data }) => apiSend<Meeting>(`/v1/admin/meetings/${id(data.meetingId)}/stop`, 'POST', { reason: 'dashboard' }))
+
+export const deleteMeeting = createServerFn({ method: 'POST' })
+  .validator((input: { meetingId: string }) => input)
+  .handler(async ({ data }) => apiSend(`/v1/admin/meetings/${id(data.meetingId)}`, 'DELETE'))
+
+export const updateMeeting = createServerFn({ method: 'POST' })
+  .validator((input: { meetingId: string; speakers?: Record<string, string>; keep?: boolean }) => input)
+  .handler(async ({ data }) =>
+    apiSend<Meeting>(`/v1/admin/meetings/${id(data.meetingId)}`, 'PATCH', {
+      ...(data.speakers ? { speakers: data.speakers } : {}),
+      ...(data.keep === undefined ? {} : { keep: data.keep }),
+    }),
+  )
+
+export const retranscribeMeeting = createServerFn({ method: 'POST' })
+  .validator((input: { meetingId: string }) => input)
+  .handler(async ({ data }) => apiSend<Meeting>(`/v1/admin/meetings/${id(data.meetingId)}/transcribe`, 'POST'))
+
+export const resummarizeMeeting = createServerFn({ method: 'POST' })
+  .validator((input: { meetingId: string }) => input)
+  .handler(async ({ data }) => apiSend<Meeting>(`/v1/admin/meetings/${id(data.meetingId)}/summarize`, 'POST'))
+
+export const setMeetingLimits = createServerFn({ method: 'POST' })
+  .validator((input: { deviceId: string; meetingSilenceMin: number; meetingMaxHours: number }) => input)
+  .handler(async ({ data }) =>
+    apiSend(`/v1/admin/devices/${id(data.deviceId)}`, 'PATCH', { meetingSilenceMin: data.meetingSilenceMin, meetingMaxHours: data.meetingMaxHours }),
+  )
+
+// Server-only proxies: the browser never carries the admin secret (RM-47).
+// The audio one forwards Range so <audio> can seek.
+export async function proxyMeetingAudio(meetingId: string, range: string | null): Promise<Response> {
+  const { baseURL, secret } = apiConfiguration()
+  const upstream = await fetch(`${baseURL}/v1/admin/meetings/${id(meetingId)}/audio`, {
+    headers: { 'X-Admin-Secret': secret, ...(range ? { Range: range } : {}) },
+  })
+  const headers = new Headers({ 'Cache-Control': 'private, no-store' })
+  for (const name of ['Content-Type', 'Content-Length', 'Content-Range', 'Accept-Ranges', 'Last-Modified']) {
+    const value = upstream.headers.get(name)
+    if (value) headers.set(name, value)
+  }
+  return new Response(upstream.body, { status: upstream.status, headers })
+}
+
+export async function proxyMeetingTranscript(meetingId: string, format: 'txt' | 'srt'): Promise<Response> {
+  const { baseURL, secret } = apiConfiguration()
+  const upstream = await fetch(`${baseURL}/v1/admin/meetings/${id(meetingId)}/transcript?format=${format}`, {
+    headers: { 'X-Admin-Secret': secret },
+  })
+  if (!upstream.ok) return new Response(await upstream.text(), { status: upstream.status })
+  return new Response(await upstream.text(), {
+    headers: {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Content-Disposition': `attachment; filename="reunion-${meetingId.slice(0, 8)}.${format}"`,
+      'Cache-Control': 'private, no-store',
+    },
+  })
 }
