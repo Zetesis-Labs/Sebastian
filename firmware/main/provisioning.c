@@ -526,11 +526,15 @@ static cJSON *config_dump(bool in_hand) {
         dump_bool(h, audio, "fixedBeam", "fixed_beam");
         dump_i32(h, audio, "fixedBeamAzimuthDeg", "beam_az");
 
-        char profs[1024];
-        size_t len = sizeof(profs);
-        if (nvs_get_str(h, "profiles", profs, &len) == ESP_OK) {
-            cJSON *arr = cJSON_Parse(profs);
-            if (arr) cJSON_AddItemToObject(root, "profiles", arr);
+        // Heap, not stack: the RF-42 report runs this from the 4 KB poll task.
+        size_t len = 0;
+        if (nvs_get_str(h, "profiles", NULL, &len) == ESP_OK && len > 0) {
+            char *profs = malloc(len);
+            if (profs && nvs_get_str(h, "profiles", profs, &len) == ESP_OK) {
+                cJSON *arr = cJSON_Parse(profs);
+                if (arr) cJSON_AddItemToObject(root, "profiles", arr);
+            }
+            free(profs);
         }
         dump_str(h, root, "activeProfile", "active_prof");
 
