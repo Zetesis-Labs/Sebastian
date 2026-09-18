@@ -139,6 +139,7 @@ a.device-name:hover { color: var(--orange); }
 .device-row.state-joining { border-color: rgba(242, 201, 76, .5); }
 .device-row.state-joining .device-state { animation: pulse-badge 1.6s ease-in-out infinite; }
 @keyframes pulse-badge { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+.device-retry { margin-top: 8px; }
 .device-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .device-facts { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 0; }
 .device-fact { padding: 2px 8px; border: 1px solid var(--line); border-radius: 6px; font: 400 11.5px 'DM Mono', monospace; color: #cfcbc3; }

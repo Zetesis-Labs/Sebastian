@@ -88,7 +88,8 @@ function Devices() {
   }
 
   function adopt(device: Device) {
-    if (device.state === 'managed_elsewhere' && handover?.deviceId !== device.id) {
+    const needsSecret = device.state === 'managed_elsewhere' || device.state === 'moved' || jobs[device.id]?.error === 'auth'
+    if (needsSecret && handover?.deviceId !== device.id) {
       setHandover({ deviceId: device.id, secret: '' })
       return
     }
@@ -284,6 +285,11 @@ function DeviceRow({
           <p className="device-meta warn">Último contacto: {device.lastError}</p>
         )}
         {job && <JobLine job={job} />}
+        {job?.phase === 'failed' && job.error === 'auth' && handover === null && (
+          <button type="button" className="chip-button primary device-retry" onClick={() => onHandoverChange('')}>
+            Reintentar con el secreto del altavoz
+          </button>
+        )}
         {handover !== null && (
           <form
             className="adopt-ip"
@@ -293,10 +299,10 @@ function DeviceRow({
             }}
           >
             <label>
-              <span>Secreto del altavoz (déjalo vacío si es de tu organización)</span>
+              <span>{device.state === 'moved' ? 'Secreto del altavoz (si su nuevo dueño no es de tu organización)' : 'Secreto del altavoz (déjalo vacío si es de tu organización)'}</span>
               <input value={handover} onChange={(e) => onHandoverChange(e.target.value)} type="password" autoComplete="off" autoFocus />
             </label>
-            <button type="submit" className="chip-button">Adoptar aquí</button>
+            <button type="submit" className="chip-button">{device.state === 'moved' ? 'Recuperar' : 'Adoptar aquí'}</button>
             <button type="button" className="chip-button" onClick={onHandoverCancel}>Cancelar</button>
           </form>
         )}
