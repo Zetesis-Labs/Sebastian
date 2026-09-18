@@ -21,6 +21,9 @@ func TestDeriveStateFunctionalSpecTable(t *testing.T) {
 	adopted := &Device{ID: "a", Adopted: true, ProfileReportedAt: now.Add(-10 * time.Second)}
 	silent := &Device{ID: "a", Adopted: true, ProfileReportedAt: now.Add(-5 * time.Minute)}
 	registered := &Device{ID: "a", Adopted: false, ProfileReportedAt: now}
+	justAdopted := &Device{ID: "a", Adopted: true, AdoptedAt: now.Add(-20 * time.Second), ProfileReportedAt: now.Add(-5 * time.Minute)}
+	adoptedLongAgo := &Device{ID: "a", Adopted: true, AdoptedAt: now.Add(-10 * time.Minute), ProfileReportedAt: now.Add(-5 * time.Minute)}
+	other := "http://10.0.0.188:8788"
 	cases := []struct {
 		name string
 		row  *Device
@@ -37,15 +40,24 @@ func TestDeriveStateFunctionalSpecTable(t *testing.T) {
 		{"on LAN, another control room, failing", nil, &discovery.Seen{ControlRoom: "http://10.0.100.10:8787", LastError: "timeout"}, StateOrphan},
 		{"denied adoption attempt is not an orphan", nil, &discovery.Seen{ControlRoom: "http://10.0.100.10:8787", LastError: "adopt-denied:10.0.0.77"}, StateManagedElsewhere},
 		{"trailing slash on the announced origin", adopted, &discovery.Seen{ControlRoom: self + "/"}, StateAdopted},
-		{"just adopted: stale announce of the previous control room, newer poll", adopted, &discovery.Seen{ControlRoom: "http://10.0.0.188:8788", SeenAt: now.Add(-40 * time.Second)}, StateAdopted},
-		{"announce newer than the last poll wins", adopted, &discovery.Seen{ControlRoom: "http://10.0.0.188:8788", SeenAt: now.Add(-5 * time.Second)}, StateManagedElsewhere},
+		{"just adopted: stale announce of the previous control room, newer poll", adopted, &discovery.Seen{ControlRoom: other, SeenAt: now.Add(-40 * time.Second)}, StateAdopted},
+		{"taken: announce bound elsewhere, newer than our last poll", adopted, &discovery.Seen{ControlRoom: other, SeenAt: now.Add(-5 * time.Second)}, StateMoved},
+		{"factory reset elsewhere after being ours", adopted, &discovery.Seen{ControlRoom: "", SeenAt: now.Add(-5 * time.Second)}, StateMoved},
+		{"just adopted, rebooting, not on LAN", justAdopted, nil, StateJoining},
+		{"just adopted, LAN still announces the old control room", justAdopted, &discovery.Seen{ControlRoom: other, SeenAt: now.Add(-60 * time.Second)}, StateMoved},
+		{"just adopted, announces us already", justAdopted, &discovery.Seen{ControlRoom: self, SeenAt: now}, StateJoining},
+		{"adopted long ago and silent", adoptedLongAgo, nil, StateAbsent},
+		{"announces us, not in the inventory yet (fresh from the installer)", nil, &discovery.Seen{ControlRoom: self}, StateJoining},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := deriveState(tc.row, tc.seen, self, now); got != tc.want {
+			if got := deriveState(tc.row, tc.seen, self, false, now); got != tc.want {
 				t.Fatalf("got %s, want %s", got, tc.want)
 			}
 		})
+	}
+	if got := deriveState(nil, &discovery.Seen{ControlRoom: self}, self, true, now); got != StateLeaving {
+		t.Fatalf("forgotten here, stale announce: got %s, want leaving", got)
 	}
 }
 

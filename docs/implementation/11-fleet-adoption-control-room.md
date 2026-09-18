@@ -34,6 +34,9 @@ States shown by a control room for each speaker it can see:
 |-------|---------|--------|
 | **Adopted here** | bound to this control room and polling it | `devices` table + poll |
 | **Adopted here, absent** | in `devices`, not seen on the LAN nor polling for > 3 poll periods | `devices` only |
+| **Joining** | adopted here, no poll since the adoption (rebooting), ≤ 3 min | `devices` (`adopted_at` > last poll) |
+| **Moved** | adopted here, but the LAN announces it bound elsewhere (or to none) after our last contact | `devices` + mDNS |
+| **Leaving** | forgotten here < 3 min ago, the LAN still carries its old announce | in-memory + mDNS |
 | **Managed by *X*** | announces another control room; read-only, shows *X* | mDNS |
 | **Unadopted** | announces no control room (factory / forgotten) | mDNS |
 | **Orphan** | announces a control room *and* reports its last contact failed | mDNS TXT `err` |

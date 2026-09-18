@@ -7,11 +7,14 @@ import {
   SECTION_TITLE,
   STATE_HINT,
   STATE_LABEL,
+  STATE_TONE,
+  TRANSITIONAL,
   canAdopt,
   canForget,
   groupDevices,
   isValidIPv4,
   jobMessage,
+  timeline,
   type Section,
 } from '../lib/fleet'
 
@@ -42,12 +45,19 @@ function Devices() {
   // its own device secret; asked inline when "Adoptar aquí" is pressed.
   const [handover, setHandover] = useState<{ deviceId: string; secret: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Relative times are computed on the client only (no SSR/hydration drift).
+  const [now, setNow] = useState<Date | null>(null)
 
   // Reconciliation is device-paced (30 s polls) and the LAN view refreshes on
   // its own: refetch so states resolve on screen by themselves.
   useEffect(() => {
-    const timer = setInterval(() => void router.invalidate(), 10_000)
-    return () => clearInterval(timer)
+    setNow(new Date())
+    const tick = setInterval(() => setNow(new Date()), 1_000)
+    const timer = setInterval(() => void router.invalidate(), 5_000)
+    return () => {
+      clearInterval(tick)
+      clearInterval(timer)
+    }
   }, [router])
 
   useEffect(() => {
@@ -175,6 +185,7 @@ function Devices() {
                       key={item.id}
                       device={item}
                       job={jobs[item.id]}
+                      now={now}
                       handover={handover?.deviceId === item.id ? handover.secret : null}
                       onHandoverChange={(secret) => setHandover({ deviceId: item.id, secret })}
                       onHandoverCancel={() => setHandover(null)}
@@ -216,6 +227,7 @@ function JobLine({ job }: Readonly<{ job: AdoptionJob }>) {
 function DeviceRow({
   device,
   job,
+  now,
   handover,
   onHandoverChange,
   onHandoverCancel,
@@ -224,6 +236,7 @@ function DeviceRow({
 }: Readonly<{
   device: Device
   job?: AdoptionJob
+  now: Date | null
   handover: string | null
   onHandoverChange: (secret: string) => void
   onHandoverCancel: () => void
@@ -231,29 +244,42 @@ function DeviceRow({
   onForget: (device: Device) => void
 }>) {
   const busy = job !== undefined && !JOB_DONE.has(job.phase)
-  const mine = device.state === 'adopted' || device.state === 'absent'
-  const readOnly = device.state === 'managed_elsewhere'
+  const mine = device.state === 'adopted' || device.state === 'absent' || device.state === 'joining' || device.state === 'moved'
+  const tone = STATE_TONE[device.state]
+  const facts = [device.ip, device.firmware ? `fw ${device.firmware}` : null, device.reportedProfile].filter(Boolean)
 
   return (
-    <article className={`device-row state-${device.state}`}>
+    <article className={`device-row state-${device.state} tone-${tone}`}>
       <div className="device-identity">
-        {mine ? (
-          <Link to="/devices/$deviceId" params={{ deviceId: device.id }} className="device-name mono">
-            {device.displayName}
-          </Link>
-        ) : (
-          <h3 className="mono device-name">{device.displayName}</h3>
-        )}
-        <p className="device-meta">
-          <span className={`device-state state-${device.state}`} title={STATE_HINT[device.state]}>
+        <div className="device-head">
+          {mine ? (
+            <Link to="/devices/$deviceId" params={{ deviceId: device.id }} className="device-name mono">
+              {device.displayName}
+            </Link>
+          ) : (
+            <h3 className="mono device-name">{device.displayName}</h3>
+          )}
+          <span className={`device-state tone-${tone}`} title={STATE_HINT[device.state]}>
             {STATE_LABEL[device.state]}
           </span>
-          {device.ip ? ` · ${device.ip}` : ''}
-          {device.firmware ? ` · fw ${device.firmware}` : ''}
-          {device.reportedProfile ? ` · ${device.reportedProfile}` : ''}
-          {device.profileReportedAt ? ` · contacto ${formatDate(device.profileReportedAt)}` : device.seenOnLanAt ? ` · visto ${formatDate(device.seenOnLanAt)}` : ''}
+        </div>
+        {facts.length > 0 && (
+          <p className="device-facts">
+            {facts.map((f) => (
+              <span key={String(f)} className="device-fact">{f}</span>
+            ))}
+          </p>
+        )}
+        <p className="device-timeline">
+          {now
+            ? timeline(device, now).join(' · ')
+            : device.profileReportedAt
+              ? `último contacto ${formatDate(device.profileReportedAt)}`
+              : 'sin contacto todavía'}
         </p>
-        {readOnly && device.controlRoom && <p className="device-meta">Control room: <code>{device.controlRoom}</code></p>}
+        {(TRANSITIONAL.has(device.state) || device.state === 'orphan' || device.state === 'registered') && (
+          <p className={`device-meta tone-${tone}`}>{STATE_HINT[device.state]}</p>
+        )}
         {device.lastError && device.lastError !== 'ok' && (
           <p className="device-meta warn">Último contacto: {device.lastError}</p>
         )}
@@ -278,7 +304,7 @@ function DeviceRow({
       <div className="device-actions">
         {canAdopt(device.state) && handover === null && (
           <button type="button" className="chip-button" disabled={busy} onClick={() => onAdopt(device)}>
-            {busy ? 'Adoptando…' : device.state === 'managed_elsewhere' ? 'Adoptar aquí' : 'Adoptar'}
+            {busy ? 'Adoptando…' : device.state === 'managed_elsewhere' ? 'Adoptar aquí' : device.state === 'moved' ? 'Recuperar' : 'Adoptar'}
           </button>
         )}
         {canForget(device.state) && (

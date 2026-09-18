@@ -43,14 +43,25 @@ control room está **sin adoptar**.
 | Estado | Definición |
 |--------|------------|
 | **Adoptado aquí** | vinculado a este control room y ha contactado en los últimos 90 s |
+| **Adoptado aquí, esperando arranque** | adoptado desde aquí y sin contacto desde la adopción (la placa se reinicia); como máximo 3 min, después pasa a *ausente* |
 | **Adoptado aquí, ausente** | vinculado a este control room, sin contacto en más de 90 s y no visto en la red |
+| **Se lo llevó otro control room** | adoptado aquí, pero la red lo anuncia vinculado a otro control room (o a ninguno) después de su último contacto con este. Sigue en el inventario hasta que el operador lo olvida o lo recupera |
+| **Olvidado, reiniciando** | olvidado desde aquí hace menos de 3 min; la red aún lleva su anuncio antiguo. Desaparece solo |
 | **Gestionado por *X*** | visto en la red, vinculado a otro control room *X* |
 | **Sin adoptar** | visto en la red, sin control room |
 | **Huérfano** | visto en la red, vinculado a un control room al que no consigue llegar |
 
-Las cuatro últimas solo existen si el altavoz se ve en la red (§6). Un
+Las cinco últimas solo existen si el altavoz se ve en la red (§6). Un
 altavoz de otra subred que no se descubre simplemente no aparece; se puede
 adoptar por IP igualmente (RF-31).
+
+**Transiciones.** Cada cambio de dueño pasa por estados visibles en los dos
+control rooms: al adoptar desde B, B lo muestra *esperando arranque* hasta el
+primer poll y A lo muestra *se lo llevó B* en cuanto la red trae el anuncio
+nuevo (menos de 15 s tras el arranque). Un poll más reciente que el anuncio
+manda sobre él (el anuncio viejo sobrevive hasta 60 s en la red). Cada fila y
+la ficha llevan la cronología de los tres relojes: último contacto, adopción y
+último anuncio en la red (con el control room que anuncia).
 
 ### 3.3 Secretos
 

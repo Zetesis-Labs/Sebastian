@@ -11,7 +11,7 @@ import {
   type Json,
 } from '../lib/api'
 import { formatDate } from '../lib/format'
-import { GOVERNABLE_PATHS, REFLASH_ONLY, STATE_HINT, STATE_LABEL, configSync, desiredDocument } from '../lib/fleet'
+import { GOVERNABLE_PATHS, REFLASH_ONLY, STATE_HINT, STATE_LABEL, STATE_TONE, configSync, desiredDocument, shortRoom, timeline } from '../lib/fleet'
 import { defaultConfig, mergeConfig, type DeviceConfig } from '@installer/config'
 import { MODES, SHARED, getField, setField, type FieldMeta } from '@installer/modes'
 import { validate } from '@installer/validate'
@@ -49,10 +49,16 @@ function DevicePage() {
   const [secret, setSecret] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const issues = useMemo(() => validate(form), [form])
+  const [now, setNow] = useState<Date | null>(null)
 
   useEffect(() => {
-    const timer = setInterval(() => void router.invalidate(), 10_000)
-    return () => clearInterval(timer)
+    setNow(new Date())
+    const tick = setInterval(() => setNow(new Date()), 1_000)
+    const timer = setInterval(() => void router.invalidate(), 5_000)
+    return () => {
+      clearInterval(tick)
+      clearInterval(timer)
+    }
   }, [router])
 
   // A fresh load (after the device applied) reseeds the form unless the
@@ -101,7 +107,7 @@ function DevicePage() {
       <Link to="/devices" className="back-link">← Volver a la flota</Link>
       <section className="detail-hero device-hero">
         <div>
-          <p className="eyebrow">{STATE_LABEL[detail.state]}</p>
+          <p className={`eyebrow tone-${STATE_TONE[detail.state]}`}>{STATE_LABEL[detail.state]}</p>
           <form
             className="device-rename"
             onSubmit={(e) => {
@@ -116,8 +122,9 @@ function DevicePage() {
           </form>
           <p className="detail-room mono">{detail.id}</p>
           <p className="hero-copy">{STATE_HINT[detail.state]}</p>
+          {now && <p className="device-timeline">{timeline(detail, now).join(' · ')}</p>}
         </div>
-        <span className={`detail-kind state-${detail.state}`}>{detail.state}</span>
+        <span className={`detail-kind tone-${STATE_TONE[detail.state]}`}>{detail.state}</span>
       </section>
 
       <section className="detail-grid">
@@ -126,6 +133,7 @@ function DevicePage() {
         <Detail label="Perfil" value={detail.reportedProfile ?? '—'} />
         <Detail label="Último contacto" value={detail.profileReportedAt ? formatDate(detail.profileReportedAt) : 'nunca'} />
         <Detail label="Adoptado" value={detail.adoptedAt ? formatDate(detail.adoptedAt) : 'no'} />
+        <Detail label="En la red" value={detail.seenOnLanAt ? `${formatDate(detail.seenOnLanAt)}${detail.controlRoom ? ` · ${shortRoom(detail.controlRoom)}` : ' · sin control room'}` : 'no se ve'} />
         <Detail label="Último error" value={detail.lastError && detail.lastError !== 'ok' ? detail.lastError : 'ninguno'} />
       </section>
 

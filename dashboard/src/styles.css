@@ -128,12 +128,22 @@ a.device-name:hover { color: var(--orange); }
 .device-meta code { font: 400 12px 'DM Mono', monospace; color: #cfcbc3; }
 .device-meta.warn { color: #ffb597; }
 .device-state { padding: 3px 9px; border: 1px solid currentColor; border-radius: 999px; font: 500 10px 'DM Mono', monospace; text-transform: uppercase; letter-spacing: .1em; }
-.device-state.state-adopted { color: var(--lime); }
-.device-state.state-absent { color: var(--muted); }
-.device-state.state-orphan, .device-state.state-unadopted { color: var(--orange); }
-.device-state.state-managed_elsewhere { color: #9d8cff; }
-.device-state.state-registered { color: #49c6e5; }
-.device-row.state-managed_elsewhere { opacity: .8; }
+.tone-ok { color: var(--lime); }
+.tone-wait { color: #f2c94c; }
+.tone-warn { color: var(--orange); }
+.tone-muted { color: var(--muted); }
+.tone-other { color: #9d8cff; }
+.tone-info { color: #49c6e5; }
+.device-row.state-managed_elsewhere, .device-row.state-leaving, .device-row.state-absent { opacity: .75; }
+.device-row.state-moved { border-color: rgba(255, 107, 53, .55); }
+.device-row.state-joining { border-color: rgba(242, 201, 76, .5); }
+.device-row.state-joining .device-state { animation: pulse-badge 1.6s ease-in-out infinite; }
+@keyframes pulse-badge { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+.device-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.device-facts { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 0; }
+.device-fact { padding: 2px 8px; border: 1px solid var(--line); border-radius: 6px; font: 400 11.5px 'DM Mono', monospace; color: #cfcbc3; }
+.device-timeline { margin: 8px 0 0; font: 400 12px 'DM Mono', monospace; color: var(--muted); }
+.device-meta.tone-warn { color: #ffb597; } .device-meta.tone-wait { color: #f2c94c; } .device-meta.tone-muted { color: var(--muted); } .device-meta.tone-info { color: #49c6e5; }
 .device-job { margin: 8px 0 0; font-size: 13px; line-height: 1.5; }
 .device-job.ok { color: var(--lime); } .device-job.warn { color: #ffb597; } .device-job.info { color: #cfcbc3; }
 .device-secret-once { display: inline-block; margin-top: 4px; font-size: 12px; color: var(--muted); }
