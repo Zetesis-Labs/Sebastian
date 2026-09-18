@@ -1,5 +1,6 @@
 """Block C of docs/implementation/14 (T-C1..T-C5): the agent captures and delivers."""
 import asyncio
+import time
 import shutil
 from pathlib import Path
 
@@ -7,7 +8,12 @@ import pytest
 from aiohttp import web
 
 from meeting_mode import (
+    CommandWindow,
     MeetingJob,
+    VoiceCommands,
+    command_reply,
+    meeting_intent,
+    voice_start_reply,
     http_session,
     OpusEncoder,
     ServerAPI,
@@ -216,3 +222,74 @@ def test_silence_watcher_relays_warn_and_stop_to_the_server() -> None:
     api = FakeAPI()
     asyncio.run(watch_silence(events(), SilenceNet(120, 30), api, clock=lambda: next(clock)))
     assert api.calls == ["warn", "stop:silence"]
+
+
+# ── T-F1: the sentences of RM-04/21, however whisper writes them ──────────
+
+def test_meeting_intent_recognizes_the_spec_variants() -> None:
+    for text in ("Sebastián, para la grabación.", "deja de grabar", "Termina la grabación, por favor", "para de grabar ya", "Detén la grabación", "PARA LA GRABACIÓN"):
+        assert meeting_intent(text) == "stop", text
+    for text in ("Sebastián, graba la reunión", "empieza a grabar", "graba esto", "Grabar la reunión de hoy", "inicia la grabación"):
+        assert meeting_intent(text) == "start", text
+    for text in ("qué hora es", "enciende la luz del salón", "", "la grabación de ayer fue larga"):
+        assert meeting_intent(text) is None, text
+
+
+def test_voice_start_reply_follows_the_server_answer() -> None:
+    ok = voice_start_reply(202)
+    assert ok.close and ok.say.startswith("Grabando.") and "Sebastián" not in ok.say
+    busy = voice_start_reply(409)
+    assert busy.close and "Ya estoy grabando" in busy.say
+    no = voice_start_reply(422)
+    assert not no.close and no.say.startswith("No puedo grabar ahora")
+    down = voice_start_reply(0, "timeout")
+    assert not down.close and "timeout" in down.say
+
+
+# ── T-F2: in meeting mode only the stop order acts; the rest gets the reminder ──
+
+def test_command_reply_stops_or_reminds() -> None:
+    assert command_reply("stop", 30) == ("stop", "Grabación guardada, menos de un minuto.")
+    assert command_reply("stop", 61) == ("stop", "Grabación guardada, un minuto.")
+    assert command_reply("stop", 12 * 60 + 5) == ("stop", "Grabación guardada, 12 minutos.")
+    assert command_reply("start", 100) == ("keep", "Ya estoy grabando.")
+    assert command_reply(None, 100) == ("keep", "Estoy grabando; dime que pare si quieres hablar.")
+
+
+def test_voice_commands_hear_the_window_then_act() -> None:
+    class FakeAPI:
+        def __init__(self):
+            self.calls: list[str] = []
+
+        async def warn(self) -> None: ...
+
+        async def stop(self, reason: str) -> None:
+            self.calls.append(reason)
+
+    async def run(heard: str):
+        api = FakeAPI()
+        said: list[str] = []
+        got: list[int] = []
+
+        async def transcribe(pcm: bytes, rate: int) -> str:
+            got.append(len(pcm))
+            return heard
+
+        async def speak(text: str) -> None:
+            said.append(text)
+
+        window = CommandWindow(seconds=0.01, sample_rate=1000)  # 20 bytes
+        start = time.monotonic()
+        voice = VoiceCommands(window, api, transcribe, speak, lambda: start)
+        voice.on_wake()
+        voice.on_wake()  # a second wake while listening is ignored
+        for _ in range(3):
+            window.feed(b"\x00" * 10)
+            await asyncio.sleep(0)
+        await asyncio.sleep(0.05)
+        return api.calls, said, got
+
+    calls, said, got = asyncio.run(run("Sebastián, para la grabación"))
+    assert calls == ["voice"] and said == ["Grabación guardada, menos de un minuto."] and got == [20]
+    calls, said, _ = asyncio.run(run("qué tiempo hace"))
+    assert calls == [] and said == ["Estoy grabando; dime que pare si quieres hablar."]

@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import io
 import json
 import logging
 import os
 import tempfile
 import time
+import wave
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,6 +32,7 @@ from livekit.agents import JobContext
 from livekit.agents import vad as agents_vad
 
 from tasks import spawn
+from text_match import norm
 
 log = logging.getLogger("sebastian.agent.meeting")
 
@@ -42,6 +45,9 @@ SAMPLE_RATE = 48000
 FRAME_MS = 20
 BITRATE = "48k"
 FFMPEG = os.getenv("SEBASTIAN_FFMPEG", "ffmpeg")
+BARGE_TOPIC = "sebastian.barge_in"
+COMMAND_WINDOW_S = 4.0
+COMMAND_MODEL = os.getenv("SEBASTIAN_COMMAND_MODEL", "whisper-1")
 CHUNK = 64 * 1024
 FINISHED_STATES = frozenset({"transcribing", "ready", "no_transcript", "cut"})
 
@@ -398,14 +404,29 @@ async def run_meeting(ctx: JobContext, job: MeetingJob, device_identity: str, va
         return
     spool = Spool(Path(tempfile.gettempdir()) / f"sebastian-meeting-{job.meeting_id}.ogg")
     vad_stream = vad.stream()
+    started = time.monotonic()
+    speaker = Speaker(ctx.room)
     async with http_session() as http:
         api = ServerAPI(http, API_URL, AGENT_SECRET, job.meeting_id)
         silence = spawn(watch_silence(vad_stream, SilenceNet(job.silence_s), api))
+        window = CommandWindow()
+        voice = VoiceCommands(window, api, transcribe_command, speaker.say, lambda: started)
+
+        @ctx.room.on("data_received")
+        def _on_data(packet: rtc.DataPacket) -> None:
+            if packet.topic == BARGE_TOPIC:
+                voice.on_wake()
+
+        def on_frame(frame: rtc.AudioFrame) -> None:
+            vad_stream.push_frame(frame)
+            window.feed(bytes(frame.data))
+
         try:
-            ok = await run_pipeline(mic.frames(), OpusEncoder(spool.append), spool, Uploader(api, spool), on_frame=vad_stream.push_frame)
+            ok = await run_pipeline(mic.frames(), OpusEncoder(spool.append), spool, Uploader(api, spool), on_frame=on_frame)
         finally:
             silence.cancel()
             await vad_stream.aclose()
+            await speaker.aclose()
     if ok:
         spool.path.unlink(missing_ok=True)
     else:
@@ -418,3 +439,208 @@ async def _delete_room(ctx: JobContext) -> None:
         await ctx.api.room.delete_room(lk_api.DeleteRoomRequest(room=ctx.room.name))
     except Exception as e:
         log.info("room cleanup: %r", e)
+
+
+# ── voice (block F, RM-04/05/21) ─────────────────────────────────────────────
+
+STOP_PHRASES = (
+    "para la grabacion", "parar la grabacion", "para de grabar", "deja de grabar", "dejar de grabar",
+    "termina la grabacion", "terminar la grabacion", "termina de grabar", "acaba la grabacion",
+    "deten la grabacion", "detener la grabacion", "para grabacion", "stop recording", "stop the recording",
+)
+START_PHRASES = (
+    "graba la reunion", "grabar la reunion", "graba esta reunion", "graba reunion", "empieza a grabar",
+    "empezar a grabar", "graba esto", "grabame esto", "empieza la grabacion", "inicia la grabacion",
+    "comienza a grabar", "start recording",
+)
+
+
+def meeting_intent(text: str) -> str | None:
+    """T-F1 (pure): what the sentence asks about the recording, or None."""
+    words = " ".join(norm(text).split())
+    if any(p in words for p in STOP_PHRASES):
+        return "stop"
+    if any(p in words for p in START_PHRASES):
+        return "start"
+    return None
+
+
+def command_reply(intent: str | None, recorded_s: float) -> tuple[str, str]:
+    """T-F2 (pure): what the recording agent does and says to a sentence heard
+    after the wake word: only the stop order acts (RM-21); anything else gets
+    the fixed reminder."""
+    if intent == "stop":
+        minutes = int(recorded_s // 60)
+        length = "menos de un minuto" if minutes < 1 else ("un minuto" if minutes == 1 else f"{minutes} minutos")
+        return "stop", f"Grabación guardada, {length}."
+    if intent == "start":
+        return "keep", "Ya estoy grabando."
+    return "keep", "Estoy grabando; dime que pare si quieres hablar."
+
+
+@dataclass(frozen=True)
+class VoiceStart:
+    say: str
+    close: bool  # the conversation ends so the unit can start the recording
+
+
+def voice_start_reply(status: int, detail: str = "") -> VoiceStart:
+    """T-F1b (pure): the server's answer to a start by voice → what to say (RM-04/05/44)."""
+    if status == 202:
+        return VoiceStart("Grabando. Para parar, pide que pare la grabación con la palabra de activación, o pulsa el botón: corta y luego larga.", True)
+    if status == 409:
+        return VoiceStart("Ya estoy grabando esta reunión.", True)
+    if status == 422:
+        return VoiceStart("No puedo grabar ahora: este altavoz no está en perfil agente o no está adoptado.", False)
+    return VoiceStart(f"No puedo grabar ahora: el control room no responde{f' ({detail})' if detail else ''}.", False)
+
+
+async def request_meeting_by_voice(device_id: str) -> VoiceStart:
+    """RM-04: the conversation agent asks the control room to record on its unit."""
+    try:
+        async with http_session() as http:
+            async with http.post(f"{API_URL}/v1/meetings", headers={"X-Agent-Secret": AGENT_SECRET}, json={"deviceId": device_id}, timeout=aiohttp.ClientTimeout(total=10)) as res:
+                detail = ""
+                if res.status >= 400:
+                    with contextlib.suppress(Exception):
+                        detail = str((await res.json()).get("detail", ""))
+                log.info("[voice] start meeting on %s → %s %s", device_id, res.status, detail)
+                return voice_start_reply(res.status, detail)
+    except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as e:
+        log.warning("[voice] start meeting failed: %r", e)
+        return voice_start_reply(0, str(e))
+
+
+class CommandWindow:
+    """The seconds after the wake word: armed by the barge-in, filled by the
+    mic frames, handed over once full."""
+
+    def __init__(self, seconds: float = COMMAND_WINDOW_S, sample_rate: int = SAMPLE_RATE) -> None:
+        self._need = int(seconds * sample_rate) * 2
+        self._buf = bytearray()
+        self.sample_rate = sample_rate
+        self.armed = False
+        self.ready = asyncio.Event()
+
+    def arm(self) -> bool:
+        if self.armed:
+            return False
+        self._buf.clear()
+        self.ready.clear()
+        self.armed = True
+        return True
+
+    def feed(self, pcm: bytes) -> None:
+        if not self.armed:
+            return
+        self._buf += pcm
+        if len(self._buf) >= self._need:
+            self.armed = False
+            self.ready.set()
+
+    def take(self) -> bytes:
+        data = bytes(self._buf)
+        self._buf.clear()
+        return data
+
+
+def pcm_to_wav(pcm: bytes, sample_rate: int) -> io.BytesIO:
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sample_rate)
+        w.writeframes(pcm)
+    buf.seek(0)
+    buf.name = "command.wav"
+    return buf
+
+
+async def transcribe_command(pcm: bytes, sample_rate: int) -> str:
+    from openai import AsyncOpenAI
+
+    client = AsyncOpenAI()
+    try:
+        result = await asyncio.wait_for(
+            client.audio.transcriptions.create(model=COMMAND_MODEL, file=pcm_to_wav(pcm, sample_rate), prompt="para la grabación, deja de grabar"),
+            timeout=15,
+        )
+        return result.text or ""
+    finally:
+        await client.close()
+
+
+class Speaker:
+    """The recording agent's only voice: short confirmations over a track of
+    its own (no AgentSession in meeting mode)."""
+
+    def __init__(self, room: rtc.Room) -> None:
+        self._room = room
+        self._source: rtc.AudioSource | None = None
+        self._tts: Any = None
+
+    async def say(self, text: str) -> None:
+        from livekit.plugins import openai as openai_plugin
+
+        if self._tts is None:
+            self._tts = openai_plugin.TTS()
+        log.info("[voice] saying: %r", text)
+        async for ev in self._tts.synthesize(text):
+            if self._source is None:
+                self._source = rtc.AudioSource(ev.frame.sample_rate, ev.frame.num_channels)
+                track = rtc.LocalAudioTrack.create_audio_track("sebastian-voice", self._source)
+                await self._room.local_participant.publish_track(track, rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_MICROPHONE))
+            await self._source.capture_frame(ev.frame)
+        if self._source is not None:
+            await self._source.wait_for_playout()
+
+    async def aclose(self) -> None:
+        if self._tts is not None:
+            with contextlib.suppress(Exception):
+                await self._tts.aclose()
+
+
+class VoiceCommands:
+    """RM-21: after the unit relays a wake word, hear the next seconds,
+    understand the order and answer; only "stop" changes anything."""
+
+    def __init__(
+        self,
+        window: CommandWindow,
+        api: SilenceAPI,
+        transcribe: Callable[[bytes, int], Awaitable[str]],
+        speak: Callable[[str], Awaitable[None]],
+        started_at: Callable[[], float],
+    ) -> None:
+        self.window = window
+        self._api = api
+        self._transcribe = transcribe
+        self._speak = speak
+        self._started_at = started_at
+        self.stopped = False
+
+    def on_wake(self) -> None:
+        if self.window.arm():
+            log.info("[voice] wake word — listening %.0f s for the order", COMMAND_WINDOW_S)
+            spawn(self.handle())
+
+    async def handle(self) -> None:
+        try:
+            await asyncio.wait_for(self.window.ready.wait(), timeout=COMMAND_WINDOW_S + 5)
+        except asyncio.TimeoutError:
+            self.window.armed = False
+            return
+        pcm = self.window.take()
+        try:
+            text = await self._transcribe(pcm, self.window.sample_rate)
+        except Exception as e:
+            log.warning("[voice] command transcription failed: %r", e)
+            return
+        intent = meeting_intent(text)
+        action, phrase = command_reply(intent, time.monotonic() - self._started_at())
+        log.info("[voice] heard %r → %s", text, action)
+        with contextlib.suppress(Exception):
+            await self._speak(phrase)
+        if action == "stop" and not self.stopped:
+            self.stopped = True
+            await self._api.stop("voice")

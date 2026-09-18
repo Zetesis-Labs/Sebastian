@@ -406,3 +406,13 @@ miraba el anillo). `68ee8f4d8dd4` y `e072a1f895f4` siguen con firmware anterior.
   ver desde la pestaña automatizada (ni un WAV sintético carga metadatos ahí):
   probar a mano.
 - Bloque F (voz) sin hacer: opcional según el diseño.
+
+## Reuniones, bloque F (madrugada del 19) — misma rama
+
+- Voz: arranque desde la conversación (`start_meeting_recording` → `POST
+  /v1/meetings` con secreto del agente; la placa encola la orden mientras
+  conversa y la abre al colgar) y parada en modo reunión (palabra de
+  activación en el micro en vivo → barge-in → 4 s → `whisper-1` →
+  `meeting_intent` → TTS por pista propia → `/stop {voice}`). Tests T-F1/T-F2
+  (27 en el agente). Firmware compilado, pendiente de flashear en `68ee` y de
+  probar a mano las dos frases.

@@ -749,6 +749,7 @@ fn runMeetingCycle(audio: AudioPipeline) void {
     };
     wakeword.stop();
     mic_src.setLive(true);
+    mic_src.setWakeListen(true); // RM-21: "Sebastián, para la grabación" reaches the agent as a barge-in
     c.sebastian_meeting_set_active(true);
     xvf_ui.setRecording(.on);
 
@@ -793,6 +794,10 @@ fn runMeetingCycle(audio: AudioPipeline) void {
             if (std.mem.eql(u8, verb, "record-warn")) xvf_ui.setRecording(.warn);
             // record-start while recording: already here (RM-05)
         }
+        if (mic_src.takeBargeRequest()) {
+            log.info("meeting {s}: wake word — the agent listens for the order", .{id});
+            publishBargeIn();
+        }
         usb_capture_ticks = if (usb_mic.hostCapturing()) usb_capture_ticks + 1 else 0;
         if (usb_capture_ticks * MEETING_TICK_MS >= arbiter_core.RESUME_AFTER_MS) {
             log.info("meeting {s}: USB capture takeover — stopping", .{id});
@@ -800,6 +805,7 @@ fn runMeetingCycle(audio: AudioPipeline) void {
             break;
         }
     }
+    mic_src.setWakeListen(false);
     xvf_ui.setRecording(.off);
     c.sebastian_meeting_set_active(false);
     if (reason[0] != 0) {
