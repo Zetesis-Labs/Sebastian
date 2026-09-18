@@ -72,6 +72,16 @@ spec:
                   name: {{ required "server.existingSecret must be set" .Values.server.existingSecret }}
                   key: SEBASTIAN_ORG_SECRET
                   optional: true
+            - name: SEBASTIAN_AGENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.server.existingSecret }}
+                  key: SEBASTIAN_AGENT_SECRET
+                  optional: true
+            - name: SEBASTIAN_MEETINGS_DIR
+              value: {{ .Values.server.meetings.dir | quote }}
+            - name: SEBASTIAN_MEETING_MAX_DURATION
+              value: {{ .Values.server.meetings.maxDuration | quote }}
             - name: SEBASTIAN_ADMIN_SECRET
               valueFrom:
                 secretKeyRef:
@@ -96,6 +106,9 @@ spec:
               port: http
             initialDelaySeconds: 10
             periodSeconds: 20
+          volumeMounts:
+            - name: meetings
+              mountPath: {{ .Values.server.meetings.dir }}
           resources:
             {{- toYaml .Values.server.resources | nindent 12 }}
         {{- if .Values.server.outbox.enabled }}
@@ -136,3 +149,11 @@ spec:
             {{- toYaml .Values.server.outbox.resources | nindent 12 }}
         {{- end }}
 {{- end }}
+      volumes:
+        - name: meetings
+          {{- if .Values.server.meetings.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "sebastian.fullname" . }}-meetings
+          {{- else }}
+          emptyDir: {}
+          {{- end }}

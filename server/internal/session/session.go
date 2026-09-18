@@ -26,9 +26,21 @@ type Device struct {
 	AgentConfig      json.RawMessage
 }
 
+// Kind is what the session is for: a conversation with the agent, or a
+// meeting recording (docs/implementation/14 §3.2) — the agent reads it from
+// the dispatch metadata.
+type Kind string
+
+const (
+	KindConversation Kind = "conversation"
+	KindMeeting      Kind = "meeting"
+)
+
 type Credentials struct {
-	DeviceID string
-	Secret   string
+	DeviceID  string
+	Secret    string
+	Kind      Kind
+	MeetingID uuid.UUID // with KindMeeting
 }
 
 type Created struct {
@@ -128,11 +140,7 @@ func (s *Service) Create(ctx context.Context, credentials Credentials) (Created,
 		return Created{}, fmt.Errorf("record session: %w: %w", ErrUnavailable, err)
 	}
 
-	metadata, err := json.Marshal(struct {
-		DeviceID  string          `json:"device_id"`
-		ProfileID uuid.UUID       `json:"profile_id"`
-		Config    json.RawMessage `json:"config"`
-	}{DeviceID: device.ID, ProfileID: device.ProfileID, Config: device.AgentConfig})
+	metadata, err := json.Marshal(dispatchMetadata(device, credentials))
 	if err != nil {
 		return Created{}, fmt.Errorf("encode dispatch metadata: %w", ErrUnavailable)
 	}
@@ -149,4 +157,17 @@ func (s *Service) Create(ctx context.Context, credentials Credentials) (Created,
 	}
 
 	return Created{ID: sessionID, Room: room, ServerURL: s.serverURL, Token: token, ExpiresAt: expiresAt}, nil
+}
+
+// dispatchMetadata is what the agent learns about the job: the unit, its
+// profile and, for a meeting, the mode and the meeting to feed (design 14 §3.2).
+func dispatchMetadata(device Device, credentials Credentials) map[string]any {
+	out := map[string]any{"device_id": device.ID, "profile_id": device.ProfileID, "config": device.AgentConfig}
+	if credentials.Kind == KindMeeting {
+		out["mode"] = "meeting"
+		if credentials.MeetingID != uuid.Nil {
+			out["meeting_id"] = credentials.MeetingID
+		}
+	}
+	return out
 }

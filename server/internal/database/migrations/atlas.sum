@@ -1,4 +1,4 @@
-h1:5f/nShz8GKFX8+Iu529eJm2/zH3362v/dgHRZ1NU/vM=
+h1:8ZoEYL0JdLSF2zZfvZIJuvMaf7GbnZZl0y5ZTFhkUvg=
 20260713232307_initial.sql h1:mqRg1oxbRmb38XLhlCVwBLI5pGx5xCK3pQ5kTswQlvU=
 20260713234301_outbox_retry_schedule.sql h1:VYS+YYRUGt5KkiQk5c3/zmolpzSHiMjukvm7RPxVc/k=
 20260714001624_recordings.sql h1:/6Lc6rcHhsvjOGq9Ex0waiDBWPxBADADtW+/TFeotnk=
@@ -6,3 +6,4 @@ h1:5f/nShz8GKFX8+Iu529eJm2/zH3362v/dgHRZ1NU/vM=
 20260918122851_fleet_adoption.sql h1:P1MJdQEQfUB2Mj9KkEaPWX48hVxSiQhDxdaUWNR6Bmw=
 20260918145510_running_config.sql h1:yynmtgQF7ljkkLdsK8QpM/Vc752fbfyCHJK3lyQqYTw=
 20260918160146_last_event.sql h1:qNBD+/tkG0tu7bRN5y3ovWdldR4wlSlXfnB8EFgTyqM=
+20260918195057_meetings.sql h1:g0lNq4CpGKki+dde2+cwQrAuILBoPmRDO08A22k36zM=

@@ -160,8 +160,13 @@ type domainEvent struct {
 }
 
 func deviceEvent(eventType, id string, payload map[string]any, at time.Time) domainEvent {
+	return domainEvent{AggregateType: "device", AggregateID: id, Type: eventType, Payload: mustJSON(payload), At: at}
+}
+
+// mustJSON encodes a payload built from plain values: it cannot fail.
+func mustJSON(payload map[string]any) json.RawMessage {
 	body, _ := json.Marshal(payload)
-	return domainEvent{AggregateType: "device", AggregateID: id, Type: eventType, Payload: body, At: at}
+	return body
 }
 
 func appendEvent(ctx context.Context, db bun.IDB, e domainEvent) error {

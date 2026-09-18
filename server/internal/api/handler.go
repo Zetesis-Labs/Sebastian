@@ -52,15 +52,18 @@ type Server struct {
 	sessions         SessionService
 	recordings       RecordingService
 	devices          DeviceService
+	meetings         MeetingService
 	readiness        ReadinessChecker
 	logger           *slog.Logger
 	readinessTimeout time.Duration
+	now              func() time.Time
 }
 
 func NewHandler(
 	sessions SessionService,
 	recordings RecordingService,
 	devices DeviceService,
+	meetings MeetingService,
 	readiness ReadinessChecker,
 	logger *slog.Logger,
 	readinessTimeout time.Duration,
@@ -69,9 +72,11 @@ func NewHandler(
 		sessions:         sessions,
 		recordings:       recordings,
 		devices:          devices,
+		meetings:         meetings,
 		readiness:        readiness,
 		logger:           logger,
 		readinessTimeout: readinessTimeout,
+		now:              time.Now,
 	}
 }
 
@@ -99,6 +104,11 @@ func (h *Server) GetDesiredProfile(ctx context.Context, request GetDesiredProfil
 	response := GetDesiredProfile200TextResponse{Body: result.DesiredProfile}
 	if result.DesiredConfigVersion != "" {
 		response.Headers.XDesiredConfig = &result.DesiredConfigVersion
+	}
+	if h.meetings != nil {
+		if order := h.meetings.PendingCommand(ctx, request.DeviceId); order != "" {
+			response.Headers.XMeeting = &order
+		}
 	}
 	return response, nil
 }
@@ -301,10 +311,17 @@ func (h *Server) GetReadiness(ctx context.Context, _ GetReadinessRequestObject) 
 }
 
 func (h *Server) CreateSession(ctx context.Context, request CreateSessionRequestObject) (CreateSessionResponseObject, error) {
-	created, err := h.sessions.Create(ctx, session.Credentials{
+	credentials := session.Credentials{
 		DeviceID: request.Params.XDeviceId,
 		Secret:   request.Params.XDeviceSecret,
-	})
+	}
+	if request.Body != nil && request.Body.Kind != nil && *request.Body.Kind == SessionRequestKindMeeting {
+		credentials.Kind = session.KindMeeting
+		if request.Body.MeetingId != nil {
+			credentials.MeetingID = *request.Body.MeetingId
+		}
+	}
+	created, err := h.sessions.Create(ctx, credentials)
 	if errors.Is(err, session.ErrUnauthorized) {
 		return CreateSession401ApplicationProblemPlusJSONResponse(problem(
 			401,

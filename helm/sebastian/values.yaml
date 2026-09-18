@@ -111,6 +111,16 @@ server:
     discoveryEnabled: false
     # Organization secret key in existingSecret (SEBASTIAN_ORG_SECRET); the
     # server runs without it, but cannot adopt units then.
+  # Meeting recordings (docs/implementation/14): the audio lives on this
+  # volume; SEBASTIAN_AGENT_SECRET (key in existingSecret) lets the agent
+  # stream it in.
+  meetings:
+    dir: /data/meetings
+    maxDuration: 3h
+    persistence:
+      enabled: true
+      size: 5Gi
+      storageClass: ""
   outbox:
     enabled: true
     # Empty uses the NATS service installed by this chart. If nats.enabled=false,

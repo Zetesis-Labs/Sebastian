@@ -103,6 +103,41 @@ CREATE UNIQUE INDEX sessions_room_name_key ON sessions (room_name);
 
 CREATE INDEX sessions_device_created_idx ON sessions (device_id, created_at);
 
+-- Meeting recordings from the speaker (docs/implementation/13/14): a meeting
+-- goes through requested → recording → closing → transcribing → ready |
+-- no_transcript, or cut when the unit vanished. The audio lives on the
+-- server's volume (audio_path, relative to SEBASTIAN_MEETINGS_DIR); deleting
+-- keeps the row without content (RM-46).
+CREATE TABLE meetings (
+  id uuid PRIMARY KEY,
+  device_id varchar NOT NULL,
+  session_id uuid,
+  state varchar NOT NULL,
+  requested_by varchar NOT NULL,
+  requested_at timestamptz NOT NULL,
+  started_at timestamptz,
+  ended_at timestamptz,
+  end_reason varchar,
+  audio_path varchar,
+  audio_bytes bigint NOT NULL DEFAULT 0,
+  last_audio_at timestamptz,
+  duration_ms bigint NOT NULL DEFAULT 0,
+  transcript jsonb,
+  transcript_error varchar,
+  summary jsonb,
+  keep boolean NOT NULL DEFAULT false,
+  deleted_at timestamptz,
+  created_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL,
+  CONSTRAINT meetings_devices_meetings
+    FOREIGN KEY (device_id) REFERENCES devices(id),
+  CONSTRAINT meetings_sessions_meetings
+    FOREIGN KEY (session_id) REFERENCES sessions(id)
+);
+
+CREATE INDEX meetings_device_started ON meetings (device_id, started_at DESC);
+CREATE INDEX meetings_in_progress ON meetings (state) WHERE state IN ('requested', 'recording', 'closing');
+
 CREATE TABLE recordings (
   id uuid PRIMARY KEY,
   session_id uuid NOT NULL,
