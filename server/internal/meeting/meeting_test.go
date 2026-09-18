@@ -180,6 +180,7 @@ type harness struct {
 	store *fakeStore
 	units *fakeUnits
 	cmd   *fakeCommander
+	mu    sync.Mutex // the clock is read from upload goroutines
 	clock time.Time
 }
 
@@ -191,11 +192,19 @@ func newHarness(t *testing.T) *harness {
 		ip:     "10.0.0.125", secret: "unit-secret", org: "org-secret",
 	}
 	h.s = NewService(h.store, h.units, h.cmd, filepath.Join(t.TempDir(), "meetings"), Limits{MaxDuration: 3 * time.Hour}, nil)
-	h.s.now = func() time.Time { return h.clock }
+	h.s.now = func() time.Time {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		return h.clock
+	}
 	return h
 }
 
-func (h *harness) advance(d time.Duration) { h.clock = h.clock.Add(d) }
+func (h *harness) advance(d time.Duration) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.clock = h.clock.Add(d)
+}
 
 func (h *harness) started(t *testing.T) Meeting {
 	t.Helper()

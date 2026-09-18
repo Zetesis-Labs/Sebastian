@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,12 +17,21 @@ import (
 )
 
 type fakeMeetings struct {
+	mu    sync.Mutex
 	rows  map[uuid.UUID]meeting.Meeting
 	audio map[uuid.UUID]string
 	log   []string
 }
 
+func (f *fakeMeetings) row(id uuid.UUID) meeting.Meeting {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.rows[id]
+}
+
 func (f *fakeMeetings) Get(_ context.Context, id uuid.UUID) (meeting.Meeting, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	m, ok := f.rows[id]
 	if !ok {
 		return meeting.Meeting{}, meeting.ErrNotFound
@@ -36,6 +46,8 @@ func (f *fakeMeetings) AudioFile(_ context.Context, id uuid.UUID) (string, error
 	return p, nil
 }
 func (f *fakeMeetings) Transcribing(context.Context) ([]meeting.Meeting, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	var out []meeting.Meeting
 	for _, m := range f.rows {
 		if m.State == meeting.StateTranscribing {
@@ -45,18 +57,24 @@ func (f *fakeMeetings) Transcribing(context.Context) ([]meeting.Meeting, error) 
 	return out, nil
 }
 func (f *fakeMeetings) Transcribed(_ context.Context, m meeting.Meeting, t meeting.Transcript) (meeting.Meeting, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	m.State, m.Transcript, m.TranscriptError = meeting.StateReady, &t, ""
 	f.rows[m.ID] = m
 	f.log = append(f.log, "transcribed")
 	return m, nil
 }
 func (f *fakeMeetings) TranscriptFailed(_ context.Context, m meeting.Meeting, reason string) (meeting.Meeting, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	m.State, m.TranscriptError = meeting.StateNoTranscript, reason
 	f.rows[m.ID] = m
 	f.log = append(f.log, "failed:"+reason)
 	return m, nil
 }
 func (f *fakeMeetings) Summarized(_ context.Context, m meeting.Meeting, s meeting.Summary) (meeting.Meeting, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	m.Summary = &s
 	f.rows[m.ID] = m
 	f.log = append(f.log, "summarized")
@@ -198,11 +216,11 @@ func TestRunRecoversWhatWasLeftTranscribing(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	go job.Run(ctx)
 	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) && store.rows[m.ID].State != meeting.StateReady {
+	for time.Now().Before(deadline) && store.row(m.ID).State != meeting.StateReady {
 		time.Sleep(10 * time.Millisecond)
 	}
 	cancel()
-	if store.rows[m.ID].State != meeting.StateReady {
+	if store.row(m.ID).State != meeting.StateReady {
 		t.Fatal("a meeting left transcribing by a previous run is picked up at start")
 	}
 }
