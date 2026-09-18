@@ -12,6 +12,11 @@
 //!   GET {origin}/v1/devices/{mac}/config   (X-Device-Id / X-Device-Secret)
 //! stores it through provisioning.c and reboots.
 //!
+//! A unit provisioned from the embedded installer holds the organization
+//! secret but no device secret: before its first poll it enrols —
+//!   GET/POST {origin}/v1/devices/{mac}/enroll   (HMAC over the server's nonce)
+//! and stores the device secret it gets back, so it is born adopted (RF-03/51).
+//!
 //! Every change reboots (~8 s) — deliberately: hot-swapping LiveKit ↔ TinyUSB
 //! stacks is fragile; the boot path is the one code path that is always
 //! exercised. Never during a conversation: the reboot waits for the session
@@ -41,6 +46,8 @@ var resp_buf: [64]u8 = undefined;
 var hdr_buf: [32]u8 = undefined;
 var cfg_ver: [24]u8 = undefined;
 var dev_secret: [129]u8 = undefined;
+var org_secret: [129]u8 = undefined;
+var enroll_doc: [224]u8 = undefined;
 var id_z: [13]u8 = undefined;
 var prof_z: [profile.NAME_MAX + 1]u8 = undefined;
 var cfg_body: ?[*]u8 = null; // PSRAM, allocated on first use
@@ -132,7 +139,28 @@ fn fetchAndApplyConfig(origin: [*:0]const u8, version: []const u8) void {
     requestRestart(text);
 }
 
+/// Born adopted: with an organization secret and no device secret, ask the
+/// control room for one. Retried on every poll until it succeeds.
+fn enrollIfNeeded() void {
+    if (secretZ() != null) return;
+    if (!c.sebastian_get_org_secret(&org_secret, org_secret.len)) return;
+    const origin = originZ() orelse return;
+    const rc = c.sebastian_enroll(origin, @ptrCast(&id_z), @ptrCast(&org_secret), &dev_secret, dev_secret.len);
+    if (rc != 0) {
+        log.warn("enrolment with {s} failed (rc={d}) — retrying on the next poll", .{ origin, rc });
+        return;
+    }
+    const doc = std.fmt.bufPrintZ(&enroll_doc, "{{\"schema\":\"sebastian.config.v1\",\"adoption\":{{\"deviceSecret\":\"{s}\"}}}}", .{std.mem.sliceTo(&dev_secret, 0)}) catch return;
+    var why: [32]u8 = undefined;
+    if (!c.sebastian_provisioning_apply(doc.ptr, &why, why.len)) {
+        log.err("enrolled but the device secret was not stored: {s}", .{std.mem.sliceTo(&why, 0)});
+        return;
+    }
+    log.info("enrolled with {s}: device secret stored, sessions will use it", .{origin});
+}
+
 fn pollOnce() void {
+    enrollIfNeeded();
     const origin = originZ() orelse return;
     const active_name = profile.nameOf(profile.active);
     const url = std.fmt.bufPrintZ(&url_buf, "{s}/v1/devices/{s}/desired-profile?current={s}&cfg={s}&fw={s}", .{
@@ -164,6 +192,7 @@ fn pollOnce() void {
 }
 
 fn pollTask(_: ?*anyopaque) callconv(.c) void {
+    enrollIfNeeded();
     while (true) {
         c.vTaskDelay(POLL_PERIOD_MS);
         pollOnce();

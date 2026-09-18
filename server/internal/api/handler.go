@@ -39,6 +39,8 @@ type DeviceService interface {
 	ClearDesiredConfig(ctx context.Context, id string) error
 	DeviceConfig(ctx context.Context, id, secret string) (json.RawMessage, error)
 	RegenerateSecret(ctx context.Context, id string) (string, error)
+	EnrollChallenge(id string) (string, error)
+	Enroll(ctx context.Context, id, nonce, mac string) (string, error)
 	Adopt(ctx context.Context, id string, req device.AdoptRequest) (device.Job, error)
 	Forget(ctx context.Context, id string, req device.AdoptRequest) (device.Job, error)
 	Job(id uuid.UUID) (device.Job, error)

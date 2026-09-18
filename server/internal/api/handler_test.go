@@ -96,6 +96,21 @@ func (s *stubDevices) DeviceConfig(_ context.Context, _, secret string) (json.Ra
 func (s *stubDevices) RegenerateSecret(context.Context, string) (string, error) {
 	return "new-secret", s.err
 }
+func (s *stubDevices) EnrollChallenge(string) (string, error) {
+	if s.secret == "" {
+		return "", device.ErrNoOrgSecret
+	}
+	return "nonce", s.err
+}
+func (s *stubDevices) Enroll(_ context.Context, _, nonce, mac string) (string, error) {
+	if s.secret == "" {
+		return "", device.ErrNoOrgSecret
+	}
+	if nonce != "nonce" || mac != "proof" {
+		return "", device.ErrUnauthorized
+	}
+	return s.secret, s.err
+}
 func (s *stubDevices) Adopt(context.Context, string, device.AdoptRequest) (device.Job, error) {
 	return s.job, s.err
 }
@@ -282,6 +297,28 @@ func TestGetDeviceConfigMapsAuthAndAbsence(t *testing.T) {
 	body, ok := response.(GetDeviceConfig200JSONResponse)
 	if !ok || body["configVersion"] != "v1" {
 		t.Fatalf("expected the document, got %#v", response)
+	}
+}
+
+func TestEnrollDeviceMapsUnavailableAuthAndSuccess(t *testing.T) {
+	devices := &stubDevices{}
+	handler := NewHandler(nil, nil, devices, stubReadiness{}, testLogger(), false, time.Second)
+	response, _ := handler.GetEnrollmentChallenge(context.Background(), GetEnrollmentChallengeRequestObject{DeviceId: "68ee"})
+	if _, ok := response.(GetEnrollmentChallenge404ApplicationProblemPlusJSONResponse); !ok {
+		t.Fatalf("expected 404 without an organization secret, got %#v", response)
+	}
+	devices.secret = "s3cret-s3cret-s3cret-s3cret-s3cret"
+	response, _ = handler.GetEnrollmentChallenge(context.Background(), GetEnrollmentChallengeRequestObject{DeviceId: "68ee"})
+	if challenge, ok := response.(GetEnrollmentChallenge200JSONResponse); !ok || challenge.Nonce != "nonce" {
+		t.Fatalf("expected the nonce, got %#v", response)
+	}
+	enrolled, _ := handler.EnrollDevice(context.Background(), EnrollDeviceRequestObject{DeviceId: "68ee", Body: &EnrollmentRequest{Nonce: "nonce", Mac: "bad"}})
+	if _, ok := enrolled.(EnrollDevice401ApplicationProblemPlusJSONResponse); !ok {
+		t.Fatalf("expected 401, got %#v", enrolled)
+	}
+	enrolled, _ = handler.EnrollDevice(context.Background(), EnrollDeviceRequestObject{DeviceId: "68ee", Body: &EnrollmentRequest{Nonce: "nonce", Mac: "proof"}})
+	if body, ok := enrolled.(EnrollDevice201JSONResponse); !ok || body.DeviceSecret != devices.secret {
+		t.Fatalf("expected the device secret, got %#v", enrolled)
 	}
 }
 

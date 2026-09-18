@@ -89,20 +89,33 @@ static void send_err(int sock, const struct sockaddr_in *to, const char *why) {
     send_json(sock, to, msg);
 }
 
-static bool hmac_matches(const char *secret, const char *nonce_hex, const char *cfg, const uint8_t expected[32]) {
+// HMAC-SHA256(secret, a + "." + b): the proof used by LAN adoption (adopt) and
+// by the HTTP enrolment (session_http.c); the secret itself never travels.
+static bool hmac_sha256(const char *secret, const char *a, const char *b, uint8_t out[32]) {
     if (!secret || !secret[0]) return false;
     const mbedtls_md_info_t *md = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
     mbedtls_md_context_t ctx;
     mbedtls_md_init(&ctx);
-    uint8_t out[32];
     bool ok = mbedtls_md_setup(&ctx, md, 1) == 0 &&
               mbedtls_md_hmac_starts(&ctx, (const uint8_t *)secret, strlen(secret)) == 0 &&
-              mbedtls_md_hmac_update(&ctx, (const uint8_t *)nonce_hex, strlen(nonce_hex)) == 0 &&
+              mbedtls_md_hmac_update(&ctx, (const uint8_t *)a, strlen(a)) == 0 &&
               mbedtls_md_hmac_update(&ctx, (const uint8_t *)".", 1) == 0 &&
-              mbedtls_md_hmac_update(&ctx, (const uint8_t *)cfg, strlen(cfg)) == 0 &&
+              mbedtls_md_hmac_update(&ctx, (const uint8_t *)b, strlen(b)) == 0 &&
               mbedtls_md_hmac_finish(&ctx, out) == 0;
     mbedtls_md_free(&ctx);
-    if (!ok) return false;
+    return ok;
+}
+
+bool sebastian_hmac_sha256_hex(const char *secret, const char *a, const char *b, char out[65]) {
+    uint8_t raw[32];
+    if (!hmac_sha256(secret, a, b, raw)) return false;
+    hex_encode(raw, sizeof(raw), out);
+    return true;
+}
+
+static bool hmac_matches(const char *secret, const char *nonce_hex, const char *cfg, const uint8_t expected[32]) {
+    uint8_t out[32];
+    if (!hmac_sha256(secret, nonce_hex, cfg, out)) return false;
     int diff = 0;
     for (int i = 0; i < 32; i++) diff |= out[i] ^ expected[i];
     return diff == 0;

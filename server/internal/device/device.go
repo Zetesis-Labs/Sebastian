@@ -161,10 +161,12 @@ type Service struct {
 	logger    *slog.Logger
 	now       func() time.Time
 	newSecret func() string
+	newNonce  func() string
 
 	mu             sync.Mutex
 	jobs           map[uuid.UUID]*Job
 	pendingSecrets map[string]string // device id → plaintext until the device confirms
+	enrolls        map[string]enrollChallenge
 }
 
 func NewService(store Store, lan discovery.Browser, adopter Adopter, room ControlRoom, logger *slog.Logger) *Service {
@@ -179,8 +181,10 @@ func NewService(store Store, lan discovery.Browser, adopter Adopter, room Contro
 		logger:         logger,
 		now:            time.Now,
 		newSecret:      randomSecret,
+		newNonce:       randomSecret,
 		jobs:           map[uuid.UUID]*Job{},
 		pendingSecrets: map[string]string{},
+		enrolls:        map[string]enrollChallenge{},
 	}
 }
 
@@ -355,6 +359,52 @@ func (s *Service) RegenerateSecret(ctx context.Context, id string) (string, erro
 	if _, err := s.SetDesiredConfig(ctx, id, doc); err != nil {
 		return "", err
 	}
+	return secret, nil
+}
+
+// ── enrolment ───────────────────────────────────────────────────────────────
+
+// EnrollChallenge hands a device the nonce it must sign with the organization
+// secret. One outstanding challenge per device; stale ones are pruned here.
+func (s *Service) EnrollChallenge(id string) (string, error) {
+	if s.room.OrgSecret == "" {
+		return "", ErrNoOrgSecret
+	}
+	nonce := s.newNonce()
+	now := s.now()
+	s.mu.Lock()
+	for k, ch := range s.enrolls {
+		if now.Sub(ch.Issued) > enrollTTL {
+			delete(s.enrolls, k)
+		}
+	}
+	s.enrolls[id] = enrollChallenge{Nonce: nonce, Issued: now}
+	s.mu.Unlock()
+	return nonce, nil
+}
+
+// Enroll verifies the proof and, like a network adoption, binds the unit to
+// this control room with a fresh device secret. The nonce is single-use.
+func (s *Service) Enroll(ctx context.Context, id, nonce, mac string) (string, error) {
+	if s.room.OrgSecret == "" {
+		return "", ErrNoOrgSecret
+	}
+	s.mu.Lock()
+	ch := s.enrolls[id]
+	delete(s.enrolls, id)
+	s.mu.Unlock()
+	if !enrollValid(ch, nonce, mac, s.room.OrgSecret, id, s.now()) {
+		s.logger.Warn("enrolment denied", "device_id", id)
+		return "", ErrUnauthorized
+	}
+	secret := s.newSecret()
+	if err := s.store.MarkAdopted(ctx, id, DigestSecret(secret)); err != nil {
+		return "", err
+	}
+	s.mu.Lock()
+	delete(s.pendingSecrets, id)
+	s.mu.Unlock()
+	s.logger.Info("device enrolled", "device_id", id)
 	return secret, nil
 }
 

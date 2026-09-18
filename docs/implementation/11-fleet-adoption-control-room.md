@@ -73,6 +73,13 @@ units (`68ee8f4d8dd4`, `e072a1f895f4`) only exist through the profile poll.
   only when no secret is stored (unadopted unit on a legacy server).
 - Server: `TouchProfile`'s auto-registration stays; a device without a secret
   is "registered, not adopted". Sessions and recordings hang off the real id.
+- Born adopted (RF-03): a unit provisioned from the embedded installer holds
+  the organization secret and no device secret. Before its first poll
+  `control.zig` enrols: `GET /v1/devices/{id}/enroll` → nonce,
+  `POST …/enroll {nonce, mac}` with `mac = HMAC-SHA256(orgSecret, nonce + "." +
+  id)` (the adoption construction) → `{deviceSecret}`, stored in NVS through
+  `provisioning.c`. The server marks the unit adopted like a network adoption
+  would; the nonce is single-use, 60 s.
 - Retire `SEBASTIAN_LEGACY_DEVICE_ID` once both units run the new firmware.
 
 ### Block 2 — announce and the "on the network" view
@@ -189,6 +196,7 @@ factory reset — to be confirmed in block 3): whoever holds the unit owns it.
 | `POST` | `/v1/admin/devices/{id}/secret` — regenerate, shown once | 3 |
 | `GET` | `/v1/devices/{id}/desired-profile?current=&cfg=` — extended | 4 |
 | `GET` | `/v1/devices/{id}/config` (device-facing, device secret) | 4 |
+| `GET`/`POST` | `/v1/devices/{id}/enroll` (device-facing: nonce, then HMAC proof of the organization secret → device secret) | 1 |
 | `PUT`/`DELETE` | `/v1/admin/devices/{id}/desired-config` | 4 |
 
 \* org secret only to an authenticated dashboard session, never to the browser

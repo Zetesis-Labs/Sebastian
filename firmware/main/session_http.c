@@ -1,7 +1,8 @@
 // Authenticated HTTP against the control room: POST /v1/sessions (per-device
-// secret, block 1 of docs/implementation/11-fleet-adoption-control-room.md) and
+// secret, block 1 of docs/implementation/11-fleet-adoption-control-room.md),
 // a GET that carries the device credentials and captures one response header
-// (the desired-config poll). Same shape as token_http.c; C because
+// (the desired-config poll), and the enrolment that turns the organization
+// secret into a device secret (RF-51). Same shape as token_http.c; C because
 // esp_http_client_config_t and cJSON are painful to bind from Zig.
 #include "sebastian_fleet.h"
 
@@ -110,6 +111,53 @@ int sebastian_session_create(const char *base_url, const char *device_id, const 
     strlcpy(token_out, token->valuestring, token_size);
     cJSON_Delete(root);
     result = 0;
+cleanup:
+    esp_http_client_close(client);
+    esp_http_client_cleanup(client);
+    return result;
+}
+
+static bool json_string_field(const char *body, const char *field, char *out, size_t out_size) {
+    cJSON *root = cJSON_Parse(body);
+    const cJSON *item = root ? cJSON_GetObjectItem(root, field) : NULL;
+    const bool ok = cJSON_IsString(item) && strlen(item->valuestring) < out_size;
+    if (ok) strlcpy(out, item->valuestring, out_size);
+    cJSON_Delete(root);
+    return ok;
+}
+
+int sebastian_enroll(const char *base_url, const char *device_id, const char *org_secret,
+                     char *secret_out, size_t secret_size) {
+    static char body[512]; // static: internal RAM is scarce, the poll task stack is 4 KB
+    char url[300];
+    snprintf(url, sizeof(url), "%s/v1/devices/%s/enroll", base_url, device_id);
+
+    int status = 0;
+    int n = sebastian_http_get_auth(url, device_id, NULL, NULL, NULL, 0, body, sizeof(body), &status);
+    if (n < 0) return status > 0 ? status : n;
+    char nonce[65];
+    if (!json_string_field(body, "nonce", nonce, sizeof(nonce))) return -5;
+    char mac[65];
+    if (!sebastian_hmac_sha256_hex(org_secret, nonce, device_id, mac)) return -6;
+    int len = snprintf(body, sizeof(body), "{\"nonce\":\"%s\",\"mac\":\"%s\"}", nonce, mac);
+
+    esp_http_client_handle_t client = open_client(url, HTTP_METHOD_POST, device_id, NULL, NULL);
+    if (client == NULL) return -1;
+    esp_http_client_set_header(client, "Content-Type", "application/json");
+    int result;
+    if (esp_http_client_open(client, len) != ESP_OK) { result = -2; goto cleanup; }
+    if (esp_http_client_write(client, body, len) != len) { result = -2; goto cleanup; }
+    esp_http_client_fetch_headers(client);
+    int code = esp_http_client_get_status_code(client);
+    if (code != 201) {
+        ESP_LOGW(TAG, "POST %s -> HTTP %d", url, code);
+        result = code > 0 ? code : -3;
+        goto cleanup;
+    }
+    n = esp_http_client_read_response(client, body, sizeof(body) - 1);
+    if (n <= 0) { result = -4; goto cleanup; }
+    body[n] = '\0';
+    result = json_string_field(body, "deviceSecret", secret_out, secret_size) ? 0 : -5;
 cleanup:
     esp_http_client_close(client);
     esp_http_client_cleanup(client);

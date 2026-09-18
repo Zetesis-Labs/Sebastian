@@ -353,6 +353,8 @@ pub extern fn sebastian_provisioning_hold() bool;
 // Fleet provisioning + adoption (main/sebastian_fleet.h).
 pub extern fn sebastian_provisioning_apply(json: [*:0]const u8, err: [*]u8, err_size: usize) bool;
 pub extern fn sebastian_get_device_secret(out: [*]u8, size: usize) bool;
+pub extern fn sebastian_get_org_secret(out: [*]u8, size: usize) bool;
+pub extern fn sebastian_enroll(base_url: [*:0]const u8, device_id: [*:0]const u8, org_secret: [*:0]const u8, secret_out: [*]u8, secret_size: usize) c_int;
 pub extern fn sebastian_get_cfg_version(out: [*]u8, size: usize) bool;
 pub extern fn sebastian_session_create(base_url: [*:0]const u8, device_id: [*:0]const u8, secret: [*:0]const u8, url_out: [*]u8, url_size: usize, token_out: [*]u8, token_size: usize) c_int;
 pub extern fn sebastian_http_get_auth(url: [*:0]const u8, device_id: ?[*:0]const u8, secret: ?[*:0]const u8, capture_header: ?[*:0]const u8, hdr_out: ?[*]u8, hdr_size: usize, out: [*]u8, out_size: usize, status: ?*c_int) c_int;

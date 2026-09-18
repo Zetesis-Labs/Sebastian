@@ -197,3 +197,33 @@ func (h *Server) GetDeviceConfig(ctx context.Context, request GetDeviceConfigReq
 	}
 	return GetDeviceConfig200JSONResponse(cfg), nil
 }
+
+// Enrolment is device-facing (RF-03/RF-51): a unit provisioned from the
+// embedded installer proves the organization secret and gets its own.
+func enrollUnavailable() Problem {
+	return problem(404, "Enrolment unavailable", "This control room has no organization secret configured.")
+}
+
+func (h *Server) GetEnrollmentChallenge(_ context.Context, request GetEnrollmentChallengeRequestObject) (GetEnrollmentChallengeResponseObject, error) {
+	nonce, err := h.devices.EnrollChallenge(request.DeviceId)
+	if err != nil {
+		return GetEnrollmentChallenge404ApplicationProblemPlusJSONResponse(enrollUnavailable()), nil
+	}
+	return GetEnrollmentChallenge200JSONResponse{Nonce: nonce}, nil
+}
+
+func (h *Server) EnrollDevice(ctx context.Context, request EnrollDeviceRequestObject) (EnrollDeviceResponseObject, error) {
+	if request.Body == nil {
+		return EnrollDevice401ApplicationProblemPlusJSONResponse(problem(401, "Unauthorized", "The enrolment proof is missing.")), nil
+	}
+	secret, err := h.devices.Enroll(ctx, request.DeviceId, request.Body.Nonce, request.Body.Mac)
+	switch {
+	case errors.Is(err, device.ErrNoOrgSecret):
+		return EnrollDevice404ApplicationProblemPlusJSONResponse(enrollUnavailable()), nil
+	case errors.Is(err, device.ErrUnauthorized):
+		return EnrollDevice401ApplicationProblemPlusJSONResponse(problem(401, "Unauthorized", "The nonce is unknown, expired or the proof does not match.")), nil
+	case err != nil:
+		return EnrollDevice503ApplicationProblemPlusJSONResponse{UnavailableApplicationProblemPlusJSONResponse: h.unavailable(ctx, "enrolment failed", err, "device_id", request.DeviceId)}, nil
+	}
+	return EnrollDevice201JSONResponse{DeviceSecret: secret}, nil
+}

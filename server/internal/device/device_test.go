@@ -197,6 +197,62 @@ func waitJob(t *testing.T, s *Service, job Job) Job {
 	return Job{}
 }
 
+// ── enrolment ───────────────────────────────────────────────────────────────
+
+func TestEnrollBindsAUnitThatProvesTheOrganizationSecret(t *testing.T) {
+	const id = "e072a1f96ef0"
+	store := newFakeStore()
+	s := newTestService(store, nil, &fakeAdopter{})
+	s.newNonce = func() string { return strings.Repeat("0f", 32) }
+
+	nonce, err := s.EnrollChallenge(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret, err := s.Enroll(context.Background(), id, nonce, adoption.Sign("org-secret", nonce, id))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secret != strings.Repeat("ab", 32) {
+		t.Fatalf("secret %q", secret)
+	}
+	d := store.devices[id]
+	if d == nil || !d.Adopted || string(store.digests[id][0]) != string(DigestSecret(secret)) {
+		t.Fatalf("unit not adopted with its secret: %+v", d)
+	}
+	if _, err := s.Enroll(context.Background(), id, nonce, adoption.Sign("org-secret", nonce, id)); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("nonce reused: %v", err)
+	}
+}
+
+func TestEnrollRejectsBadProofExpiryAndMissingOrgSecret(t *testing.T) {
+	const id = "e072a1f96ef0"
+	store := newFakeStore()
+	s := newTestService(store, nil, &fakeAdopter{})
+
+	nonce, _ := s.EnrollChallenge(id)
+	if _, err := s.Enroll(context.Background(), id, nonce, adoption.Sign("wrong", nonce, id)); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("wrong secret: %v", err)
+	}
+	nonce, _ = s.EnrollChallenge(id)
+	if _, err := s.Enroll(context.Background(), "other", nonce, adoption.Sign("org-secret", nonce, id)); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("proof for another id: %v", err)
+	}
+	nonce, _ = s.EnrollChallenge(id)
+	s.now = func() time.Time { return now.Add(enrollTTL + time.Second) }
+	if _, err := s.Enroll(context.Background(), id, nonce, adoption.Sign("org-secret", nonce, id)); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("expired nonce: %v", err)
+	}
+	if len(store.devices) != 0 {
+		t.Fatalf("a denied enrolment must not register anything: %v", store.devices)
+	}
+
+	s.room.OrgSecret = ""
+	if _, err := s.EnrollChallenge(id); !errors.Is(err, ErrNoOrgSecret) {
+		t.Fatalf("no org secret: %v", err)
+	}
+}
+
 // ── list / merge ────────────────────────────────────────────────────────────
 
 func TestListMergesInventoryWithTheLAN(t *testing.T) {
