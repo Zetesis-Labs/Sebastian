@@ -13,6 +13,10 @@ BVC noise cancellation.
 - [`uv`](https://docs.astral.sh/uv/) (`brew install uv`)
 - LiveKit Cloud account
 - `GOOGLE_API_KEY` for Gemini Live, or `OPENAI_API_KEY` if using the OpenAI fallback
+- `ffmpeg` on the PATH (`brew install ffmpeg`): meeting recordings are encoded
+  to Ogg/Opus and streamed to the server, with `SEBASTIAN_API_URL` and
+  `SEBASTIAN_AGENT_SECRET` (the server's value). See
+  `docs/implementation/14-meeting-recordings-technical-design.md`.
 
 ## Getting started
 

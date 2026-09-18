@@ -25,6 +25,7 @@ type stubMeetings struct {
 	got      string
 	offset   int64
 	reported []string
+	warned   int
 }
 
 func (s *stubMeetings) Start(_ context.Context, deviceID string, origin meeting.Origin) (meeting.Meeting, error) {
@@ -47,6 +48,7 @@ func (s *stubMeetings) Report(_ context.Context, deviceID, secret string, id uui
 	s.reported = append(s.reported, strings.Join([]string{deviceID, secret, id.String(), state, string(reason)}, "|"))
 	return s.err
 }
+func (s *stubMeetings) Warn(context.Context, uuid.UUID) error         { s.warned++; return s.err }
 func (s *stubMeetings) PendingCommand(context.Context, string) string { return s.pending }
 func (s *stubMeetings) Audio(_ context.Context, _ uuid.UUID, offset int64, r io.Reader) (int64, error) {
 	s.offset = offset
@@ -147,9 +149,16 @@ func TestMeetingAudioUploadAuthenticatesAndResumes(t *testing.T) {
 	stub := &stubMeetings{}
 	mux := http.NewServeMux()
 	mux.Handle("PUT /v1/meetings/{id}/audio", MeetingAudioUpload(stub, "agent-secret"))
+	mux.Handle("HEAD /v1/meetings/{id}/audio", MeetingAudioOffset(stub)("agent-secret"))
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	id := uuid.New()
+	stub.m = meeting.Meeting{ID: id, State: meeting.StateRecording, AudioBytes: 11}
+	head, _ := http.NewRequest(http.MethodHead, srv.URL+"/v1/meetings/"+id.String()+"/audio", nil)
+	head.Header.Set("X-Agent-Secret", "agent-secret")
+	if res, err := http.DefaultClient.Do(head); err != nil || res.StatusCode != 204 || res.Header.Get("X-Audio-Bytes") != "11" || res.Header.Get("X-Meeting-State") != "recording" {
+		t.Fatalf("HEAD tells the agent where to resume: %v %+v", err, res)
+	}
 	put := func(secret, contentRange, body string) *http.Response {
 		req, _ := http.NewRequest(http.MethodPut, srv.URL+"/v1/meetings/"+id.String()+"/audio", strings.NewReader(body))
 		req.Header.Set("X-Agent-Secret", secret)
@@ -203,4 +212,48 @@ func TestMeetingAudioDownloadServesRanges(t *testing.T) {
 
 func typeName(v any) string {
 	return strings.TrimPrefix(fmt.Sprintf("%T", v), "*")
+}
+
+// Block C: the agent stops by silence or voice and warns 30 s before (RM-21/23).
+func TestAgentStopAndWarnRoutes(t *testing.T) {
+	stub := &stubMeetings{m: meeting.Meeting{ID: uuid.New(), State: meeting.StateRecording}}
+	mux := http.NewServeMux()
+	mux.Handle("POST /v1/meetings/{id}/stop", MeetingAgentStop(stub, "agent-secret"))
+	mux.Handle("POST /v1/meetings/{id}/warn", MeetingAgentWarn(stub, "agent-secret"))
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	post := func(path, secret, body string) *http.Response {
+		req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/meetings/"+stub.m.ID.String()+path, strings.NewReader(body))
+		req.Header.Set("X-Agent-Secret", secret)
+		req.Header.Set("Content-Type", "application/json")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		return res
+	}
+	if res := post("/stop", "wrong", `{"reason":"silence"}`); res.StatusCode != 401 {
+		t.Fatalf("wrong secret: %d", res.StatusCode)
+	}
+	if res := post("/stop", "agent-secret", `{"reason":"dashboard"}`); res.StatusCode != 400 {
+		t.Fatalf("the agent may only stop by silence or voice: %d", res.StatusCode)
+	}
+	if res := post("/stop", "agent-secret", `{"reason":"silence"}`); res.StatusCode != 202 || stub.m.EndReason != meeting.EndSilence {
+		t.Fatalf("stop by silence: %d reason=%q", res.StatusCode, stub.m.EndReason)
+	}
+	if res := post("/warn", "agent-secret", ""); res.StatusCode != 204 || stub.warned != 1 {
+		t.Fatalf("warn: %d warned=%d", res.StatusCode, stub.warned)
+	}
+	stub.err = meeting.ErrNotRecording
+	if res := post("/warn", "agent-secret", ""); res.StatusCode != 409 {
+		t.Fatalf("warn after the stop: %d", res.StatusCode)
+	}
+	if res := post("/stop", "agent-secret", `{"reason":"voice"}`); res.StatusCode != 409 {
+		t.Fatalf("stop after the stop: %d", res.StatusCode)
+	}
+	stub.err = meeting.ErrNotFound
+	if res := post("/warn", "agent-secret", ""); res.StatusCode != 404 {
+		t.Fatalf("unknown meeting: %d", res.StatusCode)
+	}
 }

@@ -203,8 +203,14 @@ agent:
   hostNetwork: false
   # existingSecret keys: LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET,
   #   GOOGLE_API_KEY (Gemini) and/or OPENAI_API_KEY, SEBASTIAN_HA_MCP_URL,
-  #   SEBASTIAN_HA_TOKEN, MEM0_API_KEY (optional).
+  #   SEBASTIAN_HA_TOKEN, MEM0_API_KEY (optional), SEBASTIAN_AGENT_SECRET
+  #   (same value as the server's: meeting audio, docs/implementation/14).
   existingSecret: ""
+  # Where the agent streams meeting audio; empty = this chart's server service.
+  apiURL: ""
+  # Silence that ends a meeting recording (RM-23), until the unit's own
+  # setting travels with the session (block E).
+  meetingSilenceSeconds: 600
   otel:
     endpoint: ""   # OTEL_EXPORTER_OTLP_ENDPOINT (LGTM). Empty ⇒ disabled.
   resources:

@@ -24,6 +24,7 @@ type MeetingService interface {
 	StartFromUnit(ctx context.Context, deviceID, secret string) (meeting.Meeting, error)
 	Stop(ctx context.Context, id uuid.UUID, reason meeting.EndReason) (meeting.Meeting, error)
 	Report(ctx context.Context, deviceID, secret string, id uuid.UUID, state string, reason meeting.EndReason) error
+	Warn(ctx context.Context, id uuid.UUID) error
 	PendingCommand(ctx context.Context, deviceID string) string
 	Audio(ctx context.Context, id uuid.UUID, offset int64, r io.Reader) (int64, error)
 	AudioFile(ctx context.Context, id uuid.UUID) (string, error)
@@ -181,18 +182,7 @@ func meetingResponse(m meeting.Meeting, now time.Time) Meeting {
 // "bytes <offset>-*/*" to resume. Long-lived: the caller must lift the
 // server's read deadline for it.
 func MeetingAudioUpload(meetings MeetingService, agentSecret string) http.Handler {
-	expected := sha256.Sum256([]byte(agentSecret))
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		provided := sha256.Sum256([]byte(r.Header.Get("X-Agent-Secret")))
-		if agentSecret == "" || subtle.ConstantTimeCompare(expected[:], provided[:]) != 1 {
-			writeProblem(w, 401, "Unauthorized", "Invalid agent credentials.")
-			return
-		}
-		id, err := uuid.Parse(r.PathValue("id"))
-		if err != nil {
-			writeProblem(w, 404, "Meeting not found", "The meeting does not exist.")
-			return
-		}
+	return agentRoute(agentSecret, func(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 		offset, ok := rangeOffset(r.Header.Get("Content-Range"))
 		if !ok {
 			writeProblem(w, 400, "Bad Content-Range", `Use "bytes <offset>-*/*" or omit the header.`)
@@ -218,6 +208,87 @@ func MeetingAudioUpload(meetings MeetingService, agentSecret string) http.Handle
 			w.Header().Set("X-Audio-Bytes", strconv.FormatInt(size, 10))
 			w.WriteHeader(http.StatusNoContent)
 		}
+	})
+}
+
+// MeetingAudioOffset tells the agent how much audio the server holds, so an
+// interrupted upload resumes from there (design §3.3). HEAD /v1/meetings/{id}/audio.
+func MeetingAudioOffset(meetings MeetingService) func(string) http.Handler {
+	return func(agentSecret string) http.Handler {
+		return agentRoute(agentSecret, func(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+			m, err := meetings.Get(r.Context(), id)
+			if err != nil {
+				writeProblem(w, 404, "Meeting not found", "The meeting does not exist.")
+				return
+			}
+			w.Header().Set("X-Audio-Bytes", strconv.FormatInt(m.AudioBytes, 10))
+			w.Header().Set("X-Meeting-State", string(m.State))
+			w.WriteHeader(http.StatusNoContent)
+		})
+	}
+}
+
+// MeetingAgentStop is the agent's stop (design §3.3): by silence (RM-23) or
+// by voice (RM-21). POST /v1/meetings/{id}/stop {"reason":"silence"|"voice"}.
+func MeetingAgentStop(meetings MeetingService, agentSecret string) http.Handler {
+	return agentRoute(agentSecret, func(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+		var body struct {
+			Reason meeting.EndReason `json:"reason"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&body); err != nil || (body.Reason != meeting.EndSilence && body.Reason != meeting.EndVoice) {
+			writeProblem(w, 400, "Bad reason", `The agent stops with {"reason":"silence"} or {"reason":"voice"}.`)
+			return
+		}
+		m, err := meetings.Stop(r.Context(), id, body.Reason)
+		switch {
+		case errors.Is(err, meeting.ErrNotFound):
+			writeProblem(w, 404, "Meeting not found", "The meeting does not exist.")
+		case errors.Is(err, meeting.ErrNotRecording):
+			writeProblem(w, 409, "Not recording", "The meeting is not in progress.")
+		case err != nil:
+			writeProblem(w, 503, "Unavailable", err.Error())
+		default:
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusAccepted)
+			_ = json.NewEncoder(w).Encode(meetingResponse(m, time.Now()))
+		}
+	})
+}
+
+// MeetingAgentWarn relays the agent's "silence in ~30 s" to the unit's ring
+// (RM-13). POST /v1/meetings/{id}/warn, no body.
+func MeetingAgentWarn(meetings MeetingService, agentSecret string) http.Handler {
+	return agentRoute(agentSecret, func(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+		err := meetings.Warn(r.Context(), id)
+		switch {
+		case errors.Is(err, meeting.ErrNotFound):
+			writeProblem(w, 404, "Meeting not found", "The meeting does not exist.")
+		case errors.Is(err, meeting.ErrNotRecording):
+			writeProblem(w, 409, "Not recording", "The meeting is not recording.")
+		case err != nil:
+			writeProblem(w, 503, "Unavailable", err.Error())
+		default:
+			w.WriteHeader(http.StatusNoContent)
+		}
+	})
+}
+
+// agentRoute authenticates the agent (X-Agent-Secret, design §3.3) and
+// resolves the meeting id for the raw routes.
+func agentRoute(agentSecret string, next func(http.ResponseWriter, *http.Request, uuid.UUID)) http.Handler {
+	expected := sha256.Sum256([]byte(agentSecret))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		provided := sha256.Sum256([]byte(r.Header.Get("X-Agent-Secret")))
+		if agentSecret == "" || subtle.ConstantTimeCompare(expected[:], provided[:]) != 1 {
+			writeProblem(w, 401, "Unauthorized", "Invalid agent credentials.")
+			return
+		}
+		id, err := uuid.Parse(r.PathValue("id"))
+		if err != nil {
+			writeProblem(w, 404, "Meeting not found", "The meeting does not exist.")
+			return
+		}
+		next(w, r, id)
 	})
 }
 

@@ -376,6 +376,13 @@ func TestAudioIsAppendedAsItArrivesAndACutKeepsIt(t *testing.T) {
 	if n, err := h.s.Audio(ctx, m.ID, 0, strings.NewReader("x")); !errors.Is(err, ErrOffset) || n != 11 {
 		t.Fatalf("offset check: n=%d err=%v", n, err)
 	}
+	// An empty body at the right offset neither closes nor advances anything.
+	if n, err := h.s.Audio(ctx, m.ID, 11, strings.NewReader("")); err != nil || n != 11 {
+		t.Fatalf("empty upload: n=%d err=%v", n, err)
+	}
+	if got, _ := h.s.Get(ctx, m.ID); got.State != StateRecording {
+		t.Fatalf("an empty upload must not close the recording: %s", got.State)
+	}
 	// Resume from the right offset, clean end of stream → closing → transcribing.
 	h.advance(10 * time.Second)
 	if _, err := h.s.Stop(ctx, m.ID, EndDashboard); err != nil {
@@ -485,5 +492,65 @@ func TestLiveDurationAndDeleteKeepTheTrace(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(h.store.events, ","), "meeting.deleted") {
 		t.Fatalf("events = %v", h.store.events)
+	}
+}
+
+// ── block C: the agent's silence net (RM-23) ──────────────────────────────
+
+func TestWarnReachesTheUnitOnlyWhileRecording(t *testing.T) {
+	h := newHarness(t)
+	m := h.started(t)
+	if err := h.s.Warn(context.Background(), m.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.cmd.wait(t); got.cmd != CmdWarn || got.id != m.ID {
+		t.Fatalf("the unit must blink its warning (RM-13): %+v", got)
+	}
+	if _, err := h.s.Stop(context.Background(), m.ID, EndSilence); err != nil {
+		t.Fatal(err)
+	}
+	h.cmd.wait(t)
+	if err := h.s.Warn(context.Background(), m.ID); !errors.Is(err, ErrNotRecording) {
+		t.Fatalf("a warning after the stop is meaningless: %v", err)
+	}
+	if err := h.s.Warn(context.Background(), uuid.New()); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown meeting: %v", err)
+	}
+}
+
+// The agent's upload is one long request: a stop that lands while it is open
+// must not be undone by the upload's own bookkeeping (field bug, block C).
+func TestAStopDuringTheUploadIsNotUndoneByIt(t *testing.T) {
+	h := newHarness(t)
+	m := h.started(t)
+	ctx := context.Background()
+	pr, pw := io.Pipe()
+	done := make(chan error, 1)
+	go func() {
+		_, err := h.s.Audio(ctx, m.ID, 0, pr)
+		done <- err
+	}()
+	if _, err := pw.Write([]byte("OggS-part-1")); err != nil {
+		t.Fatal(err)
+	}
+	h.advance(6 * time.Second)
+	if _, err := pw.Write([]byte("-more")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.s.Stop(ctx, m.ID, EndDashboard); err != nil {
+		t.Fatal(err)
+	}
+	h.cmd.wait(t)
+	h.advance(6 * time.Second)
+	if _, err := pw.Write([]byte("-tail")); err != nil {
+		t.Fatal(err)
+	}
+	pw.Close()
+	if err := <-done; err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+	got, _ := h.s.Get(ctx, m.ID)
+	if got.State != StateTranscribing || got.EndReason != EndDashboard || got.AudioBytes != 21 {
+		t.Fatalf("the stop must survive the upload: %+v", got)
 	}
 }
