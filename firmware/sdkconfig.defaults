@@ -59,3 +59,9 @@ CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
 CONFIG_ESP_COREDUMP_CHECKSUM_CRC32=y
 CONFIG_ESP_COREDUMP_CHECK_BOOT=n
 
+
+# --- Fleet: mDNS announce (announce.c) — task and allocations in PSRAM so the
+# scarce internal SRAM (~37 KB free in session) is untouched.
+CONFIG_MDNS_TASK_CREATE_FROM_SPIRAM=y
+CONFIG_MDNS_MEMORY_ALLOC_SPIRAM=y
+CONFIG_MDNS_MAX_SERVICES=4

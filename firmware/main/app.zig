@@ -298,6 +298,7 @@ fn openSession(audio: AudioPipeline, conn: token.Connection) AppError!void {
     try requireLiveKitOk(c.livekit_room_connect(room, conn.server_url, conn.token), error.RoomConnectFailed);
     logHeap("post-connect");
     log.info("session open", .{});
+    c.sebastian_adopt_session_active(true); // config changes wait for the conversation
 }
 
 fn closeSession() void {
@@ -643,6 +644,8 @@ fn teardownActiveSession() void {
     wdgArm(25); // close budget — livekit_room_close has hung forever before
     closeSession();
     wdgDisarm();
+    c.sebastian_adopt_session_active(false);
+    control.applyPendingRestart(); // a profile/config change that arrived mid-conversation
     // Field bug 2026-09-17: after a session the internal heap reported a
     // 384 KiB "largest free block" (impossible on an S3) and the NEXT session
     // panicked with no core dump. Check here, right after the teardown, so a

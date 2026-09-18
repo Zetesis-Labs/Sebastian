@@ -21,6 +21,8 @@ const session_core = @import("session_core.zig");
 
 /// Smoothed mic peak at/above this counts as the user speaking.
 pub const VOICE_LEVEL: u32 = 3000;
+/// Runtime value (config.zig::load overrides it from NVS); VOICE_LEVEL is the default.
+pub var voice_level: u32 = VOICE_LEVEL;
 /// Render peak (>>8) over the auto_clear zero floor = agent speaking.
 pub const AGENT_AUDIO_LEVEL: u32 = 1000;
 pub const AEC_LOG_PERIOD_TICKS: u32 = 500;
@@ -164,7 +166,7 @@ pub const State = struct {
         // first; the data-channel keepalive marks activity while the agent
         // holds the speaking state.
         self.last_level = t.mic_level;
-        if (t.mic_level >= VOICE_LEVEL) self.timing.markVoiceActivity();
+        if (t.mic_level >= voice_level) self.timing.markVoiceActivity();
         if (self.agent_speaking) self.timing.markVoiceActivity();
         self.render_peak_window = @max(self.render_peak_window, t.render_peak);
         if (t.render_peak >= AGENT_AUDIO_LEVEL) self.timing.noteAgentAudio();

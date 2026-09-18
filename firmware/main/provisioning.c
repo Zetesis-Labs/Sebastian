@@ -29,6 +29,7 @@
 #include "freertos/task.h"
 
 #include "profiles.h"
+#include "sebastian_fleet.h"
 
 static const char *TAG = "provisioning";
 
@@ -159,6 +160,37 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
     }
 }
 
+// A WiFi change pushed over the network (adoption / desired config) is a
+// trial: the previous credentials stay in NVS until the new ones obtain an IP.
+// No IP within WIFI_TRIAL_MS ⇒ restore the previous network and restart, and
+// the failure is reported on the next announce (RF-45).
+#define WIFI_TRIAL_MS (120 * 1000)
+
+static bool wifi_trial_pending(void) {
+    return sebastian_cfg_get_bool("wifi_trial", false);
+}
+
+static void wifi_trial_settle(bool success) {
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) return;
+    if (!success) {
+        char ssid[33] = {0}, pass[65] = {0};
+        size_t sl = sizeof(ssid), pl = sizeof(pass);
+        if (nvs_get_str(h, "wifi_prev_ssid", ssid, &sl) == ESP_OK && ssid[0]) {
+            nvs_set_str(h, "wifi_ssid", ssid);
+            if (nvs_get_str(h, "wifi_prev_pass", pass, &pl) == ESP_OK) nvs_set_str(h, "wifi_pass", pass);
+            else nvs_erase_key(h, "wifi_pass");
+            ESP_LOGW(TAG, "wifi trial failed — restored previous network %s", ssid);
+        }
+        nvs_set_str(h, "last_err", "wifi-rollback");
+    }
+    nvs_erase_key(h, "wifi_prev_ssid");
+    nvs_erase_key(h, "wifi_prev_pass");
+    nvs_erase_key(h, "wifi_trial");
+    nvs_commit(h);
+    nvs_close(h);
+}
+
 // Returns true once an IP is obtained. Blocks like lk_example_network_connect.
 bool sebastian_net_connect(void) {
     nvs_ensure_init(); // MUST precede load_wifi_creds — it reads provisioned NVS
@@ -169,6 +201,8 @@ bool sebastian_net_connect(void) {
         ESP_LOGE(TAG, "no WiFi ssid (unprovisioned) — send sebastian.config.v1 over serial");
         return false;
     }
+    const bool trial = wifi_trial_pending();
+    if (trial) ESP_LOGW(TAG, "wifi trial: %s must obtain an IP within %d s or the previous network is restored", ssid, WIFI_TRIAL_MS / 1000);
 
     if (!net_events) net_events = xEventGroupCreate();
     ESP_ERROR_CHECK(esp_netif_init());
@@ -192,9 +226,19 @@ bool sebastian_net_connect(void) {
 
     EventBits_t bits;
     do {
-        bits = xEventGroupWaitBits(net_events, NET_CONNECTED | NET_FAILED, pdFALSE, pdFALSE, portMAX_DELAY);
+        bits = xEventGroupWaitBits(net_events, NET_CONNECTED | NET_FAILED, pdFALSE, pdFALSE,
+                                   trial ? pdMS_TO_TICKS(WIFI_TRIAL_MS) : portMAX_DELAY);
+        if (trial && !(bits & (NET_CONNECTED | NET_FAILED))) bits |= NET_FAILED; // trial timeout
     } while (!(bits & (NET_CONNECTED | NET_FAILED)));
-    return (bits & NET_CONNECTED) != 0;
+    const bool connected = (bits & NET_CONNECTED) != 0;
+    if (trial) {
+        wifi_trial_settle(connected);
+        if (!connected) {
+            vTaskDelay(pdMS_TO_TICKS(300));
+            esp_restart();
+        }
+    }
+    return connected;
 }
 
 // ── Provisioning receiver ────────────────────────────────────────────────────
@@ -202,24 +246,73 @@ static void store_cfg_bool(nvs_handle_t h, const char *key, const cJSON *item) {
     if (cJSON_IsBool(item)) nvs_set_u8(h, key, cJSON_IsTrue(item) ? 1 : 0);
 }
 
-static bool store_wifi(cJSON *root) {
-    cJSON *wifi = cJSON_GetObjectItem(root, "wifi");
-    cJSON *ssid = wifi ? cJSON_GetObjectItem(wifi, "ssid") : NULL;
-    cJSON *pass = wifi ? cJSON_GetObjectItem(wifi, "password") : NULL;
+// A string field that is present and empty ERASES the key (that is how "forget"
+// clears the control room and the secrets); absent keeps the stored value.
+static void store_str_or_erase(nvs_handle_t h, const char *key, const cJSON *item) {
+    if (!cJSON_IsString(item)) return;
+    if (item->valuestring[0] == '\0') nvs_erase_key(h, key);
+    else nvs_set_str(h, key, item->valuestring);
+}
+
+// Set by the serial receiver around its own store: a USB provisioning is done
+// with the unit in hand, so a WiFi change there is final (no trial/rollback).
+static bool usj_ready_for_serial_provisioning;
+
+// The WiFi block is optional: a config pushed over the network (adoption,
+// desired config) normally leaves it out and keeps the stored network. When it
+// changes the network, the previous credentials are kept for the trial rollback.
+static bool store_wifi_block(nvs_handle_t h, const cJSON *wifi) {
+    if (!cJSON_IsObject(wifi)) return true;
+    const cJSON *ssid = cJSON_GetObjectItem(wifi, "ssid");
+    const cJSON *pass = cJSON_GetObjectItem(wifi, "password");
     if (!cJSON_IsString(ssid) || ssid->valuestring[0] == '\0') return false;
 
+    char cur_ssid[33] = {0}, cur_pass[65] = {0};
+    size_t sl = sizeof(cur_ssid), pl = sizeof(cur_pass);
+    const bool had = nvs_get_str(h, "wifi_ssid", cur_ssid, &sl) == ESP_OK && cur_ssid[0];
+    if (nvs_get_str(h, "wifi_pass", cur_pass, &pl) != ESP_OK) cur_pass[0] = '\0';
+    const bool changes = !had || strcmp(cur_ssid, ssid->valuestring) != 0 ||
+                         (cJSON_IsString(pass) && strcmp(cur_pass, pass->valuestring) != 0);
+    if (had && changes && !usj_ready_for_serial_provisioning) {
+        nvs_set_str(h, "wifi_prev_ssid", cur_ssid);
+        nvs_set_str(h, "wifi_prev_pass", cur_pass);
+        nvs_set_u8(h, "wifi_trial", 1);
+    }
+    if (nvs_set_str(h, "wifi_ssid", ssid->valuestring) != ESP_OK) return false;
+    if (cJSON_IsString(pass) && nvs_set_str(h, "wifi_pass", pass->valuestring) != ESP_OK) return false;
+    return true;
+}
+
+static bool store_config(cJSON *root) {
     nvs_ensure_init(); // the receiver can run before net_connect inits NVS
     nvs_handle_t h;
     esp_err_t oe = nvs_open(NVS_NS, NVS_READWRITE, &h);
     if (oe != ESP_OK) { ESP_LOGE(TAG, "store: open=%s", esp_err_to_name(oe)); return false; }
-    esp_err_t se = nvs_set_str(h, "wifi_ssid", ssid->valuestring);
-    bool ok = se == ESP_OK;
-    if (ok && cJSON_IsString(pass)) ok = nvs_set_str(h, "wifi_pass", pass->valuestring) == ESP_OK;
-    // token server URL is optional here (read path lives in token.zig) — store it
-    // when present so a future factory image can drop the compiled default too.
+    esp_err_t se = ESP_OK;
+    bool ok = store_wifi_block(h, cJSON_GetObjectItem(root, "wifi"));
+    // token server URL = the control room this unit is bound to. Empty = unbound
+    // (forget). token.zig / control.zig read it.
     cJSON *lk = cJSON_GetObjectItem(root, "livekit");
-    cJSON *url = lk ? cJSON_GetObjectItem(lk, "tokenServerUrl") : NULL;
-    if (ok && cJSON_IsString(url)) nvs_set_str(h, "token_url", url->valuestring);
+    if (ok && lk) store_str_or_erase(h, "token_url", cJSON_GetObjectItem(lk, "tokenServerUrl"));
+    // Adoption secrets (docs/implementation/11-fleet-adoption-control-room.md §5):
+    // the organization secret authorizes adoption, the device secret opens
+    // sessions. Empty strings clear them (forget / factory).
+    cJSON *ad = cJSON_GetObjectItem(root, "adoption");
+    if (ok && cJSON_IsObject(ad)) {
+        store_str_or_erase(h, "org_secret", cJSON_GetObjectItem(ad, "orgSecret"));
+        store_str_or_erase(h, "dev_secret", cJSON_GetObjectItem(ad, "deviceSecret"));
+    }
+    // Session timing (session_core / session_reducer read these through config.zig).
+    cJSON *sess = cJSON_GetObjectItem(root, "session");
+    if (ok && cJSON_IsObject(sess)) {
+        cJSON *sil = cJSON_GetObjectItem(sess, "silenceTimeoutMs");
+        if (cJSON_IsNumber(sil) && sil->valueint >= 5000) nvs_set_i32(h, "silence_ms", (int32_t)sil->valueint);
+        cJSON *vl = cJSON_GetObjectItem(sess, "voiceLevel");
+        if (cJSON_IsNumber(vl) && vl->valueint > 0) nvs_set_i32(h, "voice_lvl", (int32_t)vl->valueint);
+    }
+    // The control room's desired-config version this payload carries; echoed in
+    // every reconciliation poll so the dashboard can show running vs desired.
+    if (ok) store_str_or_erase(h, "cfg_ver", cJSON_GetObjectItem(root, "configVersion"));
     // Optional telemetry: UDP syslog receiver for the device's logs (the firmware
     // ships ESP_LOG here since nothing reads its serial in prod). syslog_sink.c
     // reads these at boot; absent ⇒ the sink stays off.
@@ -262,6 +355,41 @@ static bool store_wifi(cJSON *root) {
     nvs_close(h);
     ESP_LOGI(TAG, "store: set=%s commit=%s -> %s", esp_err_to_name(se), esp_err_to_name(ce), ok ? "ok" : "FAIL");
     return ok;
+}
+
+// Parse + schema-check + store a sebastian.config.v1 document. Shared by the
+// serial receiver, the LAN adoption listener (adopt.c) and the desired-config
+// poll (control.zig). Never restarts: the caller decides when.
+bool sebastian_provisioning_apply(const char *json, char *err, size_t err_size) {
+    cJSON *root = cJSON_Parse(json);
+    if (!root) { snprintf(err, err_size, "json_parse"); return false; }
+    cJSON *schema = cJSON_GetObjectItem(root, "schema");
+    if (!cJSON_IsString(schema) || strcmp(schema->valuestring, PROV_SCHEMA) != 0) {
+        cJSON_Delete(root);
+        snprintf(err, err_size, "schema");
+        return false;
+    }
+    bool ok = store_config(root);
+    cJSON_Delete(root);
+    if (!ok) snprintf(err, err_size, "wifi");
+    return ok;
+}
+
+bool sebastian_get_device_secret(char *out, size_t out_size) { return nvs_read_str("dev_secret", out, out_size); }
+bool sebastian_get_org_secret(char *out, size_t out_size) { return nvs_read_str("org_secret", out, out_size); }
+bool sebastian_get_cfg_version(char *out, size_t out_size) { return nvs_read_str("cfg_ver", out, out_size); }
+
+// One-shot: the error recorded by a previous boot (wifi-rollback…) is announced
+// once and cleared.
+bool sebastian_take_last_error(char *out, size_t out_size) {
+    if (!nvs_read_str("last_err", out, out_size)) return false;
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
+        nvs_erase_key(h, "last_err");
+        nvs_commit(h);
+        nvs_close(h);
+    }
+    return true;
 }
 
 // Lightweight profile switch — no WiFi payload required, so an already
@@ -344,6 +472,17 @@ static void handle_config_get(void) {
             if (arr) cJSON_AddItemToObject(root, "profiles", arr);
         }
         dump_str(h, root, "activeProfile", "active_prof");
+
+        cJSON *ad = cJSON_AddObjectToObject(root, "adoption");
+        char sec[129];
+        size_t slen = sizeof(sec);
+        cJSON_AddBoolToObject(ad, "orgSecretSet", nvs_get_str(h, "org_secret", sec, &slen) == ESP_OK && slen > 1);
+        slen = sizeof(sec);
+        cJSON_AddBoolToObject(ad, "deviceSecretSet", nvs_get_str(h, "dev_secret", sec, &slen) == ESP_OK && slen > 1);
+        cJSON *sess = cJSON_AddObjectToObject(root, "session");
+        dump_i32(h, sess, "silenceTimeoutMs", "silence_ms");
+        dump_i32(h, sess, "voiceLevel", "voice_lvl");
+        dump_str(h, root, "configVersion", "cfg_ver");
         nvs_close(h);
     }
     char *s = cJSON_PrintUnformatted(root);
@@ -372,18 +511,16 @@ static void handle_line(const char *line) {
         return;
     }
     if (strncmp(line, PROV_PREFIX, strlen(PROV_PREFIX)) != 0) return;
-    cJSON *root = cJSON_Parse(line + strlen(PROV_PREFIX));
-    if (!root) { reply("sebastian.config.err json_parse"); return; }
-
-    cJSON *schema = cJSON_GetObjectItem(root, "schema");
-    if (!cJSON_IsString(schema) || strcmp(schema->valuestring, PROV_SCHEMA) != 0) {
-        reply("sebastian.config.err schema");
-        cJSON_Delete(root);
+    char why[32];
+    usj_ready_for_serial_provisioning = true;
+    bool ok = sebastian_provisioning_apply(line + strlen(PROV_PREFIX), why, sizeof(why));
+    usj_ready_for_serial_provisioning = false;
+    if (!ok) {
+        char msg[64];
+        snprintf(msg, sizeof(msg), "sebastian.config.err %s", why);
+        reply(msg);
         return;
     }
-    bool ok = store_wifi(root);
-    cJSON_Delete(root);
-    if (!ok) { reply("sebastian.config.err wifi"); return; }
 
     reply("sebastian.config.ok");
     vTaskDelay(pdMS_TO_TICKS(300)); // let the reply drain before the reset

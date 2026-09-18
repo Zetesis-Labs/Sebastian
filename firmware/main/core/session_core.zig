@@ -13,6 +13,8 @@ pub const MIN_ACTIVE_TICKS: u32 = 20 * 1000 / TICK_MS; // don't close in the fir
 // (data-channel "close", agent/endpointing.py — it sees transcribed turns and
 // context, not amplitude). This only fires when the agent is dead or mute.
 pub const SILENCE_TICKS: u32 = 60 * 1000 / TICK_MS;
+/// Runtime value (config.zig::load overrides it from NVS); SILENCE_TICKS is the default.
+pub var silence_ticks: u32 = SILENCE_TICKS;
 pub const MAX_TICKS: u32 = 600 * 1000 / TICK_MS; // 10min safety cap
 pub const AGENT_AUDIO_HANGOVER_TICKS: u32 = 2500 / TICK_MS; // inter-sentence gaps + echo tail
 
@@ -44,7 +46,7 @@ pub const Timing = struct {
     /// real end of conversation, not while the agent is still talking.
     pub fn silenceExpired(self: Timing) bool {
         return self.tick >= MIN_ACTIVE_TICKS and
-            self.tick - self.last_voice_tick >= SILENCE_TICKS;
+            self.tick - self.last_voice_tick >= silence_ticks;
     }
 
     pub fn maxDurationReached(self: Timing) bool {

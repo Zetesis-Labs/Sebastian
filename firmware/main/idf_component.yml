@@ -12,3 +12,6 @@ dependencies:
   # USB-mic mode (CONFIG_SEBASTIAN_USB_MIC): TinyUSB UAC2 device — the XVF comms
   # beam exposed to the host as a plug-and-play USB microphone.
   espressif/usb_device_uac: "~1.2"
+  # Fleet: the unit announces itself on the LAN (_sebastian._tcp) so any control
+  # room lists it, adopted or not (docs/implementation/11-fleet-adoption-control-room.md).
+  espressif/mdns: "~1.8"

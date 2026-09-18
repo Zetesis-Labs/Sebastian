@@ -1,0 +1,101 @@
+// Authenticated HTTP against the control room: POST /v1/sessions (per-device
+// secret, block 1 of docs/implementation/11-fleet-adoption-control-room.md) and
+// a GET that carries the device credentials and captures one response header
+// (the desired-config poll). Same shape as token_http.c; C because
+// esp_http_client_config_t and cJSON are painful to bind from Zig.
+#include "sebastian_fleet.h"
+
+#include <stdio.h>
+#include <string.h>
+
+#include "cJSON.h"
+#include "esp_http_client.h"
+#include "esp_log.h"
+
+static const char *TAG = "session_http";
+
+static esp_http_client_handle_t open_client(const char *url, esp_http_client_method_t method,
+                                            const char *device_id, const char *secret) {
+    esp_http_client_config_t config = {
+        .url = url,
+        .method = method,
+        .timeout_ms = 5000,
+        .crt_bundle_attach = NULL, // the control room is plain HTTP on the LAN
+    };
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (client == NULL) return NULL;
+    if (device_id && device_id[0]) esp_http_client_set_header(client, "X-Device-Id", device_id);
+    if (secret && secret[0]) esp_http_client_set_header(client, "X-Device-Secret", secret);
+    return client;
+}
+
+int sebastian_http_get_auth(const char *url, const char *device_id, const char *secret,
+                            const char *capture_header, char *hdr_out, size_t hdr_size,
+                            char *out, size_t out_size, int *status) {
+    if (hdr_out && hdr_size) hdr_out[0] = '\0';
+    if (status) *status = 0;
+    esp_http_client_handle_t client = open_client(url, HTTP_METHOD_GET, device_id, secret);
+    if (client == NULL) return -1;
+    int result;
+    if (esp_http_client_open(client, 0) != ESP_OK) { result = -2; goto cleanup; }
+    esp_http_client_fetch_headers(client);
+    int code = esp_http_client_get_status_code(client);
+    if (status) *status = code;
+    if (capture_header && hdr_out && hdr_size) {
+        char *value = NULL;
+        if (esp_http_client_get_header(client, capture_header, &value) == ESP_OK && value) {
+            strlcpy(hdr_out, value, hdr_size);
+        }
+    }
+    if (code != 200) { result = -3; goto cleanup; }
+    int read = esp_http_client_read_response(client, out, (int)out_size - 1);
+    if (read < 0) { result = -4; goto cleanup; }
+    out[read] = '\0';
+    result = read;
+cleanup:
+    esp_http_client_close(client);
+    esp_http_client_cleanup(client);
+    return result;
+}
+
+int sebastian_session_create(const char *base_url, const char *device_id, const char *secret,
+                             char *url_out, size_t url_size, char *token_out, size_t token_size) {
+    char url[300];
+    snprintf(url, sizeof(url), "%s/v1/sessions", base_url);
+    esp_http_client_handle_t client = open_client(url, HTTP_METHOD_POST, device_id, secret);
+    if (client == NULL) return -1;
+    esp_http_client_set_header(client, "Content-Length", "0");
+
+    int result;
+    static char body[1536]; // JSON with a ~500 B JWT; static: internal RAM is scarce
+    if (esp_http_client_open(client, 0) != ESP_OK) { result = -2; goto cleanup; }
+    esp_http_client_fetch_headers(client);
+    int code = esp_http_client_get_status_code(client);
+    if (code != 201) {
+        ESP_LOGE(TAG, "POST /v1/sessions -> HTTP %d", code);
+        result = code > 0 ? code : -3;
+        goto cleanup;
+    }
+    int read = esp_http_client_read_response(client, body, sizeof(body) - 1);
+    if (read <= 0) { result = -4; goto cleanup; }
+    body[read] = '\0';
+
+    cJSON *root = cJSON_Parse(body);
+    const cJSON *server_url = root ? cJSON_GetObjectItem(root, "serverUrl") : NULL;
+    const cJSON *token = root ? cJSON_GetObjectItem(root, "token") : NULL;
+    if (!cJSON_IsString(server_url) || !cJSON_IsString(token) ||
+        strlen(server_url->valuestring) >= url_size || strlen(token->valuestring) >= token_size) {
+        cJSON_Delete(root);
+        ESP_LOGE(TAG, "session response malformed");
+        result = -5;
+        goto cleanup;
+    }
+    strlcpy(url_out, server_url->valuestring, url_size);
+    strlcpy(token_out, token->valuestring, token_size);
+    cJSON_Delete(root);
+    result = 0;
+cleanup:
+    esp_http_client_close(client);
+    esp_http_client_cleanup(client);
+    return result;
+}
