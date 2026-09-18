@@ -53,3 +53,6 @@ dashboard/.output/
 .devcontainer/.env
 agent/recordings/
 agent/phantoms/
+
+# Embedded web installer, built into the dashboard by `npm run build:installer`
+dashboard/public/installer/

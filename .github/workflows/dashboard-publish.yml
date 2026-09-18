@@ -31,12 +31,31 @@ jobs:
           HARBOR_USER: ${{ secrets.HARBOR_USERNAME }}
           HARBOR_PASS: ${{ secrets.HARBOR_PASSWORD }}
         run: echo "${HARBOR_PASS}" | docker login "${REGISTRY}" -u "${HARBOR_USER}" --password-stdin
+      # The embedded installer ships the factory firmware image so a control
+      # room installs the firmware it is compatible with (functional spec RF-04).
+      - name: Build factory firmware for the embedded installer
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.4.4
+          target: esp32s3
+          path: firmware
+          command: >-
+            (idf.py reconfigure || true) &&
+            find managed_components -name sdkconfig.rename -delete &&
+            idf.py build &&
+            python -m esptool --chip esp32s3 merge_bin
+            -o ../web-installer/public/firmware/sebastian-esp32s3-merged.bin
+            --flash_mode dio --flash_freq 80m --flash_size 8MB
+            0x0 build/bootloader/bootloader.bin
+            0x8000 build/partition_table/partition-table.bin
+            0x10000 build/sebastian.bin
       - name: Build and push dashboard
         run: |
           VERSION="v${{ inputs.version }}"
           docker build \
+            -f dashboard/Dockerfile \
             -t "${REGISTRY}/${IMAGE}:${VERSION}" \
             -t "${REGISTRY}/${IMAGE}:latest" \
-            dashboard
+            .
           docker push "${REGISTRY}/${IMAGE}:${VERSION}"
           docker push "${REGISTRY}/${IMAGE}:latest"

@@ -5,19 +5,21 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev --host 0.0.0.0",
-    "build": "vite build",
+    "build": "npm run build:installer && vite build",
     "start": "node .output/server/index.mjs",
     "generate:api": "openapi-typescript ../server/api/openapi.yaml -o src/lib/api-schema.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --config vitest.config.ts",
-    "check": "npm run generate:api && npm run typecheck && npm run test && npm run build"
+    "check": "npm run generate:api && npm run typecheck && npm run test && npm run build",
+    "build:installer": "npm --prefix ../web-installer run build:embedded"
   },
   "dependencies": {
     "@tanstack/react-router": "1.170.18",
     "@tanstack/react-start": "1.168.28",
     "nitro": "3.0.260610-beta",
     "react": "19.2.7",
-    "react-dom": "19.2.7"
+    "react-dom": "19.2.7",
+    "qrcode": "1.5.4"
   },
   "devDependencies": {
     "@types/node": "24.10.2",
@@ -27,7 +29,8 @@
     "openapi-typescript": "7.13.0",
     "typescript": "5.9.3",
     "vite": "8.1.4",
-    "vitest": "4.1.10"
+    "vitest": "4.1.10",
+    "@types/qrcode": "1.5.5"
   },
   "engines": {
     "node": ">=24.18.0"

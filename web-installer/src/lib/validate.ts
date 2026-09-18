@@ -45,6 +45,12 @@ export function validate(config: DeviceConfig): FieldIssue[] {
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     issues.push({ path: "telemetry.syslogPort", message: "Puerto fuera de rango.", severity: "error" });
   }
+  if (config.session.silenceTimeoutMs < 5000) {
+    issues.push({ path: "session.silenceTimeoutMs", message: "Mínimo 5000 ms.", severity: "error" });
+  }
+  if (config.session.voiceLevel <= 0) {
+    issues.push({ path: "session.voiceLevel", message: "Debe ser mayor que 0.", severity: "error" });
+  }
   for (const [name, value] of Object.entries({
     otlpEndpoint: config.telemetry.otlpEndpoint,
     grafanaUrl: config.telemetry.grafanaUrl,

@@ -76,6 +76,7 @@ const micChannel: FieldMeta = {
 const sessionFields: FieldMeta[] = [
   {
     path: "session.silenceTimeoutMs",
+    applied: true,
     label: "Silence to close",
     type: "number",
     unit: "ms",
@@ -87,6 +88,7 @@ const sessionFields: FieldMeta[] = [
   },
   {
     path: "session.voiceLevel",
+    applied: true,
     label: "Voice threshold",
     type: "number",
     min: 0,
@@ -274,6 +276,21 @@ export const SHARED: SharedGroup[] = [
         placeholder: "https://grafana.example.com/d/sebastian-device",
         issuePath: "telemetry.grafanaUrl",
         help: "Informational only, to link to the device dashboard.",
+      },
+    ],
+  },
+  {
+    id: "adopt",
+    icon: "cloud",
+    title: "Control room",
+    sub: "adoption",
+    fields: [
+      {
+        path: "adoption.orgSecret",
+        label: "Organization secret",
+        type: "password",
+        applied: true,
+        help: "Lets any control room of your organization adopt this unit over the network without pressing MUTE. Pre-filled by an embedded installer; optional on the public one.",
       },
     ],
   },

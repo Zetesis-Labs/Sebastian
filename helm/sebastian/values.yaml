@@ -99,6 +99,21 @@ server:
   # Transitional route used by the current firmware. Disable after devices use
   # POST /v1/sessions with per-device credentials.
   legacyTokenEnabled: true
+  # Fleet adoption (docs/implementation/11-fleet-adoption-control-room.md).
+  fleet:
+    # Name shown to operators; defaults to publicApiURL.
+    controlRoomName: ""
+    # The URL devices use to reach this control room (their tokenServerUrl
+    # origin) — the node/LoadBalancer address, NOT the cluster service.
+    publicApiURL: ""
+    # UDP syslog receiver written into adopted devices (empty = none).
+    syslogIP: ""
+    syslogPort: 514
+    # mDNS discovery needs the host network; off by default in the cluster
+    # (adoption by IP works regardless).
+    discoveryEnabled: false
+    # Organization secret key in existingSecret (SEBASTIAN_ORG_SECRET); the
+    # server runs without it, but cannot adopt units then.
   outbox:
     enabled: true
     # Empty uses the NATS service installed by this chart. If nats.enabled=false,

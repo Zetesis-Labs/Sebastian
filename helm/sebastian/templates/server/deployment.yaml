@@ -58,6 +58,22 @@ spec:
               value: ":{{ .Values.server.service.targetPort }}"
             - name: SEBASTIAN_LEGACY_TOKEN_ENABLED
               value: {{ .Values.server.legacyTokenEnabled | quote }}
+            - name: SEBASTIAN_CONTROL_ROOM_NAME
+              value: {{ .Values.server.fleet.controlRoomName | quote }}
+            - name: SEBASTIAN_PUBLIC_API_URL
+              value: {{ .Values.server.fleet.publicApiURL | quote }}
+            - name: SEBASTIAN_SYSLOG_IP
+              value: {{ .Values.server.fleet.syslogIP | quote }}
+            - name: SEBASTIAN_SYSLOG_PORT
+              value: {{ .Values.server.fleet.syslogPort | quote }}
+            - name: SEBASTIAN_DISCOVERY_ENABLED
+              value: {{ .Values.server.fleet.discoveryEnabled | quote }}
+            - name: SEBASTIAN_ORG_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "server.existingSecret must be set" .Values.server.existingSecret }}
+                  key: SEBASTIAN_ORG_SECRET
+                  optional: true
             - name: SEBASTIAN_ADMIN_SECRET
               valueFrom:
                 secretKeyRef:

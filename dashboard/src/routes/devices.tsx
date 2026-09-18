@@ -1,7 +1,19 @@
 import { useEffect, useState } from 'react'
-import { createFileRoute, useRouter } from '@tanstack/react-router'
-import { getDevices, setDeviceProfile, type Device } from '../lib/api'
+import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
+import { adoptDevice, forgetDevice, getAdoptionJob, getDevices, type AdoptionJob, type Device } from '../lib/api'
 import { formatDate } from '../lib/format'
+import {
+  JOB_DONE,
+  SECTION_TITLE,
+  STATE_HINT,
+  STATE_LABEL,
+  canAdopt,
+  canForget,
+  groupDevices,
+  isValidIPv4,
+  jobMessage,
+  type Section,
+} from '../lib/fleet'
 
 export const Route = createFileRoute('/devices')({
   loader: () => getDevices(),
@@ -15,103 +27,219 @@ export const Route = createFileRoute('/devices')({
   ),
 })
 
-// Perfiles de fábrica del firmware; un dispositivo puede provisionar otros,
-// por eso el perfil deseado también se muestra tal cual venga del inventario.
-const QUICK_PROFILES = ['agente', 'micro-usb']
+// One adoption/forget job per device on screen; polled until it finishes.
+type Jobs = Record<string, AdoptionJob>
 
 function Devices() {
-  const devices = Route.useLoaderData()
+  const { devices, room } = Route.useLoaderData()
   const router = useRouter()
-  const [saving, setSaving] = useState<string | null>(null)
+  const [jobs, setJobs] = useState<Jobs>({})
+  const [adoptByIp, setAdoptByIp] = useState(false)
+  const [ip, setIp] = useState('')
+  const [ipId, setIpId] = useState('')
+  const [error, setError] = useState<string | null>(null)
 
-  // Reconciliation is device-paced (30 s polls): refetch so the pending badge
-  // resolves on screen by itself when the unit reports the new profile.
+  // Reconciliation is device-paced (30 s polls) and the LAN view refreshes on
+  // its own: refetch so states resolve on screen by themselves.
   useEffect(() => {
     const timer = setInterval(() => void router.invalidate(), 10_000)
     return () => clearInterval(timer)
   }, [router])
 
-  async function apply(deviceId: string, name: string) {
-    setSaving(deviceId)
+  useEffect(() => {
+    const pending = Object.values(jobs).filter((job) => !JOB_DONE.has(job.phase))
+    if (pending.length === 0) return
+    const timer = setInterval(async () => {
+      for (const job of pending) {
+        try {
+          const next = await getAdoptionJob({ data: job.id })
+          setJobs((prev) => ({ ...prev, [job.deviceId]: next }))
+          if (JOB_DONE.has(next.phase)) void router.invalidate()
+        } catch {
+          // job expired server-side: leave the last state on screen
+        }
+      }
+    }, 2_000)
+    return () => clearInterval(timer)
+  }, [jobs, router])
+
+  async function run(deviceId: string, start: () => Promise<AdoptionJob>) {
+    setError(null)
     try {
-      await setDeviceProfile({ data: { deviceId, name } })
-      await router.invalidate()
-    } finally {
-      setSaving(null)
+      const job = await start()
+      setJobs((prev) => ({ ...prev, [deviceId]: job }))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
     }
   }
+
+  function adopt(device: Device) {
+    void run(device.id, () => adoptDevice({ data: { deviceId: device.id } }))
+  }
+
+  function forget(device: Device) {
+    const typed = window.prompt(`Olvidar ${device.displayName}: el altavoz vuelve a fábrica y desaparece del inventario (su historial se conserva). Escribe su id para confirmar:`)
+    if (typed?.trim() !== device.id) return
+    void run(device.id, () => forgetDevice({ data: { deviceId: device.id } }))
+  }
+
+  function submitAdoptByIp(event: React.FormEvent) {
+    event.preventDefault()
+    if (!isValidIPv4(ip) || !ipId.trim()) {
+      setError('Indica la MAC del altavoz (12 hex) y una IPv4 válida.')
+      return
+    }
+    const deviceId = ipId.trim().toLowerCase().replace(/[^0-9a-f]/g, '')
+    void run(deviceId, () => adoptDevice({ data: { deviceId, ip: ip.trim() } }))
+    setAdoptByIp(false)
+  }
+
+  const groups = groupDevices(devices)
+  const sections: Section[] = ['mine', 'attention', 'others']
 
   return (
     <main className="page-shell">
       <section className="archive-section">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Flota · Estado deseado</p>
+            <p className="eyebrow">Flota · {room.name}</p>
             <h2>Dispositivos</h2>
           </div>
-          <span className="result-count">{devices.length} registrados</span>
+          <div className="device-toolbar">
+            <span className="result-count">{devices.length} en total</span>
+            <button type="button" className="chip-button" onClick={() => setAdoptByIp((v) => !v)}>
+              Adoptar por IP
+            </button>
+            <a className="chip-button" href="/installer" target="_blank" rel="noreferrer">
+              Instalador USB
+            </a>
+          </div>
         </div>
+
+        {!room.discoveryEnabled && (
+          <p className="device-notice">
+            Este control room no puede escuchar la red local; solo se muestra el inventario. Usa <em>Adoptar por IP</em>.
+          </p>
+        )}
+        {room.discoveryEnabled && (
+          <p className="device-notice muted">
+            Se descubren los altavoces de la subred de este control room. Para otras redes, <em>Adoptar por IP</em>.
+          </p>
+        )}
+        {error && <p className="device-notice warn">{error}</p>}
+
+        {adoptByIp && (
+          <form className="adopt-ip" onSubmit={submitAdoptByIp}>
+            <label>
+              <span>MAC del altavoz</span>
+              <input value={ipId} onChange={(e) => setIpId(e.target.value)} placeholder="68ee8f4d8dd4" autoComplete="off" />
+            </label>
+            <label>
+              <span>IP</span>
+              <input value={ip} onChange={(e) => setIp(e.target.value)} placeholder="10.0.100.40" inputMode="decimal" autoComplete="off" />
+            </label>
+            <button type="submit" className="chip-button">Adoptar</button>
+            <button type="button" className="chip-button" onClick={() => setAdoptByIp(false)}>Cancelar</button>
+            {jobs[ipId.trim().toLowerCase()] && <JobLine job={jobs[ipId.trim().toLowerCase()]} />}
+          </form>
+        )}
 
         {devices.length === 0 ? (
           <div className="empty-state">
-            <h3>Ningún dispositivo se ha anunciado aún</h3>
-            <p>Cada unidad aparece aquí con su primer poll de reconciliación.</p>
+            <h3>Ningún altavoz a la vista</h3>
+            <p>Aparecerán aquí al anunciarse en la red o al contactar con este control room.</p>
           </div>
         ) : (
-          <div className="device-list">
-            {devices.map((item) => (
-              <DeviceRow key={item.id} device={item} saving={saving === item.id} onApply={apply} />
-            ))}
-          </div>
+          sections.map((section) =>
+            groups[section].length === 0 ? null : (
+              <div key={section} className="device-section">
+                <h3 className="device-section-title">{SECTION_TITLE[section]}</h3>
+                <div className="device-list">
+                  {groups[section].map((item) => (
+                    <DeviceRow key={item.id} device={item} job={jobs[item.id]} onAdopt={adopt} onForget={forget} />
+                  ))}
+                </div>
+              </div>
+            ),
+          )
         )}
       </section>
     </main>
   )
 }
 
+function JobLine({ job }: Readonly<{ job: AdoptionJob }>) {
+  const message = jobMessage(job)
+  return (
+    <p className={`device-job ${message.tone}`}>
+      {message.text}
+      {job.phase === 'adopted' && job.deviceSecret && (
+        <>
+          {' '}
+          <Link to="/devices/$deviceId" params={{ deviceId: job.deviceId }} className="device-link">
+            Ver la ficha
+          </Link>
+          <br />
+          <span className="device-secret-once">
+            Secreto del altavoz (se muestra una sola vez): <code>{job.deviceSecret}</code>
+          </span>
+        </>
+      )}
+    </p>
+  )
+}
+
 function DeviceRow({
   device,
-  saving,
-  onApply,
+  job,
+  onAdopt,
+  onForget,
 }: Readonly<{
   device: Device
-  saving: boolean
-  onApply: (deviceId: string, name: string) => Promise<void>
+  job?: AdoptionJob
+  onAdopt: (device: Device) => void
+  onForget: (device: Device) => void
 }>) {
-  const reported = device.reportedProfile ?? null
-  const desired = device.desiredProfile ?? null
-  const synced = desired === null || desired === reported
+  const busy = job !== undefined && !JOB_DONE.has(job.phase)
+  const mine = device.state === 'adopted' || device.state === 'absent'
+  const readOnly = device.state === 'managed_elsewhere'
 
   return (
-    <article className="device-row">
-      <div>
-        <h3 className="mono">{device.displayName}</h3>
+    <article className={`device-row state-${device.state}`}>
+      <div className="device-identity">
+        {mine ? (
+          <Link to="/devices/$deviceId" params={{ deviceId: device.id }} className="device-name mono">
+            {device.displayName}
+          </Link>
+        ) : (
+          <h3 className="mono device-name">{device.displayName}</h3>
+        )}
         <p className="device-meta">
-          {reported ? (
-            <>
-              Ejecutando <strong>{reported}</strong>
-              {device.profileReportedAt ? ` · visto ${formatDate(device.profileReportedAt)}` : null}
-            </>
-          ) : (
-            'Sin estado reportado todavía'
-          )}
+          <span className={`device-state state-${device.state}`} title={STATE_HINT[device.state]}>
+            {STATE_LABEL[device.state]}
+          </span>
+          {device.ip ? ` · ${device.ip}` : ''}
+          {device.firmware ? ` · fw ${device.firmware}` : ''}
+          {device.reportedProfile ? ` · ${device.reportedProfile}` : ''}
+          {device.profileReportedAt ? ` · contacto ${formatDate(device.profileReportedAt)}` : device.seenOnLanAt ? ` · visto ${formatDate(device.seenOnLanAt)}` : ''}
         </p>
+        {readOnly && device.controlRoom && <p className="device-meta">Control room: <code>{device.controlRoom}</code></p>}
+        {device.lastError && device.lastError !== 'ok' && (
+          <p className="device-meta warn">Último contacto: {device.lastError}</p>
+        )}
+        {job && <JobLine job={job} />}
       </div>
       <div className="device-actions">
-        {!synced && (
-          <span className="device-pending">aplicando “{desired}” en el próximo poll…</span>
-        )}
-        {QUICK_PROFILES.map((name) => (
-          <button
-            key={name}
-            type="button"
-            className="chip-button"
-            disabled={saving || name === (desired ?? reported)}
-            onClick={() => void onApply(device.id, name)}
-          >
-            {name}
+        {canAdopt(device.state) && (
+          <button type="button" className="chip-button" disabled={busy} onClick={() => onAdopt(device)}>
+            {busy ? 'Adoptando…' : device.state === 'managed_elsewhere' ? 'Adoptar aquí' : 'Adoptar'}
           </button>
-        ))}
+        )}
+        {canForget(device.state) && (
+          <button type="button" className="chip-button danger" disabled={busy} onClick={() => onForget(device)}>
+            Olvidar
+          </button>
+        )}
       </div>
     </article>
   )

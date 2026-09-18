@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "rm -rf ../docs/installer/assets && tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:embedded": "tsc -b && VITE_EMBEDDED=1 vite build --base /installer/ --outDir ../dashboard/public/installer --emptyOutDir"
   },
   "dependencies": {
     "esp-web-tools": "^10.1.0",

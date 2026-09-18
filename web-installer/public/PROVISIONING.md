@@ -55,9 +55,25 @@ handing the PHY to TinyUSB), so the edited config can come back on the same
 port. The installer keeps the port open between load and send and shows the
 countdown; past it, re-plug the board.
 
+### Fleet fields (2026-09-18)
+
+- `adoption.orgSecret` / `adoption.deviceSecret`: the secrets of
+  docs/implementation/11-fleet-adoption-control-room.md §5. Stored as
+  `org_secret` / `dev_secret`; an empty string erases them (that is what the
+  control room's *forget* sends). With a device secret the firmware opens
+  sessions through `POST /v1/sessions` instead of the legacy `/token`.
+- `session.silenceTimeoutMs` / `session.voiceLevel`: now stored (`silence_ms`,
+  `voice_lvl`) and read at boot — no longer compile-time.
+- `configVersion`: the control room's desired-config version this document
+  carries; echoed as `cfg=` in every reconciliation poll.
+- `wifi` is optional in a document pushed over the network (adoption, desired
+  config). A WiFi change pushed that way is a **trial**: no IP within 2 min and
+  the device restores the previous network, restarts and announces
+  `err=wifi-rollback`. Over USB the change is final (the unit is in hand).
+
 Not stored on-device (still compile-time — a reflash, not a re-provision):
-`audio.micChannel` (it feeds comptime slot/shift selection in `xvf_pcm.zig`),
-`session.*` (the pure `session_core.zig` timing), and the boot self-tests
+`audio.micChannel` (it feeds comptime slot/shift selection in `xvf_pcm.zig`)
+and the boot self-tests
 (`probeAecOnBoot` etc.). The self-tests are intentionally compile-time: as runtime
 flags they defeat dead-code elimination and keep ~15 KB of static probe buffers in
 internal RAM, which starves the TLS hardware-AES DMA and kills the LiveKit
@@ -128,7 +144,9 @@ valid for `schema = "sebastian.config.v1"`.
 | `mode`, `audio.fullDuplex`, `audio.fixedBeam`, `audio.fixedBeamAzimuthDeg` | NVS → `config.zig::load()` | ✅ applied at boot |
 | `audio.micChannel` | `config.zig` comptime → `xvf_pcm.zig` slot/shift | ❌ reflash only |
 | boot self-tests (`probeAecOnBoot` etc.) | `config.zig` comptime (elides ~15 KB probe buffers) | ❌ reflash only |
-| `session.silenceTimeoutMs` / `voiceLevel` | `config.zig` / `session_core.zig` | ❌ reflash only |
+| `session.silenceTimeoutMs` / `voiceLevel` | NVS → `config.zig::load()` → `session_core` / `session_reducer` | ✅ applied at boot |
+| `adoption.orgSecret` / `deviceSecret` | NVS, read by `adopt.c` / `token.zig` | ✅ adoption auth / `POST /v1/sessions` |
+| `configVersion` | NVS, echoed by `control.zig` | ✅ reconciliation |
 
 ## Security
 
