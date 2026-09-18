@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { defaultConfig, mergeConfig, serialize, type DeviceConfig } from "./lib/config";
+import { applyPrefill, defaultConfig, mergeConfig, serialize, type ControlRoomPrefill, type DeviceConfig } from "./lib/config";
 import { hasBlockingErrors, validate, type FieldIssue } from "./lib/validate";
 import { HOLD_AFTER_LOAD_MS, linkAgeMs, linkOpen, loadConfig, sendConfig } from "./lib/serial";
 import { ConfigForm } from "./components/ConfigForm";
@@ -22,6 +22,25 @@ export default function App() {
   const [sourceMsg, setSourceMsg] = useState("Checking published firmware…");
   const [installReady, setInstallReady] = useState(false);
   const [log, setLog] = useState<string[]>([]);
+  const [room, setRoom] = useState<ControlRoomPrefill | null>(null);
+
+  // Embedded in a control room's dashboard: pre-fill token server, syslog and
+  // the organization secret so the operator only types the WiFi (RF-02).
+  useEffect(() => {
+    if (!import.meta.env.VITE_EMBEDDED) return;
+    fetch(`${BASE}control-room.json`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((data: ControlRoomPrefill) => {
+        setRoom(data);
+        setConfig((prev) => applyPrefill(prev, data));
+        setSendTone("ok");
+        setSendMsg(`Formulario prerrellenado con el control room ${data.name}: solo falta la WiFi.`);
+      })
+      .catch(() => {
+        setSendTone("warn");
+        setSendMsg("No se pudo leer la configuración de este control room; rellena el formulario a mano.");
+      });
+  }, []);
 
   const fileRef = useRef<HTMLInputElement>(null);
   const issues = useMemo<FieldIssue[]>(() => validate(config), [config]);
@@ -212,7 +231,7 @@ export default function App() {
         {/* Hero + install (step 1) */}
         <Card className="grid items-center gap-8 p-8 md:grid-cols-[1.15fr_0.85fr]">
           <div className="grid gap-5">
-            <Eyebrow>ReSpeaker XVF3800 + XIAO ESP32-S3</Eyebrow>
+            <Eyebrow>{room ? `Control room · ${room.name}` : "ReSpeaker XVF3800 + XIAO ESP32-S3"}</Eyebrow>
             <h1 className="font-serif text-[clamp(34px,5vw,52px)] font-medium leading-[1.03] text-fg">
               Install Sebastian from your browser
             </h1>
@@ -235,7 +254,9 @@ export default function App() {
                   Browser without Web Serial. Use desktop Chromium.
                 </span>
                 <span slot="not-allowed" className="text-sm font-semibold text-danger">
-                  Web Serial requires HTTPS or localhost.
+                  Web Serial requires HTTPS or localhost. To use it on this address, open{" "}
+                  <code>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code>, add{" "}
+                  <code>{typeof window === "undefined" ? "" : window.location.origin}</code> and relaunch Chrome.
                 </span>
                 {/* @ts-expect-error web component */}
               </esp-web-install-button>

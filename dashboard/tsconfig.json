@@ -7,7 +7,23 @@
     "strict": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["node", "vite/client"]
+    "types": [
+      "node",
+      "vite/client"
+    ],
+    "paths": {
+      "@installer/*": [
+        "./../web-installer/src/lib/*"
+      ]
+    }
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts", "vitest.config.ts"]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "vite.config.ts",
+    "vitest.config.ts",
+    "../web-installer/src/lib/config.ts",
+    "../web-installer/src/lib/modes.ts",
+    "../web-installer/src/lib/validate.ts"
+  ]
 }

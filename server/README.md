@@ -48,6 +48,15 @@ persistencia usa Bun con consultas SQL-first escritas en
 - `POST /v1/admin/recordings`: registra audio ya depositado en object storage.
 - `POST /v1/sessions`: autentica un dispositivo, realiza el dispatch explícito
   del agente y devuelve la conexión LiveKit en JSON.
+- `GET /v1/devices/{id}/desired-profile?current=&cfg=&fw=`: poll de
+  reconciliación del firmware; la cabecera `X-Desired-Config` lleva la versión
+  de la configuración deseada. `GET /v1/devices/{id}/config` (secreto de
+  dispositivo) la devuelve.
+- Flota (`docs/implementation/11-fleet-adoption-control-room.md`):
+  `GET /v1/admin/devices` (vista con lo visto por mDNS), `GET/PATCH
+  /v1/admin/devices/{id}`, `POST …/adopt` y `POST …/forget` (202 + job en
+  `GET /v1/admin/adoptions/{jobId}`), `PUT/DELETE …/desired-config`,
+  `POST …/secret`, `GET /v1/admin/control-room`.
 - `GET /token`: adaptador transitorio compatible con el firmware actual.
 
 `/token` solamente existe cuando `SEBASTIAN_LEGACY_TOKEN_ENABLED=true`. No debe
@@ -69,6 +78,11 @@ el firmware desplegado. El endpoint v1 requiere `X-Device-Id` y
 | `SEBASTIAN_LEGACY_TOKEN_ENABLED` | no | `false` |
 | `SEBASTIAN_LEGACY_DEVICE_ID` | no | `esp32-respeaker` |
 | `SEBASTIAN_ADMIN_SECRET` | sí | — |
+| `SEBASTIAN_PUBLIC_API_URL` | para adoptar | — (la URL con la que los devices llegan a este control room) |
+| `SEBASTIAN_CONTROL_ROOM_NAME` | no | `SEBASTIAN_PUBLIC_API_URL` |
+| `SEBASTIAN_ORG_SECRET` | para adoptar | — (secreto de organización que autoriza la adopción) |
+| `SEBASTIAN_SYSLOG_IP` / `SEBASTIAN_SYSLOG_PORT` | no | — / `514` (escrito en los devices adoptados) |
+| `SEBASTIAN_DISCOVERY_ENABLED` | no | `true` (escucha mDNS `_sebastian._tcp`; necesita red del host en Kubernetes) |
 
 El worker de outbox utiliza estas variables independientes:
 

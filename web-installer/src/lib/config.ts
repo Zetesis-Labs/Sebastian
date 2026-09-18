@@ -25,6 +25,7 @@ export interface DeviceConfig {
     fullDuplex: boolean;
   };
   session: { silenceTimeoutMs: number; voiceLevel: number };
+  adoption?: { orgSecret: string };
 }
 
 // The audio settings each mode fixes. Selecting a mode merges these over the
@@ -74,6 +75,9 @@ export const APPLIED_FIELDS = [
   "livekit.tokenServerUrl",
   "telemetry.syslogIp",
   "telemetry.syslogPort",
+  "session.silenceTimeoutMs",
+  "session.voiceLevel",
+  "adoption.orgSecret",
   "audio.fullDuplex",
   "audio.fixedBeam",
   "audio.fixedBeamAzimuthDeg",
@@ -128,5 +132,25 @@ export function mergeConfig(input: unknown): DeviceConfig {
     telemetry: section("telemetry", base.telemetry),
     audio: section("audio", base.audio),
     session: section("session", base.session),
+    ...(src.adoption && typeof src.adoption === "object" ? { adoption: src.adoption as DeviceConfig["adoption"] } : {}),
+  };
+}
+
+// Pre-fill served by a control room's dashboard next to the embedded installer
+// (dashboard route /installer/control-room.json). Absent on GitHub Pages.
+export interface ControlRoomPrefill {
+  name: string;
+  tokenServerUrl: string;
+  syslogIp: string;
+  syslogPort: number;
+  orgSecret: string;
+}
+
+export function applyPrefill(config: DeviceConfig, room: ControlRoomPrefill): DeviceConfig {
+  return {
+    ...config,
+    livekit: { ...config.livekit, tokenServerUrl: room.tokenServerUrl },
+    telemetry: { ...config.telemetry, syslogIp: room.syslogIp, syslogPort: room.syslogPort || 514 },
+    ...(room.orgSecret ? { adoption: { orgSecret: room.orgSecret } } : {}),
   };
 }

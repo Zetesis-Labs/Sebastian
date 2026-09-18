@@ -4,12 +4,14 @@ on:
   pull_request:
     paths:
       - "dashboard/**"
+      - "web-installer/**"
       - "server/api/openapi.yaml"
       - ".github/workflows/dashboard-ci.yml"
   push:
     branches: [main]
     paths:
       - "dashboard/**"
+      - "web-installer/**"
       - "server/api/openapi.yaml"
       - ".github/workflows/dashboard-ci.yml"
   workflow_dispatch:
@@ -31,6 +33,12 @@ jobs:
           cache: npm
           cache-dependency-path: dashboard/package-lock.json
       - run: npm ci
+      - name: Set up pnpm (web installer, embedded in the dashboard)
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - run: pnpm install --frozen-lockfile
+        working-directory: web-installer
       - name: Verify generated OpenAPI types
         run: |
           npm run generate:api

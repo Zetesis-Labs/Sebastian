@@ -9,10 +9,18 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as InstallerRouteImport } from './routes/installer'
 import { Route as DevicesRouteImport } from './routes/devices'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as RecordingsRecordingIdRouteImport } from './routes/recordings.$recordingId'
+import { Route as InstallerControlRoomDotjsonRouteImport } from './routes/installer.control-room[.]json'
+import { Route as DevicesDeviceIdRouteImport } from './routes/devices.$deviceId'
 
+const InstallerRoute = InstallerRouteImport.update({
+  id: '/installer',
+  path: '/installer',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DevicesRoute = DevicesRouteImport.update({
   id: '/devices',
   path: '/devices',
@@ -28,39 +36,86 @@ const RecordingsRecordingIdRoute = RecordingsRecordingIdRouteImport.update({
   path: '/recordings/$recordingId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const InstallerControlRoomDotjsonRoute =
+  InstallerControlRoomDotjsonRouteImport.update({
+    id: '/control-room.json',
+    path: '/control-room.json',
+    getParentRoute: () => InstallerRoute,
+  } as any)
+const DevicesDeviceIdRoute = DevicesDeviceIdRouteImport.update({
+  id: '/$deviceId',
+  path: '/$deviceId',
+  getParentRoute: () => DevicesRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/devices': typeof DevicesRoute
+  '/devices': typeof DevicesRouteWithChildren
+  '/installer': typeof InstallerRouteWithChildren
+  '/devices/$deviceId': typeof DevicesDeviceIdRoute
+  '/installer/control-room.json': typeof InstallerControlRoomDotjsonRoute
   '/recordings/$recordingId': typeof RecordingsRecordingIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/devices': typeof DevicesRoute
+  '/devices': typeof DevicesRouteWithChildren
+  '/installer': typeof InstallerRouteWithChildren
+  '/devices/$deviceId': typeof DevicesDeviceIdRoute
+  '/installer/control-room.json': typeof InstallerControlRoomDotjsonRoute
   '/recordings/$recordingId': typeof RecordingsRecordingIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/devices': typeof DevicesRoute
+  '/devices': typeof DevicesRouteWithChildren
+  '/installer': typeof InstallerRouteWithChildren
+  '/devices/$deviceId': typeof DevicesDeviceIdRoute
+  '/installer/control-room.json': typeof InstallerControlRoomDotjsonRoute
   '/recordings/$recordingId': typeof RecordingsRecordingIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/devices' | '/recordings/$recordingId'
+  fullPaths:
+    | '/'
+    | '/devices'
+    | '/installer'
+    | '/devices/$deviceId'
+    | '/installer/control-room.json'
+    | '/recordings/$recordingId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/devices' | '/recordings/$recordingId'
-  id: '__root__' | '/' | '/devices' | '/recordings/$recordingId'
+  to:
+    | '/'
+    | '/devices'
+    | '/installer'
+    | '/devices/$deviceId'
+    | '/installer/control-room.json'
+    | '/recordings/$recordingId'
+  id:
+    | '__root__'
+    | '/'
+    | '/devices'
+    | '/installer'
+    | '/devices/$deviceId'
+    | '/installer/control-room.json'
+    | '/recordings/$recordingId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  DevicesRoute: typeof DevicesRoute
+  DevicesRoute: typeof DevicesRouteWithChildren
+  InstallerRoute: typeof InstallerRouteWithChildren
   RecordingsRecordingIdRoute: typeof RecordingsRecordingIdRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/installer': {
+      id: '/installer'
+      path: '/installer'
+      fullPath: '/installer'
+      preLoaderRoute: typeof InstallerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/devices': {
       id: '/devices'
       path: '/devices'
@@ -82,12 +137,50 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RecordingsRecordingIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/installer/control-room.json': {
+      id: '/installer/control-room.json'
+      path: '/control-room.json'
+      fullPath: '/installer/control-room.json'
+      preLoaderRoute: typeof InstallerControlRoomDotjsonRouteImport
+      parentRoute: typeof InstallerRoute
+    }
+    '/devices/$deviceId': {
+      id: '/devices/$deviceId'
+      path: '/$deviceId'
+      fullPath: '/devices/$deviceId'
+      preLoaderRoute: typeof DevicesDeviceIdRouteImport
+      parentRoute: typeof DevicesRoute
+    }
   }
 }
 
+interface DevicesRouteChildren {
+  DevicesDeviceIdRoute: typeof DevicesDeviceIdRoute
+}
+
+const DevicesRouteChildren: DevicesRouteChildren = {
+  DevicesDeviceIdRoute: DevicesDeviceIdRoute,
+}
+
+const DevicesRouteWithChildren =
+  DevicesRoute._addFileChildren(DevicesRouteChildren)
+
+interface InstallerRouteChildren {
+  InstallerControlRoomDotjsonRoute: typeof InstallerControlRoomDotjsonRoute
+}
+
+const InstallerRouteChildren: InstallerRouteChildren = {
+  InstallerControlRoomDotjsonRoute: InstallerControlRoomDotjsonRoute,
+}
+
+const InstallerRouteWithChildren = InstallerRoute._addFileChildren(
+  InstallerRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  DevicesRoute: DevicesRoute,
+  DevicesRoute: DevicesRouteWithChildren,
+  InstallerRoute: InstallerRouteWithChildren,
   RecordingsRecordingIdRoute: RecordingsRecordingIdRoute,
 }
 export const routeTree = rootRouteImport

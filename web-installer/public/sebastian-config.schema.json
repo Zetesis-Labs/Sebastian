@@ -154,6 +154,22 @@
           "maximum": 32767
         }
       }
+    },
+    "adoption": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "orgSecret": {
+          "type": "string",
+          "description": "Organization secret authorizing network adoption"
+        },
+        "deviceSecret": {
+          "type": "string"
+        }
+      }
+    },
+    "configVersion": {
+      "type": "string"
     }
   },
   "$defs": {

@@ -75,6 +75,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/devices/{deviceId}/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The desired sebastian.config.v1 document for this device
+         * @description Device-facing, authenticated with the per-device secret. Returned only when the control room holds a desired config; the document carries `configVersion` so the device echoes it in its next poll.
+         */
+        get: operations["getDeviceConfig"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/control-room": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * This control room's identity and provisioning defaults
+         * @description What the embedded installer pre-fills and what adoption writes into a device. The organization secret is included: this endpoint is behind the administration secret and must only be called server-side.
+         */
+        get: operations["getControlRoom"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/devices": {
         parameters: {
             query?: never;
@@ -82,10 +122,123 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List known devices with profile state */
+        /** The fleet view — known devices joined with what mDNS sees on the LAN */
         get: operations["listDevices"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/devices/{deviceId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One device with its desired config and recent sessions */
+        get: operations["getDevice"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Rename a device */
+        patch: operations["updateDevice"];
+        trace?: never;
+    };
+    "/v1/admin/devices/{deviceId}/adopt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Adopt a device over the network (discovered, or by IP)
+         * @description Starts an adoption job: hello/nonce, then the control room's config signed with the organization secret (or the device secret supplied in the body). The job reports progress (waiting for the MUTE button on a factory unit, queued behind a conversation) and, once adopted, the per-device secret — shown once.
+         */
+        post: operations["adoptDevice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/devices/{deviceId}/forget": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Return a device to factory (unadopted) and drop it from the inventory */
+        post: operations["forgetDevice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/adoptions/{jobId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Progress of an adoption or forget job */
+        get: operations["getAdoptionJob"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/devices/{deviceId}/desired-config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set the desired sebastian.config.v1 for a device
+         * @description Stored with a version; the device picks it up on its next poll, stores it and restarts. WiFi changes are applied by the device as a trial with automatic rollback.
+         */
+        put: operations["setDesiredConfig"];
+        post?: never;
+        /** Clear the desired config */
+        delete: operations["clearDesiredConfig"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/devices/{deviceId}/secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Issue a new per-device secret (shown once)
+         * @description The new secret reaches the device inside its next desired config; the old one keeps working until the device first authenticates with the new one.
+         */
+        post: operations["regenerateDeviceSecret"];
         delete?: never;
         options?: never;
         head?: never;
@@ -250,14 +403,99 @@ export interface components {
         RecordingList: {
             items: components["schemas"]["Recording"][];
         };
+        /**
+         * @description adopted = bound here and polling; absent = bound here, silent for more than three poll periods and not on the LAN; managed_elsewhere = seen on the LAN, bound to another control room; unadopted = seen on the LAN, bound to none; orphan = seen on the LAN, bound to a control room it cannot reach; registered = polled this control room without being adopted (legacy /token units).
+         * @enum {string}
+         */
+        DeviceState: "adopted" | "absent" | "managed_elsewhere" | "unadopted" | "orphan" | "registered";
         Device: {
             id: string;
             displayName: string;
             enabled: boolean;
+            state: components["schemas"]["DeviceState"];
+            /** Format: date-time */
+            adoptedAt?: string;
             desiredProfile?: string;
             reportedProfile?: string;
             /** Format: date-time */
             profileReportedAt?: string;
+            firmware?: string;
+            ip?: string;
+            /** @description Origin the device announces it is bound to (may be another control room). */
+            controlRoom?: string;
+            /** @description What the device reports about its last control-room contact (empty = ok). */
+            lastError?: string;
+            reportedConfigVersion?: string;
+            desiredConfigVersion?: string;
+            /** Format: date-time */
+            seenOnLanAt?: string;
+        };
+        DeviceDetail: components["schemas"]["Device"] & {
+            hasDeviceSecret: boolean;
+            desiredConfig?: components["schemas"]["DeviceConfig"];
+            sessions: components["schemas"]["DeviceSession"][];
+        };
+        DeviceSession: {
+            /** Format: uuid */
+            id: string;
+            room: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            expiresAt: string;
+            /** Format: int64 */
+            recordingCount: number;
+        };
+        DeviceUpdate: {
+            displayName: string;
+        };
+        /** @description A sebastian.config.v1 document (see web-installer/public/PROVISIONING.md). Validated by the firmware. */
+        DeviceConfig: {
+            [key: string]: unknown;
+        };
+        DesiredConfigVersion: {
+            version: string;
+        };
+        DeviceSecret: {
+            deviceSecret: string;
+        };
+        ControlRoom: {
+            name: string;
+            /** @description The URL devices use to reach this control room (token server). */
+            apiUrl: string;
+            syslogIp?: string;
+            syslogPort?: number;
+            discoveryEnabled: boolean;
+            adoptPort: number;
+            orgSecretConfigured: boolean;
+            /** @description Present only for server-side callers; never ship to a browser. */
+            orgSecret?: string;
+        };
+        AdoptionRequest: {
+            /** @description Address of the device when it was not discovered (adopt by IP). */
+            ip?: string;
+            /** @description Sign with this device secret instead of the organization secret (handover of a single unit). */
+            deviceSecret?: string;
+            config?: components["schemas"]["DeviceConfig"];
+        };
+        /** @enum {string} */
+        AdoptionPhase: "starting" | "waiting_consent" | "queued" | "adopted" | "forgotten" | "failed";
+        AdoptionJob: {
+            /** Format: uuid */
+            id: string;
+            deviceId: string;
+            /** @enum {string} */
+            kind: "adopt" | "forget";
+            ip?: string;
+            phase: components["schemas"]["AdoptionPhase"];
+            /** @description Why it failed — auth, nonce, no_reply, consent_timeout, wifi, json… */
+            error?: string;
+            /** @description The per-device secret issued by this adoption. Shown once; the job expires. */
+            deviceSecret?: string;
+            /** Format: date-time */
+            startedAt: string;
+            /** Format: date-time */
+            updatedAt: string;
         };
         DeviceList: {
             items: components["schemas"]["Device"][];
@@ -278,6 +516,15 @@ export interface components {
         };
     };
     responses: {
+        /** @description Device not found. */
+        DeviceNotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
         /** @description The administration secret is invalid. */
         Unauthorized: {
             headers: {
@@ -297,7 +544,9 @@ export interface components {
             };
         };
     };
-    parameters: never;
+    parameters: {
+        DeviceId: string;
+    };
     requestBodies: never;
     headers: never;
     pathItems: never;
@@ -398,6 +647,10 @@ export interface operations {
         parameters: {
             query?: {
                 current?: string;
+                /** @description Version of the config the device is running (empty = none). */
+                cfg?: string;
+                /** @description Firmware version the device is running. */
+                fw?: string;
             };
             header?: never;
             path: {
@@ -410,6 +663,8 @@ export interface operations {
             /** @description Desired profile name; empty when none is set. */
             200: {
                 headers: {
+                    /** @description Version of the desired config; the device fetches it when different from `cfg`. */
+                    "X-Desired-Config"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -425,6 +680,70 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+        };
+    };
+    getDeviceConfig: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Device-Secret": string;
+            };
+            path: {
+                deviceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The desired config. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceConfig"];
+                };
+            };
+            /** @description Invalid device credentials. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No desired config for this device. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    getControlRoom: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Control room settings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ControlRoom"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
         };
     };
     listDevices: {
@@ -446,6 +765,242 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    getDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deviceId: components["parameters"]["DeviceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Device detail. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["DeviceNotFound"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    updateDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deviceId: components["parameters"]["DeviceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceUpdate"];
+            };
+        };
+        responses: {
+            /** @description Updated. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["DeviceNotFound"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    adoptDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deviceId: components["parameters"]["DeviceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AdoptionRequest"];
+            };
+        };
+        responses: {
+            /** @description Adoption started. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdoptionJob"];
+                };
+            };
+            /** @description No address for the device (not seen on the LAN and no `ip` given). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    forgetDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deviceId: components["parameters"]["DeviceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AdoptionRequest"];
+            };
+        };
+        responses: {
+            /** @description Forget started (the device is told over the network, then removed). */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdoptionJob"];
+                };
+            };
+            /** @description No address for the device. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["DeviceNotFound"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    getAdoptionJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Job state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdoptionJob"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description Unknown or expired job. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    setDesiredConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deviceId: components["parameters"]["DeviceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceConfig"];
+            };
+        };
+        responses: {
+            /** @description Stored; returns the assigned version. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesiredConfigVersion"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["DeviceNotFound"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    clearDesiredConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deviceId: components["parameters"]["DeviceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cleared. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["DeviceNotFound"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    regenerateDeviceSecret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deviceId: components["parameters"]["DeviceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The new secret. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceSecret"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["DeviceNotFound"];
             503: components["responses"]["Unavailable"];
         };
     };

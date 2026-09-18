@@ -1,7 +1,8 @@
 # Fleet provisioning and adoption from the control room — design
 
 > Written 2026-09-18 from a design conversation with Rubén, after the "load from
-> device" installer work. Status: **design, approved for review; no code yet.**
+> device" installer work. Status: **implemented the same day (PR
+> `feat/fleet-adoption`)**; deviations from the first draft are noted inline.
 > The reference model is UniFi: devices announce themselves on the LAN, any
 > controller sees them, adoption binds a device to a controller, and the
 > controller owns its configuration from then on.
@@ -101,8 +102,9 @@ units (`68ee8f4d8dd4`, `e072a1f895f4`) only exist through the profile poll.
 
 ### Block 3 — adoption over the network, discovered or by IP
 
-- Firmware: a UDP listener (port `5683`… final number TBD, PSRAM buffers)
-  accepting one message type, `adopt`. Handling reuses `provisioning.c`'s
+- Firmware: a UDP listener (port **5688**, receive buffer in PSRAM, stack in
+  internal RAM because NVS writes disable the cache) accepting `hello` and
+  `adopt`. Handling reuses `provisioning.c`'s
   `store_wifi` verbatim: store, reply, restart.
 - Protocol, one round trip plus reply:
   1. Control room → device: `{"t":"hello"}` — device answers
@@ -180,12 +182,14 @@ factory reset — to be confirmed in block 3): whoever holds the unit owns it.
 |--------|------|-------|
 | `GET` | `/v1/admin/control-room` (name, API origin, syslog, org secret*) | 0 |
 | `POST` | `/v1/sessions` — already exists; the firmware starts using it | 1 |
-| `GET` | `/v1/admin/lan-devices` | 2 |
-| `POST` | `/v1/admin/lan-devices/{id}/adopt` `{ip?}` | 3 |
-| `POST` | `/v1/admin/devices/{id}/forget` | 3 |
+| `GET` | `/v1/admin/devices` — the fleet view (inventory ⋈ LAN); no separate lan-devices endpoint | 2 |
+| `GET`/`PATCH` | `/v1/admin/devices/{id}` — detail with sessions / rename | 2 |
+| `POST` | `/v1/admin/devices/{id}/adopt` `{ip?, deviceSecret?, config?}` → 202 job; `GET /v1/admin/adoptions/{jobId}` | 3 |
+| `POST` | `/v1/admin/devices/{id}/forget` → 202 job | 3 |
+| `POST` | `/v1/admin/devices/{id}/secret` — regenerate, shown once | 3 |
 | `GET` | `/v1/devices/{id}/desired-profile?current=&cfg=` — extended | 4 |
 | `GET` | `/v1/devices/{id}/config` (device-facing, device secret) | 4 |
-| `PUT` | `/v1/admin/devices/{id}/desired-config` | 4 |
+| `PUT`/`DELETE` | `/v1/admin/devices/{id}/desired-config` | 4 |
 
 \* org secret only to an authenticated dashboard session, never to the browser
 in the pre-fill JavaScript bundle.
