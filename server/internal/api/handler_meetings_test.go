@@ -336,3 +336,39 @@ func TestTranscriptDownloadsRenamesAndRetries(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Block F: the conversation agent starts a meeting by voice (RM-04/05/44).
+func TestAgentStartRoute(t *testing.T) {
+	stub := &stubMeetings{m: meeting.Meeting{ID: uuid.New(), State: meeting.StateRequested}}
+	mux := http.NewServeMux()
+	mux.Handle("POST /v1/meetings", MeetingAgentStart(stub, "agent-secret"))
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	post := func(secret, body string) *http.Response {
+		req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/meetings", strings.NewReader(body))
+		req.Header.Set("X-Agent-Secret", secret)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		return res
+	}
+	if res := post("wrong", `{"deviceId":"68ee"}`); res.StatusCode != 401 {
+		t.Fatalf("wrong secret: %d", res.StatusCode)
+	}
+	if res := post("agent-secret", `{}`); res.StatusCode != 400 {
+		t.Fatalf("no unit: %d", res.StatusCode)
+	}
+	if res := post("agent-secret", `{"deviceId":"68ee"}`); res.StatusCode != 202 || stub.m.RequestedBy != meeting.OriginVoice || stub.m.DeviceID != "68ee" {
+		t.Fatalf("start by voice: %d %+v", res.StatusCode, stub.m)
+	}
+	stub.err = meeting.ErrBusy
+	if res := post("agent-secret", `{"deviceId":"68ee"}`); res.StatusCode != 409 {
+		t.Fatalf("already recording (RM-05): %d", res.StatusCode)
+	}
+	stub.err = meeting.ErrProfile
+	if res := post("agent-secret", `{"deviceId":"68ee"}`); res.StatusCode != 422 {
+		t.Fatalf("micro-usb (RM-44): %d", res.StatusCode)
+	}
+}

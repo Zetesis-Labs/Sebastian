@@ -89,6 +89,7 @@ func run(logger *slog.Logger) error {
 	server, err := httpserver.New(cfg.Address, handler, logger, cfg.AdminSecret,
 		httpserver.Raw{Pattern: "PUT /v1/meetings/{id}/audio", Handler: apihttp.MeetingAudioUpload(meetings, cfg.AgentSecret)},
 		httpserver.Raw{Pattern: "HEAD /v1/meetings/{id}/audio", Handler: apihttp.MeetingAudioOffset(meetings)(cfg.AgentSecret)},
+		httpserver.Raw{Pattern: "POST /v1/meetings", Handler: apihttp.MeetingAgentStart(meetings, cfg.AgentSecret)},
 		httpserver.Raw{Pattern: "POST /v1/meetings/{id}/stop", Handler: apihttp.MeetingAgentStop(meetings, cfg.AgentSecret)},
 		httpserver.Raw{Pattern: "POST /v1/meetings/{id}/warn", Handler: apihttp.MeetingAgentWarn(meetings, cfg.AgentSecret)},
 		httpserver.Raw{Pattern: "GET /v1/admin/meetings/{id}/audio", Handler: apihttp.MeetingAudioDownload(meetings)},

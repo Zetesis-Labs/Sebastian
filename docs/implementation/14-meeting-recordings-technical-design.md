@@ -312,6 +312,24 @@ Tests: `T-F1` clasificación de frases (puro, `text_match.py` ya existe) para
 las variantes de RM-04/21; `T-F2` en modo reunión cualquier otra petición
 recibe la frase fija de RM-21.
 
+Hecho (19-09), tal como quedó:
+- **Empezar por voz (RM-04/05)**: en conversación, `function_tool`
+  `start_meeting_recording` → `POST /v1/meetings {deviceId}` con
+  `X-Agent-Secret` (ruta cruda nueva; 202/409/422) → el agente dice la frase
+  fija (sin pronunciar su nombre: el altavoz lo tomaría por interrupción) y
+  cierra la sesión con gracia; la orden `record-start` llega por LAN a la
+  placa **en plena conversación** y `adopt.c` la deja en el buzón (solo
+  responde `busy` si ya graba), así que al terminar la conversación
+  `waitForWakeWord` la recoge y abre la reunión con su id.
+- **Parar por voz (RM-21)**: la placa escucha la palabra de activación en el
+  micro en vivo durante toda la reunión (`mic_src.setWakeListen`, el mismo
+  detector del barge-in) y la releva como `sebastian.barge_in`; el agente en
+  modo reunión abre una ventana de 4 s (`CommandWindow`), la transcribe con
+  `whisper-1`, clasifica con `meeting_intent` (puro) y responde por una pista
+  propia (`Speaker`, TTS de OpenAI): "Grabación guardada, N minutos" y
+  `POST …/stop {reason:"voice"}`, o "Estoy grabando; dime que pare si quieres
+  hablar" para cualquier otra cosa. Sin LLM en modo reunión, como manda RM-12.
+
 ## 5. Orden y estimación
 
 A → B → C (con A+B+C ya se graba de verdad y se ve el fichero en el server)

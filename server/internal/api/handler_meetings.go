@@ -365,6 +365,41 @@ func MeetingAgentStop(meetings MeetingService, agentSecret string) http.Handler 
 	})
 }
 
+// MeetingAgentStart is the voice start (RM-04): the conversation agent asks
+// for a meeting on its unit. POST /v1/meetings {"deviceId":"…"} → 202.
+func MeetingAgentStart(meetings MeetingService, agentSecret string) http.Handler {
+	expected := sha256.Sum256([]byte(agentSecret))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		provided := sha256.Sum256([]byte(r.Header.Get("X-Agent-Secret")))
+		if agentSecret == "" || subtle.ConstantTimeCompare(expected[:], provided[:]) != 1 {
+			writeProblem(w, 401, "Unauthorized", "Invalid agent credentials.")
+			return
+		}
+		var body struct {
+			DeviceID string `json:"deviceId"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&body); err != nil || strings.TrimSpace(body.DeviceID) == "" {
+			writeProblem(w, 400, "Bad request", `Send {"deviceId":"<unit>"}.`)
+			return
+		}
+		m, err := meetings.Start(r.Context(), strings.TrimSpace(body.DeviceID), meeting.OriginVoice)
+		switch {
+		case errors.Is(err, meeting.ErrBusy):
+			writeProblem(w, 409, "Already recording", "The unit is already recording a meeting.")
+		case errors.Is(err, meeting.ErrProfile), errors.Is(err, meeting.ErrNotAdopted), errors.Is(err, meeting.ErrAbsent):
+			writeProblem(w, 422, "Cannot record", err.Error())
+		case errors.Is(err, meeting.ErrNotFound):
+			writeProblem(w, 404, "Device not found", "The unit does not exist.")
+		case err != nil:
+			writeProblem(w, 503, "Unavailable", err.Error())
+		default:
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusAccepted)
+			_ = json.NewEncoder(w).Encode(meetingResponse(m, time.Now()))
+		}
+	})
+}
+
 // MeetingAgentWarn relays the agent's "silence in ~30 s" to the unit's ring
 // (RM-13). POST /v1/meetings/{id}/warn, no body.
 func MeetingAgentWarn(meetings MeetingService, agentSecret string) http.Handler {
