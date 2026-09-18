@@ -222,7 +222,7 @@ File: `agent/agent.py`, on top of `livekit-agents`.
 - **`Sebastian(Agent)` class** with instructions in **Spanish** (brief and natural voice assistant, no markdown or lists because it is only heard).
 - **Model:** OpenAI Realtime (`openai.realtime.RealtimeModel`), `"alloy"` voice, speech-to-speech.
 - **Noise cancellation:** `noise_cancellation.BVC()` in the `RoomInputOptions` — this is the **only** NS pass in the chain (see §5).
-- **Audio verification:** records the incoming microphone track to `/tmp/sebastian_rx.wav` (16 kHz mono) to be able to listen to what the agent actually receives. It only records audio tracks whose `participant.identity` contains `esp32`.
+- **Audio verification:** records the incoming microphone track to `/tmp/sebastian_rx.wav` (16 kHz mono) to be able to listen to what the agent actually receives. It records the audio track of the standard (non-agent) participant: units join under their own id (their MAC, RF-12), taken from the dispatch metadata (`device_id`).
 - **Startup:** connects to the room, and `generate_reply` greets and introduces itself in one sentence.
 
 Operational constraints:

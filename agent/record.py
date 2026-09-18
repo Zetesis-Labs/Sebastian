@@ -49,7 +49,7 @@ async def main() -> None:
 
     @room.on("track_subscribed")
     def _on(track: rtc.Track, pub: rtc.TrackPublication, participant: rtc.RemoteParticipant) -> None:
-        if track.kind == rtc.TrackKind.KIND_AUDIO and "esp32" in participant.identity:
+        if track.kind == rtc.TrackKind.KIND_AUDIO and participant.kind != rtc.ParticipantKind.PARTICIPANT_KIND_AGENT:
             print(f"[rec] subscribed to {participant.identity}")
             asyncio.create_task(record(track))
 

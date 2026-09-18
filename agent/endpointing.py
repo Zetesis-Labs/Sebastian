@@ -53,7 +53,6 @@ POLL_S = 0.5
 # the room (field, 2026-07-13: a flaky first TCP connect to the prod SFU took
 # >12s of retries and the idle close DELETED the room under it). Idle counts
 # only once the device is present; if it never shows up, close as cleanup.
-DEVICE_IDENTITY = os.getenv("SEBASTIAN_DEVICE_IDENTITY", "esp32-respeaker")
 JOIN_GRACE_S = 45.0
 
 
@@ -93,7 +92,7 @@ class _IdleState:
         self.last_activity = time.monotonic()
 
 
-def setup_endpointing(ctx: JobContext, session: AgentSession) -> None:
+def setup_endpointing(ctx: JobContext, session: AgentSession, device_identity: str) -> None:
     """Close the session after a sustained idle window (module docstring)."""
     state = _IdleState(last_activity=time.monotonic())
 
@@ -121,7 +120,7 @@ def setup_endpointing(ctx: JobContext, session: AgentSession) -> None:
         while not device_joined:
             await asyncio.sleep(POLL_S)
             device_joined = any(
-                p.identity == DEVICE_IDENTITY
+                p.identity == device_identity
                 for p in ctx.room.remote_participants.values()
             )
             if device_joined:

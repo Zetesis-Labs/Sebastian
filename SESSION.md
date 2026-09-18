@@ -297,3 +297,19 @@ desde casa-2 y `cfg-rejected:schema` (desired-config con `sebastian.config.v2`)
 llegaron por el poll con su hora y se leen en fila y ficha; el rechazo se
 oculta al retirar la deseada. Sin probar a ojo: el ámbar fijo 2 s (nadie
 miraba el anillo). `68ee8f4d8dd4` y `e072a1f895f4` siguen con firmware anterior.
+
+### Noche del 18: `68ee` adoptada, agente reparado — rama `fix/consent-born-secret` (PR #48)
+
+- Consentimiento (RF-34): una unidad con secreto propio pero sin secreto de
+  organización ni control room pedía nada y rechazaba a todos; ahora pide
+  MUTE. Probado: `waiting_consent` → MUTE → `adopted`.
+- Los dos servers Go llevaban el día a 550 % de CPU: `dnssd` solo para sus
+  lectores con `context.Canceled`, y el ciclo de browse caducaba con
+  `DeadlineExceeded` → dos goroutines girando por ciclo. Ahora el ciclo se
+  cancela desde un timer; test de regresión cuenta goroutines.
+- El agente Python esperaba al participante `esp32-respeaker` (cuatro módulos);
+  con las unidades entrando por su MAC no las veía y cerraba la sesión a los
+  4 s. Ahora toma `device_id` de los metadatos del job
+  (`device_identity.py`, puro, con tests). "Okay Nabu" vuelve a funcionar en
+  `68ee`. Un `uv run agent.py dev` lanzado por una sesión anterior se había
+  quedado zombi (sin conexión a LiveKit): matar y relanzar.

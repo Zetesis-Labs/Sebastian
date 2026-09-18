@@ -41,6 +41,7 @@ from openai.types.beta.realtime.session import TurnDetection
 
 import telemetry
 from audio_input import SebastianAudioInput, setup_recorder, setup_output_recorder, RECORD, RECORD_TRACK
+from device_identity import device_identity_from_metadata
 from endpointing import AGENT_STATE_TOPIC, close_device_session, setup_endpointing
 from instrumentation import instrument_session
 from wake_verify import setup_wake_verify
@@ -69,7 +70,6 @@ m_announce = telemetry.counter(
 
 BARGE_TOPIC = "sebastian.barge_in"
 ANNOUNCE_TOPIC = "sebastian.announce"
-DEVICE_IDENTITY = os.getenv("SEBASTIAN_DEVICE_IDENTITY", "esp32-respeaker")
 MODEL_PROVIDER = os.getenv("SEBASTIAN_MODEL_PROVIDER", "gemini").strip().lower()
 GEMINI_MODEL = os.getenv(
     "SEBASTIAN_GEMINI_MODEL",
@@ -328,8 +328,9 @@ def _setup_barge_in(ctx: agents.JobContext, session: AgentSession) -> None:
 
 async def entrypoint(ctx: agents.JobContext) -> None:
     m_jobs.add(1)
-    log.info("job accepted room=%s", ctx.job.room.name)
-    mic_input = SebastianAudioInput(ctx.room, vad=silero.VAD.load())
+    device_identity = device_identity_from_metadata(ctx.job.metadata)
+    log.info("job accepted room=%s device=%s", ctx.job.room.name, device_identity)
+    mic_input = SebastianAudioInput(ctx.room, vad=silero.VAD.load(), device_identity=device_identity)
     ctx.add_shutdown_callback(mic_input.aclose)
     if RECORD and RECORD_TRACK:
         # Raw-track tap — off by default: it starts at the handoff (no
@@ -339,7 +340,7 @@ async def entrypoint(ctx: agents.JobContext) -> None:
     instrument_session(session)
     _setup_barge_in(ctx, session)
     _setup_announce(ctx, session)
-    setup_endpointing(ctx, session)
+    setup_endpointing(ctx, session, device_identity)
     setup_wake_verify(ctx, session, mic_input)
     session.input.audio = mic_input
 
@@ -381,7 +382,7 @@ async def entrypoint(ctx: agents.JobContext) -> None:
         if out_tee is not None:
             ctx.add_shutdown_callback(out_tee.aclose)
     await ctx.connect()
-    await ctx.wait_for_participant(identity=DEVICE_IDENTITY)
+    await ctx.wait_for_participant(identity=device_identity)
     with contextlib.suppress(asyncio.TimeoutError):
         await asyncio.wait_for(mic_input.preroll_ready.wait(), timeout=1.2)
     if mic_input.preroll_ready.is_set():
