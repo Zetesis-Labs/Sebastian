@@ -1,6 +1,6 @@
 {
-  "agent": "0.1.8",
-  "helm/sebastian": "0.1.6",
-  "server": "1.0.0",
-  "dashboard": "1.0.0"
+  "agent": "0.1.9",
+  "helm/sebastian": "0.1.7",
+  "server": "1.1.0",
+  "dashboard": "1.1.0"
 }

@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.7](https://github.com/Zetesis-Labs/Sebastian/compare/helm-v0.1.6...helm-v0.1.7) (2026-09-18)
+
+
+### Features
+
+* **dashboard:** fleet view with adoption, device page with running vs desired config, embedded installer ([2102508](https://github.com/Zetesis-Labs/Sebastian/commit/21025083f28699e0643cf8c46a582f65d41b9053))
+* **fleet:** close the functional spec — unit events, forget in the ficha, QR, firmware version, legacy /token retired, outbox events ([c3031bb](https://github.com/Zetesis-Labs/Sebastian/commit/c3031bb31088a4944d8c0c90c2174454ef87c896))
+* **server:** meeting recordings block A — state machine, orders to the unit, streaming audio, outbox events (RM-03/05/06/07/15/22/24/25/52) ([3dd15f9](https://github.com/Zetesis-Labs/Sebastian/commit/3dd15f94007604ce50f09d80312ad8e717d62e2c))
+
+
+### Bug Fixes
+
+* **dashboard:** the mode selector corrupted the desired document; only governable fields travel ([89e1164](https://github.com/Zetesis-Labs/Sebastian/commit/89e1164e120aed1e4c394a3e4c5e6fc69e546374))
+
 ## [0.1.6](https://github.com/Zetesis-Labs/Sebastian/compare/helm-v0.1.5...helm-v0.1.6) (2026-07-27)
 
 

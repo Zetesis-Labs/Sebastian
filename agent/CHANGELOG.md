@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.9](https://github.com/Zetesis-Labs/Sebastian/compare/agent-v0.1.8...agent-v0.1.9) (2026-09-18)
+
+
+### Bug Fixes
+
+* **agent:** the speaker's identity comes from the dispatch metadata, not a fixed esp32-respeaker (RF-12) ([63790f1](https://github.com/Zetesis-Labs/Sebastian/commit/63790f1fa78433616c335b574f1f2250f8349dc6))
+
 ## [0.1.8](https://github.com/Zetesis-Labs/Sebastian/compare/agent-v0.1.7...agent-v0.1.8) (2026-07-14)
 
 
