@@ -16,8 +16,14 @@ import (
 // deriveState joins one inventory row (nil when the unit only exists on the
 // LAN) with its announce (nil when not seen) into the state the operator sees.
 func deriveState(row *Device, seen *discovery.Seen, self string, now time.Time) State {
+	// Right after an adoption the LAN still carries the announce made under the
+	// previous control room (up to 90 s): a poll newer than that announce is the
+	// unit's word on where it is bound.
 	if seen != nil {
 		bound := strings.TrimRight(seen.ControlRoom, "/")
+		if row != nil && row.Adopted && bound != self && row.ProfileReportedAt.After(seen.SeenAt) {
+			return StateAdopted
+		}
 		switch {
 		case bound == "":
 			return StateUnadopted

@@ -37,6 +37,8 @@ func TestDeriveStateFunctionalSpecTable(t *testing.T) {
 		{"on LAN, another control room, failing", nil, &discovery.Seen{ControlRoom: "http://10.0.100.10:8787", LastError: "timeout"}, StateOrphan},
 		{"denied adoption attempt is not an orphan", nil, &discovery.Seen{ControlRoom: "http://10.0.100.10:8787", LastError: "adopt-denied:10.0.0.77"}, StateManagedElsewhere},
 		{"trailing slash on the announced origin", adopted, &discovery.Seen{ControlRoom: self + "/"}, StateAdopted},
+		{"just adopted: stale announce of the previous control room, newer poll", adopted, &discovery.Seen{ControlRoom: "http://10.0.0.188:8788", SeenAt: now.Add(-40 * time.Second)}, StateAdopted},
+		{"announce newer than the last poll wins", adopted, &discovery.Seen{ControlRoom: "http://10.0.0.188:8788", SeenAt: now.Add(-5 * time.Second)}, StateManagedElsewhere},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

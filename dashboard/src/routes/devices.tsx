@@ -37,6 +37,10 @@ function Devices() {
   const [adoptByIp, setAdoptByIp] = useState(false)
   const [ip, setIp] = useState('')
   const [ipId, setIpId] = useState('')
+  const [ipSecret, setIpSecret] = useState('')
+  // Handover (RF-38): a unit bound to another organization is adopted with
+  // its own device secret; asked inline when "Adoptar aquí" is pressed.
+  const [handover, setHandover] = useState<{ deviceId: string; secret: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   // Reconciliation is device-paced (30 s polls) and the LAN view refreshes on
@@ -74,7 +78,13 @@ function Devices() {
   }
 
   function adopt(device: Device) {
-    void run(device.id, () => adoptDevice({ data: { deviceId: device.id } }))
+    if (device.state === 'managed_elsewhere' && handover?.deviceId !== device.id) {
+      setHandover({ deviceId: device.id, secret: '' })
+      return
+    }
+    const secret = handover?.deviceId === device.id ? handover.secret.trim() : ''
+    setHandover(null)
+    void run(device.id, () => adoptDevice({ data: { deviceId: device.id, ...(secret ? { deviceSecret: secret } : {}) } }))
   }
 
   function forget(device: Device) {
@@ -90,7 +100,8 @@ function Devices() {
       return
     }
     const deviceId = ipId.trim().toLowerCase().replace(/[^0-9a-f]/g, '')
-    void run(deviceId, () => adoptDevice({ data: { deviceId, ip: ip.trim() } }))
+    const deviceSecret = ipSecret.trim()
+    void run(deviceId, () => adoptDevice({ data: { deviceId, ip: ip.trim(), ...(deviceSecret ? { deviceSecret } : {}) } }))
     setAdoptByIp(false)
   }
 
@@ -138,6 +149,10 @@ function Devices() {
               <span>IP</span>
               <input value={ip} onChange={(e) => setIp(e.target.value)} placeholder="10.0.100.40" inputMode="decimal" autoComplete="off" />
             </label>
+            <label>
+              <span>Secreto del altavoz (solo si es de otra organización)</span>
+              <input value={ipSecret} onChange={(e) => setIpSecret(e.target.value)} type="password" autoComplete="off" />
+            </label>
             <button type="submit" className="chip-button">Adoptar</button>
             <button type="button" className="chip-button" onClick={() => setAdoptByIp(false)}>Cancelar</button>
             {jobs[ipId.trim().toLowerCase()] && <JobLine job={jobs[ipId.trim().toLowerCase()]} />}
@@ -156,7 +171,16 @@ function Devices() {
                 <h3 className="device-section-title">{SECTION_TITLE[section]}</h3>
                 <div className="device-list">
                   {groups[section].map((item) => (
-                    <DeviceRow key={item.id} device={item} job={jobs[item.id]} onAdopt={adopt} onForget={forget} />
+                    <DeviceRow
+                      key={item.id}
+                      device={item}
+                      job={jobs[item.id]}
+                      handover={handover?.deviceId === item.id ? handover.secret : null}
+                      onHandoverChange={(secret) => setHandover({ deviceId: item.id, secret })}
+                      onHandoverCancel={() => setHandover(null)}
+                      onAdopt={adopt}
+                      onForget={forget}
+                    />
                   ))}
                 </div>
               </div>
@@ -192,11 +216,17 @@ function JobLine({ job }: Readonly<{ job: AdoptionJob }>) {
 function DeviceRow({
   device,
   job,
+  handover,
+  onHandoverChange,
+  onHandoverCancel,
   onAdopt,
   onForget,
 }: Readonly<{
   device: Device
   job?: AdoptionJob
+  handover: string | null
+  onHandoverChange: (secret: string) => void
+  onHandoverCancel: () => void
   onAdopt: (device: Device) => void
   onForget: (device: Device) => void
 }>) {
@@ -228,9 +258,25 @@ function DeviceRow({
           <p className="device-meta warn">Último contacto: {device.lastError}</p>
         )}
         {job && <JobLine job={job} />}
+        {handover !== null && (
+          <form
+            className="adopt-ip"
+            onSubmit={(e) => {
+              e.preventDefault()
+              onAdopt(device)
+            }}
+          >
+            <label>
+              <span>Secreto del altavoz (déjalo vacío si es de tu organización)</span>
+              <input value={handover} onChange={(e) => onHandoverChange(e.target.value)} type="password" autoComplete="off" autoFocus />
+            </label>
+            <button type="submit" className="chip-button">Adoptar aquí</button>
+            <button type="button" className="chip-button" onClick={onHandoverCancel}>Cancelar</button>
+          </form>
+        )}
       </div>
       <div className="device-actions">
-        {canAdopt(device.state) && (
+        {canAdopt(device.state) && handover === null && (
           <button type="button" className="chip-button" disabled={busy} onClick={() => onAdopt(device)}>
             {busy ? 'Adoptando…' : device.state === 'managed_elsewhere' ? 'Adoptar aquí' : 'Adoptar'}
           </button>
