@@ -13,7 +13,9 @@
 
 const std = @import("std");
 const c = @import("csdk.zig");
+const control = @import("control.zig");
 const token_core = @import("core/token_core.zig");
+const url_core = @import("core/url_core.zig");
 
 const log = std.log.scoped(.token);
 
@@ -26,6 +28,9 @@ var token_buf: [1280]u8 = undefined;
 // Token-server URL, provisioned into NVS (see provisioning.c). Nul-terminated by
 // nvs_get_str. No compiled default — the factory binary carries no config.
 var token_server_url: [256]u8 = undefined;
+var origin_z: [256]u8 = undefined;
+var secret_buf: [129]u8 = undefined;
+var id_z: [13]u8 = undefined;
 
 pub const Connection = struct {
     server_url: [*:0]const u8,
@@ -41,6 +46,20 @@ pub fn fetch() Error!Connection {
     if (!c.sebastian_get_token_url(&token_server_url, token_server_url.len)) {
         log.err("no token server URL in NVS — device unprovisioned", .{});
         return error.HttpFailed;
+    }
+    // Adopted unit: POST /v1/sessions with the per-device secret, so sessions
+    // and recordings hang off this unit (fleet block 1). A unit without a
+    // secret keeps the legacy unauthenticated /token below.
+    if (c.sebastian_get_device_secret(&secret_buf, secret_buf.len) and control.deviceId(&id_z)) {
+        const o = url_core.origin(std.mem.sliceTo(&token_server_url, 0));
+        if (std.fmt.bufPrintZ(&origin_z, "{s}", .{o})) |origin| {
+            const rc = c.sebastian_session_create(origin.ptr, @ptrCast(&id_z), @ptrCast(&secret_buf), &url_buf, url_buf.len, &token_buf, token_buf.len);
+            if (rc == 0) {
+                log.info("session created as {s} ({d}B token) for {s}", .{ std.mem.sliceTo(&id_z, 0), std.mem.sliceTo(&token_buf, 0).len, std.mem.sliceTo(&url_buf, 0) });
+                return .{ .server_url = @ptrCast(&url_buf), .token = @ptrCast(&token_buf) };
+            }
+            log.warn("POST /v1/sessions failed (rc={d}) — falling back to legacy /token", .{rc});
+        } else |_| {}
     }
     const n = token_http_get(@ptrCast(&token_server_url), &response_buf, response_buf.len);
     if (n <= 0) {

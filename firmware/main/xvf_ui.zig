@@ -82,6 +82,13 @@ fn renderIdle(frame: u32) void {
     xvf.setLeds(.{rgb(0, b, b / 2)} ** 12);
 }
 
+/// Adoption consent (RF-34/64): a factory unit blinks the whole ring amber
+/// while a control room waits for the MUTE button.
+fn renderConsent(frame: u32) void {
+    const on = (frame / 4) % 2 == 0; // ~3 Hz at 80 ms/frame
+    xvf.setLeds(.{if (on) USB_BEAM else OFF} ** 12);
+}
+
 /// WAKING: one blue pixel orbiting with a dim trail — "heard you, connecting".
 fn renderWaking(frame: u32) void {
     const idx: u8 = @intCast((frame / 2) % 12); // ~2s per revolution
@@ -130,6 +137,8 @@ fn uiTask(_: ?*anyopaque) callconv(.c) void {
         }
         const muted = xvf.readMuted();
         mic.setMuted(muted); // GPIO30 mute doesn't silence our ASR beam — do it in software
+        const consent = c.sebastian_adopt_consent_pending();
+        if (consent and was_muted != null and was_muted.? != muted) c.sebastian_adopt_consent_grant();
         if (was_muted == null or was_muted.? != muted) {
             was_muted = muted;
             // Telemetry: a muted XVF streams all-zero I2S — indistinguishable
@@ -137,7 +146,10 @@ fn uiTask(_: ?*anyopaque) callconv(.c) void {
             log.info("mute: {s}", .{if (muted) "on" else "off"});
         }
 
-        if (muted) {
+        if (consent) {
+            renderConsent(frame);
+            speaking = false;
+        } else if (muted) {
             xvf.setLeds(.{OFF} ** 12);
             speaking = false;
         } else switch (currentState()) {

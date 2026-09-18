@@ -96,4 +96,14 @@ pub fn load() void {
     fixed_beam = sebastian_cfg_get_bool("fixed_beam", fixed_beam);
     fixed_beam_azimuth_deg = @floatFromInt(sebastian_cfg_get_i32("beam_az", @intFromFloat(fixed_beam_azimuth_deg)));
     full_duplex = sebastian_cfg_get_bool("full_duplex", full_duplex);
+    // Session timing, governable from the control room since the fleet work
+    // (RF-40): the pure cores keep their compiled defaults as `pub const` for
+    // the host tests and read these vars at runtime.
+    const silence_ms = sebastian_cfg_get_i32("silence_ms", @intCast(session_core.SILENCE_TICKS * session_core.TICK_MS));
+    if (silence_ms >= 5000) session_core.silence_ticks = @as(u32, @intCast(silence_ms)) / session_core.TICK_MS;
+    const voice = sebastian_cfg_get_i32("voice_lvl", @intCast(session_reducer.VOICE_LEVEL));
+    if (voice > 0) session_reducer.voice_level = @intCast(voice);
 }
+
+const session_core = @import("core/session_core.zig");
+const session_reducer = @import("core/session_reducer.zig");
