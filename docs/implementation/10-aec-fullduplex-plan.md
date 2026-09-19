@@ -1,5 +1,9 @@
 # AEC Project → full-duplex — implementation plan
 
+> Plan histórico del 2026-07-03. Conserva hipótesis y pruebas propuestas de esa
+> fecha; no acredita el estado actual. La configuración y las evidencias vigentes
+> están en [AEC.md](../AEC.md) y [STATUS.md](../STATUS.md).
+
 > Synthesis of the multi-agent exploration from 2026-07-03 (4 agents: root cause,
 > change-map, validation, risks). Goal: XVF3800 AEC converging in
 > session → remove half-duplex gate → natural full-duplex (talking over the

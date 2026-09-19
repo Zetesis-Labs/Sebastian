@@ -35,7 +35,9 @@ cd trainer && ./run.sh   # creates .venv and installs dependencies
 python ../download_es_voices.py
 
 # 3. Real recordings (optional but highly recommended)
-#    Record a session through the XVF itself with agent/record.py and split it:
+#    Procedimiento histórico: record.py se conecta a la sala fija "sebastian".
+#    Las sesiones actuales crean salas propias; este comando no captura esas
+#    sesiones sin adaptar la utilidad a la sala correspondiente.
 uv run ../../agent/record.py /tmp/session.wav 120
 python ../split_wakeword.py /tmp/session.wav sebastian personal_samples/
 
@@ -53,8 +55,11 @@ Non-obvious details of the process we followed:
 
 ## Host validation (without flashing)
 
-Identical pipeline to the firmware (pymicro features + quantization + stride 2 +
-moving average of 4) against any WAV:
+El siguiente ejemplo reproduce la validación histórica del modelo español
+(media de 4, umbral 0.62). **No reproduce el detector vigente**, que usa
+`okay_nabu.tflite`, media de 5 y umbral 0.95. Para validar el modelo actual hay
+que adaptar el modelo, sus parámetros de entrada y el criterio de detección
+conforme a `firmware/main/wakeword.zig`.
 
 ```python
 # cwd: wakeword/trainer — uses its .venv
