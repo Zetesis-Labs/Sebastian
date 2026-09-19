@@ -1,88 +1,57 @@
-# Sebastian Web Installer
+# Instalador web de Sebastian
 
-Static GitHub Pages installer for ReSpeaker XVF3800 + XIAO ESP32-S3 using ESP Web Tools.
-It depends on Web Serial, so it needs HTTPS/localhost and a browser that exposes
-`navigator.serial` (Chromium desktop browsers, or Firefox 151+ desktop). Safari/iOS
-are not supported.
+Instalador para ReSpeaker XVF3800 + XIAO ESP32-S3 mediante ESP Web Tools y
+WebSerial. La misma aplicación se publica en GitHub Pages y se incorpora al
+dashboard en `/installer/`.
 
-Expected URL once Pages serves `docs/`:
+WebSerial necesita un navegador que exponga `navigator.serial` y un contexto
+permitido (HTTPS o localhost). Comprobar la disponibilidad en el navegador; no
+inferirla del nombre del sistema operativo.
 
-```text
-https://zetesis-labs.github.io/Sebastian/installer/
-```
+## Instalar y configurar
 
-## Firmware packaging
+El firmware de fábrica permite configurar WiFi, URL del control room, modo,
+perfiles y datos de adopción en **NVS**, después del flasheo. Es un binario común;
+no requiere compilar las credenciales de cada unidad.
 
-ESP Web Tools expects ESP-IDF v4+ ESP32 images to be merged into one binary at offset `0`.
-Generate it from an existing firmware build:
+La interfaz permite importar/exportar configuración, enviarla por serie y
+**leer la guardada en el dispositivo**. La lectura conserva la contraseña WiFi
+sin devolverla y mantiene abierta la ventana USB durante 120 s. Después del
+arranque TinyUSB usa el periférico como micrófono; reconectar para volver a la
+ventana de aprovisionamiento.
+
+El instalador embebido obtiene datos de organización y control room desde
+`/installer/control-room.json`. Ese endpoint entrega información sensible de
+aprovisionamiento al navegador y debe compartir el acceso protegido del panel.
+La unidad genera su secreto propio y puede incorporarse automáticamente al
+control room configurado.
+
+Ver [PROVISIONING.md](PROVISIONING.md) y el contrato
+[sebastian-config.schema.json](sebastian-config.schema.json). Algunos campos
+conservados por compatibilidad no gobiernan el firmware: el canal de micrófono,
+por ejemplo, se decide al compilar; el actual es LEFT/comms.
+
+## Empaquetado
+
+Desde el devcontainer y la raíz del repositorio:
 
 ```bash
 make fw-build
 tools/prepare_web_installer.sh
 ```
 
-That writes:
+El script prepara el binario fusionado y `manifest.json` bajo `docs/installer/`.
+El build público y el del dashboard empaquetan firmware de fábrica desde sus
+workflows. La interfaz consume el manifiesto de su propia base; las antiguas
+instrucciones de parámetros `?manifest`, `?bin` y `?config` no corresponden al
+código actual.
 
-- `docs/installer/firmware/sebastian-esp32s3-merged.bin`
-- `docs/installer/manifest.json`
+## Recuperación de conexión
 
-The generated `.bin` is ignored by git because the current firmware embeds local WiFi and
-token-server configuration. Only publish a factory image that is intentionally safe to share.
+Cerrar otras lecturas del puerto (bridge, monitor o diálogo de instalación).
+Si no sincroniza, reconectar la unidad o mantener BOOT del XIAO al conectarla
+para entrar al bootloader. El RESET del ReSpeaker resetea el XVF.
 
-## Parameterized installs
-
-The page can install from a custom manifest:
-
-```text
-https://zetesis-labs.github.io/Sebastian/installer/?manifest=https://example.com/manifest.json
-```
-
-Or from a merged binary URL by generating a temporary manifest in the browser:
-
-```text
-https://zetesis-labs.github.io/Sebastian/installer/?bin=https://example.com/sebastian.bin&version=v0.1.0
-```
-
-External firmware hosts need CORS headers that allow the Pages origin.
-
-## Install troubleshooting
-
-`Failed to initialize` means the browser opened the serial port but esptool.js
-could not sync with the ESP32-S3 bootloader. Close any open serial dialog/monitor,
-then retry while holding BOOT when clicking "Connect and install"; release BOOT
-once initialization starts. If Chrome still owns the port after a failed attempt,
-close the install dialog or reload the page before trying again.
-
-## Runtime provisioning
-
-The page also prepares a `sebastian.config.v1` JSON payload for device provisioning.
-It can be downloaded, copied, or sent over Web Serial. The firmware receiver is the
-next piece: it should parse that line, validate it, persist it in NVS, and reboot.
-See [PROVISIONING.md](PROVISIONING.md).
-
-The payload contract is versioned in
-[`sebastian-config.schema.json`](sebastian-config.schema.json). The installer
-validates imported, downloaded, copied, and serial-sent configs against that JSON
-Schema before accepting them.
-
-Export the current repo-local configuration and load it in the page:
-
-```bash
-tools/export_current_config.py --out docs/installer/sebastian-config.local.json
-```
-
-Then use the page's "Import" control and select that generated file. The
-`.local.json` file is ignored by git because it contains the real WiFi password.
-For hosted configs without secrets, the page also accepts:
-
-```text
-https://zetesis-labs.github.io/Sebastian/installer/?config=https://example.com/sebastian-config.json
-```
-
-## Current product gap
-
-This web installer is ready as a delivery surface, but a public WLED/ESPHome-style flow
-still needs runtime provisioning. Today the firmware gets WiFi credentials from
-`firmware/sdkconfig` and the token-server URL from `firmware/main/secrets.zig`, both at
-build time. A general installer should move those values to NVS/serial provisioning, or
-implement Improv Serial, before publishing one binary for all users.
+Una placa nueva con firmware XVF de familia USB requiere el procedimiento inicial
+por USB DFU documentado en el repositorio, `docs/XVF3800.md`. El instalador ESP32
+no sustituye ese cambio de familia del chip XMOS.

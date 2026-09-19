@@ -1,99 +1,85 @@
 # Sebastian
 
-**Bi-directional conversational** voice speaker over **Seeed ReSpeaker XVF3800
-+ XIAO ESP32-S3**, connected to **LiveKit**. The user speaks, the
-device captures and cleans the voice via hardware (4-microphone array with
-beamforming + AEC + noise suppression in the XMOS XVF3800), publishes it in a
-LiveKit room, and a **Python agent (OpenAI Realtime)** responds through the
-speaker. The entire loop is voice-to-voice.
+Altavoz de voz sobre **Seeed ReSpeaker XVF3800 + XIAO ESP32-S3**, con tres usos:
+asistente conversacional, micrófono USB y grabador de reuniones. Incluye firmware,
+agente de voz, servidor de administración, dashboard e instalador web.
 
-- **Repository:** `github.com/Zetesis-Labs/Sebastian`
+Repositorio: `github.com/Zetesis-Labs/Sebastian`.
 
-## Status: IT WORKS
+## Estado actual
 
-The **bi-directional voice conversation works and is validated in hardware**: the
-agent speaks through the speaker and hears the user intelligibly. The **LED ring
-points to who is speaking** (direction of arrival / DoA) and the **mute button**
-works (the ring turns off when muted). Details in
-[docs/STATUS.md](docs/STATUS.md).
+Referencia documental: **2026-09-19**, código hasta `84f278b6` en
+`feat/meetings-b`. Esta referencia incluye cambios de reuniones aún separados de
+`main`; no certifica qué versión está desplegada.
 
-```
-┌─────────────────────────┐         WebRTC          ┌──────────────────┐
-│ ESP32-S3 (Zig firmware)  │  ◄───────────────────►  │  LiveKit Cloud   │
-│ ReSpeaker XVF3800        │      room / Opus        │      (room)      │
-│  · 4 mics → XVF3800      │                         └────────┬─────────┘
-│  · speaker ← AIC3104     │                                  │ dispatch
-└─────────────────────────┘                         ┌────────▼─────────┐
-                                                     │ Agent (Python)   │
-                                                     │ OpenAI Realtime  │
-                                                     └──────────────────┘
-```
+La conversación, el micrófono USB y la gestión de flota tienen implementación.
+La rama añade el recorrido de reuniones: captura, subida reanudable, transcripción
+por hablantes, resumen y consulta desde el panel. Las notas de sesión registran
+pruebas en placa de captura y en navegador del panel; quedan pendientes la prueba
+en placa de las órdenes por voz y la reproducción manual del audio.
 
-## How it fits together (summary)
+[Estado y pendientes](docs/STATUS.md) distingue código, evidencia de pruebas y
+trabajo abierto. [ROADMAP.md](ROADMAP.md) fija las prioridades de estabilización.
 
-- The **XVF3800 is the I2S master** (generates the clock at **48 kHz**, 32-bit,
-  stereo) and the **ESP32-S3 is the slave**, over **two separate I2S ports** (RX
-  mic / TX speaker) to avoid corrupting the DMA.
-- The firmware **DFU-flashes the XVF** to its **"inthost" (I2S-master)** firmware via
-  I2C **from our own Zig code** (without ESPHome or external tools)
-  and un-mutes it on boot.
-- The microphone uses the **raw RIGHT/ASR beam of the XVF** (without on-chip NS) and the
-  **agent's BVC noise cancellation** does the only noise suppression pass
-  — this avoids the "tinny" artifact of double NS.
-- The mic audio is published as **Opus at 48 kHz**; LiveKit resamples downstream.
+## Componentes
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for full details.
-
-## Key decisions
-
-- **Firmware in Zig**: memory safety, `comptime`, native C-interop. The
-  core WebRTC/network remains in C (the LiveKit SDK, not rewritable); Zig covers the
-  application layer (board bring-up, mic source, speaker path, XVF DFU,
-  room logic).
-- **Agent in Python**: this is how LiveKit agents are built (`agents` framework
-  with batteries included: VAD, turn-detection, BVC noise cancellation).
-- **Go control plane**: a contract-first OpenAPI service authenticates devices,
-  creates explicit LiveKit dispatches and records domain/outbox events in PostgreSQL.
-- **NATS JetStream**: a separate outbox worker publishes durable CloudEvents for
-  downstream functions and the administration panel.
-- **LiveKit credentials are short-lived** and issued per session; the firmware
-  carries no API secret or static JWT.
-
-> ⚠️ This is a **bleeding edge** project: first LiveKit-on-ESP32 in Zig (Espressif
-> `0.16-xtensa` fork, LLVM Xtensa backend).
-
-## Documentation
-
-| Document | What it covers |
+| Directorio | Responsabilidad |
 |---|---|
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Full system architecture: voice-to-voice flow, I2C/I2S buses, mic and speaker pipelines, channel decision, agent. |
-| [docs/HARDWARE.md](docs/HARDWARE.md) | ReSpeaker XVF3800 + XIAO ESP32-S3 board: components, pinout, I2C addresses, audio topology. |
-| [docs/FIRMWARE.md](docs/FIRMWARE.md) | Zig firmware on ESP-IDF v5.4: modules, manual `extern` bindings, build system. |
-| [docs/XVF3800.md](docs/XVF3800.md) | The XVF3800 chip: firmware families, DFU via I2C, protocol, mute, the two output channels. |
-| [docs/BUILD_AND_RUN.md](docs/BUILD_AND_RUN.md) | Operator guide: build, flash, run the agent, dispatch and audio verification. |
-| [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Playbook symptom → root cause → solution from the bring-up session. |
-| [docs/STATUS.md](docs/STATUS.md) | Current project status and open quality items. |
-| [MILESTONE.md](MILESTONE.md) | The `living-room-ready` gate: exit criteria (auth, OTA, observability, privacy) between bench prototype and a deployed device. |
+| [firmware/](firmware/) | Zig sobre ESP-IDF y SDK LiveKit C: hardware, audio, activación local, sesiones, USB y configuración persistente. |
+| [agent/](agent/) | Python con LiveKit Agents: conversación Gemini/OpenAI, Home Assistant por MCP y captura de reuniones. |
+| [server/](server/) | Go/OpenAPI: flota, sesiones, reuniones, transcripción, PostgreSQL y outbox hacia NATS JetStream. |
+| [dashboard/](dashboard/) | React/TanStack Start: administración SSR de dispositivos, grabaciones y reuniones. |
+| [web-installer/](web-installer/) | Instalación y configuración por WebSerial; disponible también dentro del dashboard. |
+| [helm/sebastian/](helm/sebastian/) | Chart del backend; configuración de despliegue en Mileto. |
 
-## Structure
+## Cómo funciona
 
-| Folder | What |
+En conversación, **«Okay Nabu» se detecta localmente**. El dispositivo abre una
+sesión autenticada en Go; el servidor crea una sala LiveKit nueva y despacha el
+agente. La placa entrega el audio previo a la activación y publica el micrófono.
+El agente responde por la misma sala. Al cerrar, la placa vuelve a la escucha local.
+
+El XVF3800 procesa los cuatro micrófonos y genera el reloj I2S a 48 kHz. El ESP32
+usa puertos separados para captura y reproducción. El canal actual es
+**LEFT/comms**, con procesamiento del XVF. LiveKit puede alojarse en el entorno
+propio; BVC se activa por defecto solo cuando el agente detecta LiveKit Cloud.
+Gemini es el proveedor conversacional por defecto y OpenAI es seleccionable.
+
+En modo **micrófono USB**, la placa entrega PCM mono al ordenador. La interfaz USB
+convive con el perfil agente mediante un árbitro que evita lectores simultáneos
+del micrófono. Las reuniones se inician desde el perfil agente y usan una sesión
+de captura dedicada, sin conversación con el modelo.
+
+## Desarrollo
+
+Compilación, lint y pruebas se ejecutan **dentro del devcontainer**. En macOS, el
+flasheo y la lectura del USB se realizan desde el host con los artefactos generados
+en el contenedor.
+
+1. Preparar las variables y abrir el entorno según [DEVCONTAINER.md](docs/DEVCONTAINER.md).
+2. Dentro del contenedor, aplicar migraciones con `make server-migrate` y arrancar
+   `make server-run`, `make server-outbox`, `make agent` y `make dashboard-dev` en
+   terminales separados.
+3. Compilar con `make fw-build`; desde el host, flashear con `make flash`.
+4. Configurar/adoptar la unidad desde el instalador y el panel. Las sesiones usan
+   `POST /v1/sessions` con identidad y secreto del dispositivo.
+
+La [guía de ejecución](docs/BUILD_AND_RUN.md) detalla los prerrequisitos, el
+aprovisionamiento y la verificación. No se guardan credenciales reales en Git.
+
+## Documentación
+
+| Documento | Uso |
 |---|---|
-| [`firmware/`](firmware/) | ESP32-S3 firmware. App in **Zig** on ESP-IDF + LiveKit C SDK. |
-| [`agent/`](agent/) | Voice agent in **Python** (`livekit-agents` + OpenAI Realtime). |
-| [`server/`](server/) | Control plane in **Go** (OpenAPI, PostgreSQL, LiveKit, outbox and JetStream). |
-| [`dashboard/`](dashboard/) | Administration panel in **React + TanStack Start**. |
-| [`docs/`](docs/) | Documentation (see table above). |
-
-## Quick start
-
-See [docs/BUILD_AND_RUN.md](docs/BUILD_AND_RUN.md) for the full guide. In short:
-
-1. **Firmware**: `source ~/esp/esp-idf/export.sh && cd firmware && idf.py build && idf.py -p /dev/cu.usbmodem101 flash monitor`
-2. **Server**: `make server-migrate && make server-run` inside the devcontainer.
-3. **Dashboard**: `make dashboard-dev` and open `http://localhost:3001`.
-4. **Agent** (exactly one): `cd agent && uv sync && uv run agent.py dev`
-5. Reset the board; the server creates a fresh room and explicit dispatch.
-
-Secrets (WiFi, LiveKit token, OpenAI key) go in gitignored files;
-they are never committed.
+| [docs/STATUS.md](docs/STATUS.md) | Estado actual y evidencia disponible. |
+| [docs/RECENT_CHANGES.md](docs/RECENT_CHANGES.md) | PRs, commits, integración y publicación desde julio. |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Componentes, flujos y límites del sistema implementado. |
+| [ROADMAP.md](ROADMAP.md) | Prioridades actuales y propuestas históricas identificadas como tales. |
+| [MILESTONE.md](MILESTONE.md) | Criterios pendientes para operación autónoma y recuperación. |
+| [TESTING.md](TESTING.md) | Pruebas existentes, comandos y validación pendiente en hardware. |
+| [docs/FIRMWARE.md](docs/FIRMWARE.md) | Módulos, ABI y restricciones de firmware. |
+| [docs/HARDWARE.md](docs/HARDWARE.md) | Placa, buses y conexiones. |
+| [docs/PROFILES.md](docs/PROFILES.md) / [docs/USB_MIC.md](docs/USB_MIC.md) | Perfiles locales y convivencia del micrófono USB. |
+| [Flota](docs/implementation/12-fleet-adoption-functional-spec.md) | Requisitos de adopción y administración. |
+| [Reuniones](docs/implementation/13-meeting-recordings-functional-spec.md) / [diseño](docs/implementation/14-meeting-recordings-technical-design.md) | Requisitos y diseño de reuniones; consultar STATUS para su ejecución real. |
+| [SESSION.md](SESSION.md) | Registro cronológico de pruebas e incidencias, con su contexto de fecha. |

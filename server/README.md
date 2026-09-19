@@ -36,7 +36,7 @@ Ese comando genera `internal/api/openapi.gen.go` mediante `oapi-codegen`. La
 persistencia usa Bun con consultas SQL-first escritas en
 `internal/postgres/store.go`; no hay código ORM generado que versionar.
 
-## Endpoints iniciales
+## Endpoints principales
 
 - `GET /healthz`: liveness del proceso.
 - `GET /readyz`: disponibilidad de PostgreSQL.
@@ -62,18 +62,30 @@ persistencia usa Bun con consultas SQL-first escritas en
   id)` la adopta con el secreto que ella misma entrega (nace con la placa; la
   adopción por red lo recibe igual en la respuesta `ok`). 404 si no hay
   `SEBASTIAN_ORG_SECRET`.
-- Flota (`docs/implementation/11-fleet-adoption-control-room.md`):
+- Flota ([diseño](../docs/implementation/11-fleet-adoption-control-room.md)):
   `GET /v1/admin/devices` (vista con lo visto por mDNS), `GET/PATCH
   /v1/admin/devices/{id}`, `POST …/adopt` y `POST …/forget` (202 + job en
   `GET /v1/admin/adoptions/{jobId}`), `PUT/DELETE …/desired-config`,
   `POST …/secret`, `GET /v1/admin/control-room`.
-- Reuniones (`docs/implementation/14-meeting-recordings-technical-design.md`):
+- Reuniones ([diseño](../docs/implementation/14-meeting-recordings-technical-design.md)):
   `POST /v1/admin/devices/{id}/meetings`, `GET /v1/admin/meetings`,
   `GET/DELETE /v1/admin/meetings/{id}`, `POST …/stop`,
   `GET …/audio` (con `Range`); la placa confirma con
   `PUT /v1/devices/{id}/meeting` y recibe la orden por UDP (`cmd`) o en la
   cabecera `X-Meeting` del poll; el agente sube el audio con
   `PUT /v1/meetings/{id}/audio` (chunked, reanudable con `Content-Range`).
+
+Reuniones añade también `PATCH` (título, hablantes, conservar), búsqueda `q`,
+exportación `…/transcript` TXT/SRT, reintentos `…/transcribe` y `…/summarize`.
+El agente usa `HEAD …/audio` para recuperar el offset y `…/stop`/`…/warn` con
+`X-Agent-Secret`; puede solicitar inicio por voz en `POST /v1/meetings`.
+
+El worker de transcripción vive en el proceso API. Recupera reuniones en
+`transcribing` al arrancar, corta Ogg con ffmpeg y llama al proveedor. El audio
+reside en `SEBASTIAN_MEETINGS_DIR`, no en PostgreSQL ni en object storage.
+Las reuniones no crean automáticamente filas en el catálogo `recordings`.
+La recuperación de una reunión `cut` requiere validación específica: el worker
+solo procesa `transcribing`; el panel permite solicitar otra transcripción.
 
 El `/token` legado sin autenticación se retiró (RF-12): las sesiones se abren
 solo con `POST /v1/sessions` y requieren `X-Device-Id` y `X-Device-Secret`.
@@ -96,6 +108,13 @@ solo con `POST /v1/sessions` y requieren `X-Device-Id` y `X-Device-Secret`.
 | `SEBASTIAN_AGENT_SECRET` | para grabar reuniones | — (lo comparte con el agente, que sube el audio con `X-Agent-Secret`) |
 | `SEBASTIAN_MEETINGS_DIR` | no | `meetings` (directorio del audio de reuniones) |
 | `SEBASTIAN_MEETING_MAX_DURATION` | no | `3h` (RM-24) |
+| `SEBASTIAN_MEETING_RETENTION_DAYS` | no | `90`; `0` desactiva limpieza |
+| `SEBASTIAN_MEETING_SUMMARY` | no | `true` |
+| `OPENAI_API_KEY` | para transcribir/resumir | —; sin ella se conserva audio y se informa `no_transcript` |
+| `OPENAI_BASE_URL` | no | `https://api.openai.com/v1` |
+| `SEBASTIAN_TRANSCRIBE_MODEL` | no | `gpt-4o-transcribe-diarize` |
+| `SEBASTIAN_SUMMARY_MODEL` | no | `gpt-5.4-mini` |
+| `SEBASTIAN_FFMPEG` | no | `ffmpeg` (necesario en PATH) |
 | `SEBASTIAN_SYSLOG_IP` / `SEBASTIAN_SYSLOG_PORT` | no | — / `514` (escrito en los devices adoptados) |
 | `SEBASTIAN_DISCOVERY_ENABLED` | no | `true` (escucha mDNS `_sebastian._tcp`; necesita red del host en Kubernetes) |
 
@@ -142,3 +161,11 @@ OIDC queda pospuesto. Las rutas administrativas usan temporalmente
 `X-Admin-Secret`; el dashboard lo envía exclusivamente desde sus funciones SSR,
 por lo que no aparece en el navegador. La autenticación de dispositivos es un
 mecanismo separado.
+
+
+## Estado de integración
+
+A 2026-09-19, la flota (#46–48) y reuniones A (#49) están integradas. El resto de
+reuniones, incluido voz, está en #50. La release #45 sigue abierta. Ver
+[procedencia](../docs/RECENT_CHANGES.md), [estado](../docs/STATUS.md) y
+[aceptación pendiente](../TESTING.md).

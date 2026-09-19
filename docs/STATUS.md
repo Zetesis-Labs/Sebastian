@@ -1,125 +1,83 @@
-# Project Status (2026-07-03)
+# Estado de Sebastian
 
-> ⚠️ **Historical snapshot — superseded.** Since this was written the system changed
-> substantially: the wake word is now **"Okay Nabu"** (`okay_nabu.tflite`); the mic uses the
-> **`.left`/comms** channel (path B, 2026-07-08) and **full-duplex works** (fixed beam + AEC
-> converged), not the half-duplex mute-while-speaking described below; and the backend moved
-> from **LiveKit Cloud sandbox** to a **self-hosted SFU + Go token/session server + admin
-> dashboard + agent + control plane** on the `cortes` cluster (see `server/`, `dashboard/`,
-> `helm/sebastian/`). Treat everything below as a 2026-07-03 snapshot; the source of truth is
-> the code and `ROADMAP.md`.
+Actualizado el **2026-09-19** contra `84f278b6` (`feat/meetings-b`). Describe este
+árbol de código; no acredita el estado del despliegue. La evidencia de hardware y
+navegador citada procede de [SESSION.md](../SESSION.md), no de nuevas pruebas
+realizadas durante esta actualización documental.
 
-**Wake word "Sebastián" WORKING on-device and validated on
-hardware.** The device listens locally with a 62 KB TFLite-Micro model
-(zero cost at rest) and only opens the LiveKit session when it hears its name; it closes it
-by local silence and returns to detection mode. Full cycle verified:
-detection (both pronunciations) → session → close → re-detection.
+## Integración y publicación
 
-## 2026-07-03 — natural conversation, observability and devcontainer
+La revisión de GitHub confirma #46–48 (flota) y #49 (reuniones A) integrados.
+#50 contiene B–F y sigue abierto; F se incorporó en el commit `84f278b6`.
+La release #45 y el endpoint permanente #44 también
+siguen abiertos. [RECENT_CHANGES.md](RECENT_CHANGES.md) detalla la secuencia,
+los commits y las pruebas registradas.
 
-- **Event-driven pre-roll**: the ring (12 s PSRAM) records up to the instant of the
-  handoff (room CONNECTED + agent inside), with a window anchored 2 s before the
-  wake and send retries. "Sebastián, turn on the living room light" spoken continuously
-  arrives entirely **without waiting for the green ring**. The agent discards the initial
-  gate silence so as not to split the turn. (`pre_roll.zig`, `app.zig`, `agent.py`)
-- **Device↔agent data protocol**: the agent publishes its state
-  (`sebastian.agent_state`) and the device publishes the barge-in (`sebastian.barge_in`).
-- **Half-duplex + LINGER**: the AEC does not converge in session, so the mic is
-  muted while the agent speaks (+400 ms tail) — it kills the echo/self-talk
-  loop; its voice counts as session activity, the closing changes to real silence and
-  the 90 s limit → 10 min safety net. (`mic_src.zig`, `app.zig`)
-- **Alexa-style barge-in**: "Sebastián" over the agent's voice interrupts it (the wake
-  model monitors the gated audio → `interrupt()`); the agent is forbidden to say
-  its own name. `end_session` by voice ("shut up"/"stop"/farewell) closes the room.
-- **Home Assistant MCP** with anti-hallucination grounding (GetLiveContext mandatory
-  for the home state).
-- **Observability**: serial → `tools/telemetry/bridge.py` → OTLP → LGTM stack
-  (Grafana) + Grafana MCP; the **agent exports as `sebastian-agent`** with the
-  transcription per turn in Loki; heartbeat (`serial_age`) distinguishes alive-quiet
-  from dead. (`tools/telemetry/`, `agent/telemetry.py`)
-- **Devcontainer** (`docs/DEVCONTAINER.md`): entire environment in container (build
-  ESP-IDF+Zig, agent with F5, token, LGTM), everything in the Run and Debug dropdown
-  (Nixon pattern), agent venv in named volume. Flash from the host (native
-  auto-reset) — over TCP the USB-JTAG does not forward the reset (manual download mode).
-- **Field bug caught**: `@min(comptime, x)` narrows the type to u9 → overflow;
-  it crashed the barge-in every session. Rule: reproduce the pure logic on host with
-  the toolchain's zig before flashing.
+## Implementación y evidencia
 
-The previous base (two-way voice, beam ASR, LED/mute) remains as it was —
-commits in `origin/main`:
+| Capacidad | Implementación actual | Evidencia y límite |
+|---|---|---|
+| Conversación | Activación local «Okay Nabu», sesión autenticada, sala nueva, agente Gemini/OpenAI, interrupción y cierre. | Las sesiones registran uso en placa y correcciones de fallos. No equivale a una prueba continua de estabilidad. |
+| Audio | LEFT/comms a 48 kHz, captura acompasada al consumidor, AEC verificado por lectura de configuración y modos full/half duplex. | Hay pruebas acústicas históricas. El comportamiento depende de la sala, el volumen y la configuración. |
+| USB y perfiles | Micrófono UAC2 mono, perfiles `agente`/`micro-usb`, arbitraje de captura y selección de perfil. | Los PRs #40/#42 registran pruebas en hardware de perfiles y convivencia. Incluirlas en las regresiones de reuniones. |
+| Flota | Descubrimiento, adopción, secreto propio de la unidad, incorporación automática, configuración deseada/ejecutada, traslado y olvido. | SESSION registra pruebas de varias transiciones en la unidad `68ee`. La cobertura funcional completa necesita un recorrido de aceptación explícito. |
+| Reuniones A–C | Estados, órdenes por LAN/sondeo, gesto MUTE, LEDs, captura dedicada y subida reanudable. | SESSION registra pruebas de B/C en `68ee`. |
+| Reuniones D | Transcripción por fragmentos, hablantes, resumen, reintentos y retención. | SESSION registra tres reuniones transcritas con dos hablantes y resúmenes. Falta validar fallos prolongados y recuperación. |
+| Reuniones E | Lista, detalle, búsqueda, transcripción sincronizada, exportación y límites por unidad. | SESSION registra inicio/parada y edición de límites desde Chrome. Reproducción manual pendiente. |
+| Reuniones F | Inicio desde conversación y parada por voz durante la grabación. | Implementado con pruebas automatizadas; la sesión registra firmware compilado, pendiente de flasheo y prueba de ambas órdenes. |
 
-- `feat(firmware): two-way LiveKit voice on XVF3800 + XIAO ESP32-S3`
-- `fix(firmware): use XVF ASR beam (right slot) to kill the tin-can double-NS`
-- `feat(firmware): LED-ring DoA + mute UI, and boot health/error hardening`
+## Decisiones vigentes
 
-## What works
+- **Activación:** modelo stock `okay_nabu.tflite`. Las métricas de entrenamiento de
+  «Sebastián» que aparecen en documentos de julio no describen este modelo.
+- **Audio:** `mic_channel = .left`. Los valores base de `fixed_beam` y
+  `full_duplex` son `true`, modificables mediante configuración/perfil. Si falla
+  la configuración necesaria del AEC, el firmware fuerza half-duplex.
+- **Audio previo a la activación:** el anillo tiene 12 s de capacidad, pero el
+  envío se limita a los últimos 2,5 s (80 KB de PCM) para respetar el presupuesto
+  del transporte SCTP. Capacidad del anillo y tamaño enviado son distintos.
+- **Conversación:** Gemini por defecto, OpenAI seleccionable. No hay cambio
+  automático de proveedor conversacional por fallo. BVC depende del despliegue;
+  no se presupone en LiveKit alojado localmente.
+- **Identidad:** MAC normalizada y secreto generado por la propia unidad. Las
+  sesiones usan `POST /v1/sessions`; el servidor Go ya no expone `/token` legado.
+- **Persistencia:** PostgreSQL guarda el estado y los eventos/outbox. NATS entrega
+  eventos a otros consumidores. El audio de reuniones se guarda en el directorio
+  del servidor; su metadata y transcripción están en PostgreSQL.
+- **Dos clases de grabación:** los WAV de diagnóstico de conversación, el catálogo
+  `recordings` y las reuniones `meetings` tienen recorridos distintos. La
+  retención de reuniones no limpia automáticamente los WAV de diagnóstico.
 
-- **Wake word on-device** (`docs/WAKE_WORD.md`): microWakeWord trained on the
-  M4 Pro with 9 Spanish Piper TTS voices + 120 real recordings via XVF.
-  99.3% recall, <1 false positive/hour. C/C++ component `firmware/components/mww`
-  (TFLM + microfrontend) + Zig task `wakeword.zig`. The `app.zig` loop gates the
-  LiveKit session with the detection — **activation-based architecture, not always-on**.
-- **Zig Firmware** on ESP-IDF v5.4, with **handwritten `extern` bindings**
-  (not `@cImport`): compiles and links clean for Xtensa. The old blocker
-  translate-c↔newlib is resolved — Zig no longer parses C headers.
-- **XVF3800 on master 1.0.7 "inthost" firmware**: our own firmware
-  DFU-flashes it via I2C on the first boot (`xvf_dfu.zig`, without ESPHome) and
-  un-mutes it (GPIO30). Subsequent boots detect it already on 1.0.7 and skip it.
-- **I2S Clock**: the XVF is **master at 48 kHz** (32-bit, stereo); the ESP is
-  **slave** over **two separate I2S ports** (mic RX on `I2S_NUM_1`, speaker TX
-  on `I2S_NUM_0`) sharing BCLK/WS. The RX channel is shared between the
-  wake word task (idle) and `mic_src` (active session) with resync on each hand-off.
-- **Microphone capture**: direct reading from the I2S paced by the consumer
-  (consumer-paced, no ring buffer), taking the **RIGHT/ASR beam** from the XVF
-  (channel selectable at installation via `config.zig`); publishes **Opus at
-  48 kHz**. The **NS is done by the agent's BVC** (single pass).
-- **Speaker**: `av_render` → I2S TX → **AIC3104** → speaker.
-- **UI**: **LED ring pointing to whoever is speaking** (DoA) + **mute button**
-  (ring off when muted).
-- **Boot health banner**: the boot reports `BOOT OK` / `DEGRADED`
-  (includes wake word model loading).
+## Correcciones recientes que condicionan el trabajo
 
-## Recently resolved
+La sesión del 17–19 de septiembre documenta dos causas de pánicos: el driver I2C
+con ESP-IDF 5.4.0 y envíos de pre-roll superiores a la caché SCTP. El CI de firmware
+usa 5.4.4 y el envío está acotado. También se incorporaron volcado de pánicos a
+flash y envío de su resumen por syslog al arrancar.
 
-- **Simple silence closing**: the fixed session timeout was replaced by
-  local VAD on `mic_src.level()` with a 20 s minimum, closing after 12 s of
-  silence and a 90 s safety maximum. This avoids cutting off sentences due to a
-  fixed counter and leaves LINGER/DDSD as a later semantic improvement.
-- **AEC WORKING (2026-07-02, `docs/AEC.md`)**: the factory build came with
-  `AEC_FAR_EXTGAIN=0.0` → the AEC never adapted (it believed the speaker was muted). Fix:
-  `FAR_EXTGAIN=1.0` via I2C at boot, verified by readback and reflected in
-  the boot health (`xvf_aec.applyConfig`). `AECCONVERGED=1` verified; the agent
-  no longer transcribes itself at full scale. Collateral: the software volume
-  was a no-op all along (noop set_vol suppressed esp_codec_dev's sw-vol)
-  — now the control is real. The diagnosis left the complete table of XVF I2C
-  commands (`docs/xvf3800_command_map.txt`), an in-band reference probe
-  (`xvf_aec.probeReference`) and serialized I2C access (lock in `xvf_dfu.xfer` —
-  the control protocol is write+read in two transactions and xvf_ui polls
-  DoA every 80ms).
-- The session is opened by wake word with **fresh token per session + explicit
-  agent dispatch** (see `docs/BUILD_AND_RUN.md`).
+En flota se corrigieron fugas de goroutines del descubrimiento mDNS, desbordamiento
+de pila al reportar configuración y uso de una identidad fija en el agente. La
+identidad del participante procede ahora de los metadatos del despacho.
 
-## Open points (non-blocking)
+Las notas mantienen abierta la pérdida de respuesta del XVF con el altavoz a
+máximo volumen. Una compilación correcta no cierra esa comprobación acústica.
 
-1. **AEC fine-tuning** (`docs/AEC.md`): measure the real delay with chirp if
-   we want to squeeze ERLE; try volume >60; suppression of residual echo from the
-   comms channel if necessary.
+## Prioridades de estabilización
 
-## Recurring operational notes
+1. **Cerrar reuniones en hardware y navegador:** inicio/parada por voz, gesto,
+   mute, LEDs y reproducción con búsqueda temporal. Registrar commit, unidad,
+   configuración y resultado.
+2. **Probar las interrupciones entre componentes:** WiFi/LiveKit, reinicio del
+   agente o servidor, subida parcial, reintentos y almacenamiento lleno. Comprobar
+   audio conservado, estado visible y posibilidad de recuperación; no dar por
+   cubiertos estos casos por una prueba del recorrido normal.
+3. **Cerrar los criterios de operación autónoma:** actualización y recuperación,
+   acceso administrativo, retención y diagnóstico. Los criterios concretos están
+   en [MILESTONE.md](../MILESTONE.md).
+4. **Uso continuado:** mantener un registro de activaciones falsas, cierres
+   inesperados, interrupciones y reuniones incompletas para priorizar sobre
+   evidencia de uso.
 
-- **Exactly one agent process.** Several processes make it "talk to itself":
-  `pkill -9 -f "agent.py"` and start just one.
-- **Explicit dispatch by token (there is NO MORE "fresh room + reset").** The token
-  server creates the agent dispatch by API on each token, so re-waking
-  to a live room already puts the agent in (the "not responding after re-wake" bug resolved).
-- **Board at `/dev/cu.usbmodem101`.** If it does not flash (boot-loop / esptool does
-  not connect): physical USB **power-cycle**, or hold down **BOOT** when
-  plugging in (manual download mode). The board does not brick. To flash from the
-  **devcontainer** over TCP: `make serial-share` on the host + manual download mode
-  (the USB-JTAG auto-reset does not cross rfc2217).
-- **If the entire I2C bus gives probe timeout** (XVF and AIC3104 muted): the XVF has
-  hung — physical USB power-cycle. Usually happens after many consecutive reflashes.
-
-See [BUILD_AND_RUN.md](BUILD_AND_RUN.md) for the complete operation,
-[WAKE_WORD.md](WAKE_WORD.md) for the wake word system and
-[TROUBLESHOOTING.md](TROUBLESHOOTING.md) for the debugging playbook.
+El [plan de pruebas](../TESTING.md) convierte estas prioridades en verificaciones.
+Los documentos de diseño expresan requisitos; una casilla histórica o un bloque
+implementado no certifican su aceptación ni su despliegue.
