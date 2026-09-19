@@ -1,4 +1,36 @@
-# XVF3800 AEC: diagnosis and fix
+# AEC del XVF3800
+
+## Configuración vigente (2026-09-19)
+
+La referencia es [xvf_aec.applyConfig](../firmware/main/xvf_aec.zig), junto con
+[config.zig](../firmware/main/config.zig). El código aplica y comprueba:
+
+| Parámetro | Valor actual |
+|---|---|
+| `REF_GAIN` | 1,0 |
+| `FAR_EXTGAIN` | 0,0 |
+| `MIC_GAIN` | 90,0 |
+| `FAR_END_DSP_ENABLE` | 1 |
+| Haz fijo | Configurable; activado en los valores base. |
+| AGC del canal de comunicaciones | Ganancia máxima 8 y tiempo 0,25 s. |
+
+Los fallos de las precondiciones AEC hacen que el firmware fuerce half-duplex.
+Los ajustes de comodidad del AGC registran el fallo pero no deshabilitan por sí
+solos full-duplex. El canal actual es LEFT/comms, con supresión residual del XVF.
+
+El diagnóstico inicial que atribuía el fallo a `FAR_EXTGAIN=0` fue corregido:
+el valor no se interpreta como un multiplicador lineal de cero. El código
+posterior documenta la referencia, la persistencia de configuración entre resets
+y la necesidad de reponer `FAR_END_DSP_ENABLE` al arrancar. La calidad y
+convergencia se comprueban en hardware, no a partir de un valor de registro aislado.
+
+## Archivo del diagnóstico inicial, 2026-07-02
+
+Se conserva el informe siguiente como historial de la investigación, **incluida
+la hipótesis de FAR_EXTGAIN que se descartó**. No usar sus valores como receta de
+configuración actual. Los probes y el método de medición siguen siendo útiles;
+consultar el código y [TESTING.md](../TESTING.md) antes de reproducirlos.
+
 
 **Resolved 2026-07-02.** The XVF3800 AEC never worked in this project —
 not because of delay, nor wiring, nor I2S format: **the ReSpeaker factory build

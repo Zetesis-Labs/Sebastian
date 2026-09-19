@@ -10,7 +10,7 @@ sebastian.config.v1 {"schema":"sebastian.config.v1",...}
 The firmware-side receiver is implemented in `firmware/main/provisioning.c`. It:
 
 1. Listens on the USB-Serial-JTAG console (a task started at boot).
-2. Accepts only lines prefixed with `sebastian.config.v1 `.
+2. Procesa `sebastian.config.v1`, `sebastian.config.get` y `sebastian.profile.set`.
 3. Parses the JSON payload (cJSON).
 4. Checks `schema == "sebastian.config.v1"`.
 5. Stores into NVS (namespace `sebastian`): WiFi (`ssid`/`password`), and when
@@ -23,6 +23,10 @@ The firmware-side receiver is implemented in `firmware/main/provisioning.c`. It:
    NVS: `sebastian_net_connect()` uses the WiFi creds, `token.zig` reads
    `tokenServerUrl`, and `config.zig::load()` overrides its compiled defaults
    with the stored audio/mode values **before** the XVF/AEC config is applied.
+
+El nombre `tokenServerUrl` se conserva por compatibilidad. El firmware deriva
+su origen y llama a `POST /v1/sessions` con MAC y secreto propio; no llama al
+`/token` legado. La identidad, sala y despacho se resuelven en ese recorrido.
 
 ## The USB window and reading the config back
 
@@ -42,7 +46,7 @@ and the firmware answers with the stored config in the same shape (only the
 keys present in NVS, so the installer merges them over its defaults):
 
 ```text
-sebastian.config.dump {"schema":"sebastian.config.v1","provisioned":true,"wifi":{"ssid":"Home","passwordSet":true},"livekit":{"tokenServerUrl":"http://192.168.1.10:8787/token"},"telemetry":{"syslogIp":"192.168.1.10","syslogPort":514},"mode":"half_duplex","audio":{"fullDuplex":false,"fixedBeam":true,"fixedBeamAzimuthDeg":0},"profiles":[...],"activeProfile":"agent"}
+sebastian.config.dump {"schema":"sebastian.config.v1","provisioned":true,"wifi":{"ssid":"Home","passwordSet":true},"livekit":{"tokenServerUrl":"http://192.168.1.10:8787"},"telemetry":{"syslogIp":"192.168.1.10","syslogPort":514},"mode":"half_duplex","audio":{"fullDuplex":false,"fixedBeam":true,"fixedBeamAzimuthDeg":0},"profiles":[...],"activeProfile":"agent"}
 ```
 
 Two extras: `provisioned` (there is a WiFi SSID in NVS) and `wifi.passwordSet`.
@@ -113,7 +117,7 @@ valid for `schema = "sebastian.config.v1"`.
     "hidden": false
   },
   "livekit": {
-    "tokenServerUrl": "http://192.168.1.10:8787/token",
+    "tokenServerUrl": "http://192.168.1.10:8787",
     "deviceIdentity": "esp32-respeaker",
     "room": "sebastian",
     "agentName": "sebastian"
@@ -125,7 +129,7 @@ valid for `schema = "sebastian.config.v1"`.
     "grafanaUrl": "https://grafana.example.com/d/sebastian-device"
   },
   "audio": {
-    "micChannel": "right",
+    "micChannel": "left",
     "fixedBeam": true,
     "fixedBeamAzimuthDeg": 0,
     "fullDuplex": true
@@ -144,7 +148,7 @@ valid for `schema = "sebastian.config.v1"`.
 | `wifi.ssid` / `wifi.password` | NVS, read by `sebastian_net_connect()` | ✅ before WiFi connect |
 | `wifi.hidden` | — | ❌ not consumed yet |
 | `livekit.tokenServerUrl` | NVS, read by `token.zig` | ✅ per-session token fetch |
-| `livekit.deviceIdentity` / `room` / `agentName` | `agent/token_server.py` constants | ❌ token server owns these |
+| `livekit.deviceIdentity` / `room` / `agentName` | Identidad MAC y sesión/dispatch del servidor Go | No; campos conservados por compatibilidad |
 | `telemetry.syslogIp` / `syslogPort` | NVS, read by `syslog_sink.c` | ✅ UDP syslog sink from boot |
 | `telemetry.otlpEndpoint` / `grafanaUrl` | `tools/telemetry/bridge.py` / env | ❌ device-side OTLP is future work |
 | `mode`, `audio.fullDuplex`, `audio.fixedBeam`, `audio.fixedBeamAzimuthDeg` | NVS → `config.zig::load()` | ✅ applied at boot |

@@ -1,11 +1,34 @@
-# Wake word: "Sebastián"
+# Activación local: Okay Nabu
 
-> ⚠️ **The embedded model is now `okay_nabu.tflite`** (stock English "Okay Nabu"), swapped in
-> to cut false positives. Current firmware facts: input **`[1, 3, 40]`** (3 frames/Invoke, 30 ms
-> stride), detection = moving average of **5** > **0.95**, arena **40 KB** internal SRAM
-> (`firmware/main/wakeword.zig`, `components/mww/mww.cpp`). The **"Sebastián"** model and the
-> metrics/training below describe the trained-in-Spanish roadmap target, whose artifacts are
-> not currently in the repo — read them as the training plan, not the shipping model.
+Estado contrastado con el código en **2026-09-19**. El firmware incorpora
+`firmware/main/okay_nabu.tflite`, modelo stock de unos 59 KB. La palabra actual
+es **«Okay Nabu»**.
+
+- Audio LEFT/comms a 48 kHz, decimado a 16 kHz mediante FIR de 19 taps.
+- Input `[1, 3, 40]`; ventana móvil de cinco probabilidades y umbral 0,95.
+- Arena TFLite de 40 KB en **PSRAM**, trasladada en `76cd441f` para permitir
+  convivencia de TinyUSB y LiveKit sin agotar RAM interna.
+- La detección abre una sesión autenticada y entrega el pre-roll. El anillo
+  retiene hasta 12 s; el envío está limitado a 2,5 s/80 KB desde `4dc968d4`.
+- El agente puede verificar la activación desde el pre-roll. El modelo de
+  activación no implementa por sí solo identificación del hablante.
+
+Fuentes: [wakeword.zig](../firmware/main/wakeword.zig),
+[mww.cpp](../firmware/components/mww/mww.cpp),
+[pre_roll_core.zig](../firmware/main/core/pre_roll_core.zig) y
+[wake_verify.py](../agent/wake_verify.py).
+
+El PR #37 cambió la palabra y #39 ajustó el umbral. #42 incorporó el traslado a
+PSRAM. El endpoint permanente propuesto en #44 sigue separado del flujo actual.
+La [arquitectura](ARCHITECTURE.md) describe conversación, USB y reuniones.
+
+## Archivo: entrenamiento e integración de «Sebastián»
+
+El contenido siguiente conserva los experimentos del modelo personalizado de
+julio. Tamaños, umbrales, métricas y comandos corresponden a aquella etapa;
+**no describen el modelo stock actual ni son sus métricas de aceptación**.
+Los scripts/artefactos de entrenamiento referidos pueden no estar disponibles
+en este árbol. La sección anterior y el código son la referencia vigente.
 
 **On-device** wake word detection with [microWakeWord](https://github.com/kahrendt/microWakeWord)
 (streaming CNN over TFLite-Micro). The device listens locally with a

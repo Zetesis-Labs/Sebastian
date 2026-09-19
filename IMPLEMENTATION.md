@@ -1,5 +1,10 @@
 # Implementation Report — Sebastian
 
+> Archivo de diseño de julio de 2026. Las decisiones «normativas» y los
+> estados de implementación de este informe pertenecen a esa exploración.
+> Para el código actual, consultar [STATUS](docs/STATUS.md),
+> [ARCHITECTURE](docs/ARCHITECTURE.md) y [cambios recientes](docs/RECENT_CHANGES.md).
+
 Normative synthesis of the multi-agent technical exploration from **2026-07-02**
 (8 areas investigated in parallel against the real repo code, the
 vendored components and the official docs/tags from July 2026, plus a

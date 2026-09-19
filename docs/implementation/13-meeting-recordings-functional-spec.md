@@ -3,7 +3,7 @@
 > 2026-09-18. Especificación funcional de una capacidad nueva: usar el altavoz
 > como grabadora de reuniones, con la grabación y su transcripción en el
 > control room. Este documento dice **qué** hace el sistema y cómo lo ven las
-> personas; el diseño técnico vendrá en un documento aparte. Estado:
+> personas; el diseño técnico está en [14](14-meeting-recordings-technical-design.md). Estado:
 > **pendiente de aprobación por Rubén**. Cada requisito lleva identificador
 > (`RM-…`) y criterios de aceptación para que los tests verticales se escriban
 > contra ellos antes de implementar. Decisiones de §11 tomadas. Se apoya en lo
@@ -11,6 +11,11 @@
 > sesiones LiveKit del altavoz, catálogo de grabaciones (`recordings`) y la
 > flota gobernada desde el control room
 > ([12-fleet-adoption-functional-spec.md](12-fleet-adoption-functional-spec.md)).
+
+> Seguimiento 2026-09-19: A integrado en #49; B–F implementados en #50 abierto.
+> La prueba en placa de voz y la reproducción manual siguen pendientes.
+> Consultar [STATUS](../STATUS.md) para evidencia y límites; esta nota no
+> declara aceptados todos los requisitos ni modifica su aprobación funcional.
 
 ## 1. Propósito y alcance
 

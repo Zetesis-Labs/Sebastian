@@ -7,6 +7,11 @@
 > requisito lleva identificador (`RF-…`) y criterios de aceptación para que
 > los tests verticales se escriban contra ellos antes de implementar.
 
+> Seguimiento 2026-09-19: implementación integrada en #46–48. Las pruebas y
+> diferencias actuales se recogen en [STATUS](../STATUS.md) y
+> [RECENT_CHANGES](../RECENT_CHANGES.md). Implementado no equivale a aceptación
+> completa de todos los criterios de esta especificación.
+
 ## 1. Propósito y alcance
 
 Hoy un altavoz solo existe para el control room al que se le grabó por USB, y
@@ -68,7 +73,7 @@ la ficha llevan la cronología de los tres relojes: último contacto, adopción 
 | Secreto | Alcance | Quién lo pone | Para qué |
 |---------|---------|---------------|----------|
 | **De organización** | común a todos los control rooms de la organización | el operador, en la primera provisión; o el primer control room que adopta una unidad de fábrica | autoriza adoptar |
-| **De altavoz** | uno por unidad | lo genera el control room al adoptar | autentica al altavoz en su día a día; permite ceder esa unidad sin dar el de organización |
+| **De altavoz** | uno por unidad | lo genera la placa al primer arranque; rotación opcional desde el control room (RF-51/53) | autentica al altavoz en su día a día; permite ceder esa unidad sin dar el de organización |
 
 **Regla de adopción:** un control room puede adoptar un altavoz si conoce el
 secreto de organización **o** el secreto de ese altavoz. No hace falta ningún
@@ -107,8 +112,9 @@ El operador solo tiene que introducir la WiFi.
   su URL y su syslog sin teclear nada; el JSON que se envía los contiene.
 
 **RF-03 Un altavoz provisionado desde el instalador embebido nace adoptado.** Al
-primer contacto aparece como "Adoptado aquí", con secreto de altavoz emitido en
-ese primer contacto (§8). Mecanismo: la unidad lleva el secreto de organización
+primer contacto aparece como "Adoptado aquí", con el secreto propio de la placa
+registrado por el control room en ese contacto (§8). Mecanismo: la unidad lleva
+el secreto de organización
 y su propio secreto de altavoz (RF-51); antes de su primer poll pide un reto a
 `GET /v1/devices/{id}/enroll`, lo firma (HMAC del nonce con el secreto de
 organización, como la adopción en red) y en `POST …/enroll` entrega su secreto
@@ -233,8 +239,9 @@ confirmación escribiendo la MAC.
 **RF-38 Ceder una unidad.** Para entregar un altavoz a alguien de fuera sin
 darle el secreto de organización: el dueño le comunica el secreto de altavoz
 (RF-52); el receptor lo adopta por IP con ese secreto; al adoptar, el nuevo
-control room emite un secreto de altavoz nuevo y graba su propio secreto de
-organización, con lo que el antiguo dueño pierde ambos.
+control room registra el secreto de la unidad y graba su propio secreto de
+organización. El secreto de altavoz se conserva (RF-51); para revocar el acceso
+de quien ya lo conoce, el nuevo dueño puede regenerarlo expresamente (RF-53).
 
 **RF-39 Sin reprovisionar por sorpresa.** Toda adopción reinicia el altavoz. Si
 tiene una conversación en curso, la adopción espera a que termine (máximo
@@ -267,6 +274,13 @@ el secreto antes (una cesión); nada obliga a hacerlo.
 **RF-54 Nunca en el navegador.** El secreto de organización no viaja al
 JavaScript del dashboard ni aparece en respuestas de la API sin sesión de
 administración. Ningún secreto aparece en logs ni en syslog.
+
+*Diferencia de implementación (2026-09-19):* el instalador embebido de RF-02
+recibe el secreto de organización desde `/installer/control-room.json` para
+provisionar la placa. El dashboard todavía no tiene sesión de usuario propia;
+el acceso depende de la red/ingress. RF-54 no debe darse por validado como
+«ningún secreto en el navegador»; requiere revisar este límite con el flujo
+de instalación. Ver [arquitectura](../ARCHITECTURE.md).
 
 ## 9. Configuración deseada desde el control room
 
