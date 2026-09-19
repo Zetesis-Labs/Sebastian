@@ -7,6 +7,14 @@
 > controller sees them, adoption binds a device to a controller, and the
 > controller owns its configuration from then on.
 
+## Estado de esta revisión (2026-09-19)
+
+La flota se integró mediante #46–48. Este documento conserva la estructura del
+diseño y sus estimaciones; los contratos corregidos a continuación reflejan el
+código hasta `84f278b6`. Los requisitos de aceptación están en
+[la especificación 12](12-fleet-adoption-functional-spec.md), y la evidencia
+registrada en [RECENT_CHANGES](../RECENT_CHANGES.md).
+
 ## 1. Goal
 
 Several **control rooms** (a Sebastian server + dashboard: today one on cortes,
@@ -57,8 +65,11 @@ speaker flashed and provisioned from there is born adopted.
   firmware release by CI and packaged into the dashboard image of the matching
   server version, so each control room installs the firmware it is compatible
   with rather than "whatever Pages has today".
-- A small authenticated endpoint returns the control room's base config for the
-  pre-fill; the organization secret only over an authenticated dashboard session.
+- El servidor Go exige la credencial administrativa para devolver la
+  configuración del control room. El dashboard la obtiene desde su proceso SSR
+  y sirve `/installer/control-room.json` al navegador, **incluido `orgSecret`**.
+  El panel no implementa login propio: el acceso depende de la red/tailnet o de
+  la protección externa. RF-54 conserva una discrepancia pendiente de aceptación.
 - **Web Serial needs a secure context**: `localhost` or HTTPS. A control room
   served over plain HTTP can still use it by adding its origin to
   `chrome://flags/#unsafely-treat-insecure-origin-as-secure` on that browser;
@@ -102,11 +113,13 @@ the server no longer serves it and the firmware has no fallback to it.
   | `prof` | running profile (`agente` / `micro-usb`) |
   | `cr` | origin of `token_url`, empty when unbound |
   | `err` | result of the last control-room contact: `ok`, `dns`, `timeout`, `http:503`… |
-  | `cfg` | short hash of the running config (block 4) |
+  | `cfg` | versión de la configuración ejecutada (bloque 4) |
+  | `ev` | último evento relevante de la unidad, también enviado en el sondeo |
 
 - Server: a discovery goroutine browses mDNS and keeps an in-memory
-  "seen on LAN" table (not persisted; it is a live view). New endpoint
-  `GET /v1/admin/lan-devices` joins it with `devices` into the states of §2.
+  "seen on LAN" table (not persisted; it is a live view).
+  `GET /v1/admin/devices` combina descubrimiento e inventario en los estados de
+  §2; no hay endpoint separado `lan-devices`.
 - Dashboard: an "On the network" section on the Devices page with those
   states, and the *Adopt* / *Adopt by IP* actions of block 3.
 - Multicast does not cross subnets. That is inherent to mDNS (UniFi has the
@@ -124,17 +137,22 @@ the server no longer serves it and the firmware has no fallback to it.
 - Protocol, one round trip plus reply:
   1. Control room → device: `{"t":"hello"}` — device answers
      `{"t":"nonce","n":<32 random bytes hex>}` (valid 30 s, single use).
-  2. Control room → device: `{"t":"adopt","n":<nonce>,"cfg":<sebastian.config.v1 JSON>,"mac":<hmac>}`
-     with `mac = HMAC-SHA256(secret, nonce || canonical(cfg))`.
-  3. Device verifies with §5 rules, stores, answers `{"t":"ok"}` or
-     `{"t":"err","why":"auth|json|wifi"}`, restarts.
-- `cfg` carries the new `livekit.tokenServerUrl`, `telemetry.*`, the
-  organization secret (if the unit had none) and the **per-device secret** the
-  control room just generated (block 1). WiFi is optional and only when the
-  operator asks (see block 4's rollback rule).
+  2. Control room → unidad: `{"t":"adopt","n":<nonce>,"cfg":<texto JSON>,"mac":<hmac>}`.
+     `cfg` es una **cadena JSON**, no un objeto anidado. La firma es
+     `HMAC-SHA256(secret, nonce + "." + cfg)`, sobre el texto exacto enviado.
+  3. La unidad verifica según §5, persiste y responde
+     `{"t":"ok","dev":<secreto de la unidad>}` antes de reiniciar. Los errores
+     usan `{"t":"err","why":<motivo>}`; el consentimiento físico comienza con
+     `{"t":"wait","why":"consent"}`.
+- `cfg` lleva `livekit.tokenServerUrl`, `telemetry.*` y la configuración de
+  organización. La adopción normal conserva el secreto que nació en la placa;
+  `adoption.deviceSecret` se usa para rotarlo explícitamente o borrarlo al olvidar.
+  WiFi solo cambia cuando lo solicita el operador, con la reversión del bloque 4.
 - Dashboard: *Adopt* on a discovered unit fills the IP from mDNS; *Adopt by IP*
-  asks for it. Same server endpoint `POST /v1/admin/lan-devices/{id}/adopt`
-  with `{ip}`; if the datagram reaches the unit, it provisions.
+  asks for it. El endpoint es `POST /v1/admin/devices/{id}/adopt` con
+  `{ip?, deviceSecret?, config?}`; devuelve un trabajo consultable mediante
+  `GET /v1/admin/adoptions/{jobId}`. La entrega, autorización y persistencia pueden
+  fallar; la recepción del datagrama por sí sola no confirma la adopción.
 - "Forget device" in the control room sends an `adopt` with an empty control
   room and empty secrets: the unit returns to factory (unadopted, keeps WiFi).
 
@@ -142,9 +160,11 @@ the server no longer serves it and the firmware has no fallback to it.
 
 Generalizes the existing desired-profile poll (`control.zig`, every 30 s).
 
-- Poll gains `?cfg=<hash>`; the response, besides the desired profile, can say
-  `config: <hash>`; when it differs the device does
-  `GET /v1/devices/{id}/config`, stores it through `provisioning.c`, restarts.
+- El sondeo añade `cfg=<version>`, `fw=<firmware>` y `ev=<evento>`. El cuerpo
+  contiene el perfil deseado y la cabecera `X-Desired-Config` la versión deseada
+  de configuración. Si difiere de la guardada, la unidad consulta
+  `GET /v1/devices/{id}/config`, persiste mediante `provisioning.c` y programa
+  el reinicio, que se aplaza si hay una sesión activa.
 - Firmware reports what it runs at every boot (RF-42): `PUT
   /v1/devices/{id}/running-config` with the same dump `sebastian.config.get`
   gives over USB, minus secrets (`config_dump(in_hand=false)`); the server keeps
@@ -163,9 +183,11 @@ Generalizes the existing desired-profile poll (`control.zig`, every 30 s).
 
 ## 4. Data model changes (server)
 
-- `devices`: `device_secret_digest` (bytea, reuse `credential_digest`),
-  `org_adopted_at`, `desired_config jsonb`, `reported_config_hash`,
-  `reported_config_at`, `last_seen_lan_at` (from discovery, in memory → optional column).
+- El esquema vigente es `server/db/schema.sql`: `credential_digest`,
+  `pending_credential_digest`, `adopted_at`, `desired_config`,
+  `desired_config_version`, `running_config`, `running_config_at`,
+  `reported_config_version`, `last_event` y `last_event_at`. El descubrimiento
+  conserva su vista de red en memoria.
 - Control room identity: `SEBASTIAN_CONTROL_ROOM_NAME` (env), defaulting to the
   API origin; announced in the pre-fill and used by the dashboard.
 - Organization secret: `SEBASTIAN_ORG_SECRET` (env, from Infisical in prod).
@@ -181,19 +203,20 @@ Two secrets with different jobs:
 
 Rules the device applies to an `adopt` message:
 
-1. Unit without organization secret (factory): accept; the message sets it.
-   Physical consent (press MUTE within 30 s, ring blinks) is required here so a
-   stranger's factory unit on the same WiFi cannot be grabbed silently.
+1. Unidad sin secreto de organización y sin vínculo: si no verifica una firma
+   con su secreto propio, exige consentimiento físico pulsando MUTE en 30 s.
+   El anillo indica la solicitud; al aceptar se guarda la nueva configuración.
 2. Unit with organization secret: accept if the HMAC verifies with **either**
    the organization secret **or** the current device secret. No button, even
    if the unit is bound to another healthy control room: knowing the secret is
    the entitlement (decided 2026-09-18).
-3. Anything else: `err auth`, and the attempt is announced in the next mDNS
-   TXT (`err=adopt-denied`) so the legitimate control room sees it.
+3. Lo demás devuelve `err auth`; el evento `adopt-denied:<IP>` se anuncia en
+   `ev` por mDNS y sondeo para que el control room lo muestre.
 4. The nonce is single-use and expires in 30 s: no replay.
 
-Physical access always wins (USB re-provisioning, or MUTE held at boot for a
-factory reset — to be confirmed in block 3): whoever holds the unit owns it.
+El rescate físico acordado es el reaprovisionamiento por USB. El reset de
+fábrica mediante MUTE al arrancar (RF-67) se descartó; no es un recorrido
+implementado.
 
 ## 6. Endpoints (delta on `server/api/openapi.yaml`)
 
@@ -211,8 +234,10 @@ factory reset — to be confirmed in block 3): whoever holds the unit owns it.
 | `GET`/`POST` | `/v1/devices/{id}/enroll` (device-facing: nonce, then HMAC proof of the organization secret → device secret) | 1 |
 | `PUT`/`DELETE` | `/v1/admin/devices/{id}/desired-config` | 4 |
 
-\* org secret only to an authenticated dashboard session, never to the browser
-in the pre-fill JavaScript bundle.
+\* El secreto administrativo permanece en SSR. El secreto de organización no
+se empaqueta en el bundle estático, pero **sí llega al navegador** en
+`/installer/control-room.json`; se aplica el límite de acceso descrito en el
+bloque 0.
 
 ## 7. Constraints that shape the implementation
 
@@ -237,8 +262,9 @@ in the pre-fill JavaScript bundle.
 | 3 adoption (mDNS / by IP / forget) | 1 d | ½ d | ½ d |
 | 4 desired config | 1 d | ½ d | ½ d |
 
-Block 0 can start today; 1 → 2 → 3 → 4 in that order. Each block is verified
-on the two units on Pizarro before the next.
+Esta tabla recoge las estimaciones y el orden del plan original. No acredita
+pruebas en dos unidades por bloque: la evidencia registrada y sus límites se
+describen en [STATUS.md](../STATUS.md).
 
 ## 9. Decisions taken in the conversation (so they are not re-litigated)
 

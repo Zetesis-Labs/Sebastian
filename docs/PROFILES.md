@@ -7,8 +7,9 @@ stored in NVS; the active profile decides what Sebastian IS after boot:
   microphone — see `USB_MIC.md`)
 - optional overrides of the audio config: `fullDuplex`, `fixedBeam`,
   `beamAzimuthDeg`
-- reserved for the next phases: `wifi`, `telemetry` (parsed and stored today,
-  honored when WiFi/telemetry land in usb_mic mode)
+- `wifi`: en `usb_mic`, `false` desactiva la red; sin esa exclusión se habilitan
+  syslog y control remoto. `telemetry` se conserva en el perfil, pero actualmente
+  no controla por separado el arranque de la telemetría.
 
 Fields a profile does not set are inherited from the legacy NVS keys /
 compiled defaults (`config.zig`), so pre-profile units keep their behaviour.
@@ -41,16 +42,21 @@ and everything below still applies for fleet management.
 
 ## Switching profiles
 
-**Network (dashboard / API — the primary UX)** — in BOTH modes the device
-polls the Sebastian server every 30 s
-(`GET /v1/devices/{mac}/desired-profile?current=<active>`; usb_mic mode brings
-WiFi up with modem sleep on, audio never rides the network). Devices
-auto-register on their first poll and appear in the dashboard's
-**Dispositivos** view; picking a profile there (or
-`PUT /v1/admin/devices/{id}/desired-profile {"name":"agente"}` with the admin
-secret) makes the device persist it and reboot into the new personality on its
-next poll — no replug, no button, works with the unit plugged into anything.
-A profile with `wifi: false` opts out and stays a fully offline mic.
+**Red (panel / API)** — ambos modos consultan el servidor cada 30 s mediante
+`GET /v1/devices/{mac}/desired-profile?current=<active>&cfg=<version>&fw=<firmware>&ev=<evento>`.
+La petición usa `X-Device-Id` y `X-Device-Secret`. La unidad genera su secreto;
+la adopción o incorporación con el secreto de organización lo registra en el
+control room antes de usar el sondeo autenticado.
+
+Elegir un perfil en **Dispositivos**, o enviar
+`PUT /v1/admin/devices/{id}/desired-profile {"name":"agente"}` con la credencial
+administrativa, hace que la unidad lo persista y reinicie al recibirlo. Durante
+una sesión, el reinicio se aplaza hasta su cierre. `X-Desired-Config` comunica
+también cambios de configuración, recuperados desde `/v1/devices/{mac}/config`.
+El recorrido de flota está en [la especificación 12](implementation/12-fleet-adoption-functional-spec.md).
+
+En `usb_mic`, WiFi usa modem sleep y transporta control/telemetría, nunca el
+audio USB. Un perfil con `wifi: false` mantiene el micrófono sin conexión.
 
 **Boot selector (on-device)** — when the ring lights up dim white shortly
 after plugging in (~2-3 s, once the XVF is up), double-tap the mute button.
@@ -63,6 +69,9 @@ merely boots muted never triggers the selector (zero button *changes*).
 **5 s provisioning window** at every boot, in BOTH modes (convivencia keeps
 TinyUSB up alongside the agent, so the PHY stops being serial right after the
 window; steady-state administration is the network path above):
+
+Una lectura `sebastian.config.get` amplía la ventana a **120 s** antes de que
+TinyUSB tome el periférico; véase [aprovisionamiento](../web-installer/public/PROVISIONING.md).
 
 ```
 sebastian.profile.set {"name":"micro-usb"}

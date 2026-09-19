@@ -1,9 +1,15 @@
-# Device Telemetry — serial → OpenTelemetry → Grafana
+# Telemetría de diagnóstico por serie → OpenTelemetry → Grafana
 
-Complete observability of Sebastian on the development Mac. The transport is
-the **serial port**: it keeps working exactly when WiFi/LiveKit fail,
-which is when you need it most. None of this touches the firmware at runtime nor
-resets the device upon attachment.
+Esta guía describe el bridge **serie** de desarrollo. En el firmware actual,
+TinyUSB toma el periférico USB después de la ventana de aprovisionamiento,
+tanto en `agente` como en `micro-usb`: no hay un puerto serie continuo durante
+el funcionamiento normal. El bridge solo recoge datos mientras existe una
+consola serie accesible y no garantiza diagnóstico durante una pérdida de WiFi.
+
+La vía habitual de logs del dispositivo es syslog por red, configurado durante
+el aprovisionamiento; incluye el diagnóstico de pánicos recuperado al arrancar.
+El agente exporta su propia telemetría por OTLP. Ver
+[FIRMWARE.md](../../docs/FIRMWARE.md) y [DEVCONTAINER.md](../../docs/DEVCONTAINER.md).
 
 ```
 device ──serial──▶ bridge.py ──OTLP/HTTP──▶ grafana/otel-lgtm ──▶ Grafana :3000
@@ -17,7 +23,11 @@ The two halves of each conversation in the same Grafana:
 `service_name="sebastian-device"` (firmware, via serial) and
 `service_name="sebastian-agent"` (LiveKit/OpenAI/Home Assistant, via OTel SDK).
 
-## Startup
+## Arranque del bridge cuando hay consola serie
+
+El devcontainer ya incluye LGTM y publica Grafana en `:3000` y OTLP HTTP en
+`:4318`; no iniciar otro contenedor en esos mismos puertos. El siguiente
+`docker run` es solo una alternativa si ese stack no está levantado.
 
 ```bash
 # 1. LGTM Stack (a single image with everything)
@@ -60,7 +70,7 @@ Grafana: **http://localhost:3000** (admin/admin) → dashboard
 `turns_total{role}` (conversation turns), `tool_calls_total{tool}` (Home
 Assistant), `state_changes_total{state}`, `errors_total`.
 
-**Complete logs** in Loki: `{service_name="sebastian-device"}` — each serial
+**Logs capturados por el bridge** en Loki: `{service_name="sebastian-device"}` — each serial
 line with severity (`E (…)`/PANIC as error, `W (…)` as warning) — and
 `{service_name="sebastian-agent"}` with **the transcription of each turn**
 (`turn [user]: …` / `turn [assistant]: …`), the executed tools and the
