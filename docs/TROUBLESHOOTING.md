@@ -1,5 +1,27 @@
 # Sebastian — Debugging Playbook
 
+## Incidencias contrastadas en septiembre de 2026
+
+| Síntoma | Causa identificada y referencia |
+|---|---|
+| Pánico tras timeout I2C | Driver de ESP-IDF 5.4.0; CI actualizado a 5.4.4 (`7aafa852`). |
+| Heap corrupto tras una sesión/conexión lenta | Pre-roll mayor que la caché SCTP; envío limitado a 80 KB (`4dc968d4`). |
+| Uso de CPU creciente en el servidor | Lectores mDNS no cancelados al terminar cada ciclo; corregido en #48. |
+| La unidad conecta y se queda sin agente a los pocos segundos | El agente esperaba la identidad fija antigua; usa `device_id` desde #48. |
+| Una placa nueva no muestra XVF en I2C | Comprobar familia de firmware XVF; algunas requieren USB DFU inicial a `inthost`. Ver [XVF3800.md](XVF3800.md). |
+| Desaparece el puerto serie tras arrancar | TinyUSB toma el USB para micrófono; reconectar y aprovechar la ventana inicial. Leer configuración la amplía a 120 s. |
+
+Usar [BUILD_AND_RUN.md](BUILD_AND_RUN.md) para los comandos actuales y
+[SESSION.md](../SESSION.md) para reproducciones y evidencia. Conservar el ELF de
+la versión afectada para interpretar los core dumps reportados por syslog.
+
+## Archivo del bring-up inicial
+
+El resto recoge problemas y soluciones de las primeras sesiones. Sus referencias
+a RIGHT/BVC, modelo OpenAI, rutas temporales y despacho manual corresponden a esa
+etapa. El código y [ARCHITECTURE.md](ARCHITECTURE.md) describen el recorrido vigente;
+la hipótesis inicial de FAR_EXTGAIN se corrige en [AEC.md](AEC.md).
+
 A distilled **symptom → root cause → solution** reference from a real, long debugging session of the Sebastian voice speaker (ReSpeaker XVF3800 + XIAO ESP32-S3, Zig firmware, LiveKit + OpenAI Realtime agent).
 
 ## Golden Rule

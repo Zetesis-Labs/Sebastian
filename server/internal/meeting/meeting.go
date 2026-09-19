@@ -30,11 +30,14 @@ type Store interface {
 	Drop(ctx context.Context, id uuid.UUID) error
 	// Delete keeps the row as a trace (RM-46) but clears its content.
 	Delete(ctx context.Context, id uuid.UUID, at time.Time) error
+	// EndedBefore lists finished, unkept, undeleted meetings that ended before `before` (RM-45).
+	EndedBefore(ctx context.Context, before time.Time, limit int) ([]Meeting, error)
 }
 
 type Filter struct {
 	DeviceID string
 	State    State
+	Query    string // RM-42: text in the transcript or the summary
 	Limit    int
 }
 
@@ -65,6 +68,7 @@ var (
 const (
 	CmdStart = "record-start"
 	CmdStop  = "record-stop"
+	CmdWarn  = "record-warn"
 	// agenteProfile is the only profile that records (spec §3.4).
 	agenteProfile = "agente"
 	// audioFlushEvery bounds how often a streaming upload touches the DB.
@@ -80,8 +84,9 @@ type Service struct {
 	limits Limits
 	logger *slog.Logger
 	now    func() time.Time
-	// OnTranscribe is block D's hook; nil until then.
+	// OnTranscribe / OnSummarize are block D's hooks (the transcription job).
 	OnTranscribe func(Meeting)
+	OnSummarize  func(Meeting)
 
 	mu   sync.Mutex
 	open map[uuid.UUID]struct{} // meetings with an upload in flight
@@ -119,8 +124,20 @@ func (s *Service) Start(ctx context.Context, deviceID string, origin Origin) (Me
 	if err := s.store.Insert(ctx, m); err != nil {
 		return Meeting{}, err
 	}
-	s.deliver(ctx, m, CmdStart)
+	// A gesture start comes from the unit itself: it starts with the id we
+	// answer; there is nothing to order.
+	if origin != OriginGesture {
+		s.deliver(ctx, m, CmdStart)
+	}
 	return m, nil
+}
+
+// StartFromUnit is the gesture path (RM-02): the unit authenticates and asks.
+func (s *Service) StartFromUnit(ctx context.Context, deviceID, secret string) (Meeting, error) {
+	if err := s.units.Authenticate(ctx, deviceID, secret); err != nil {
+		return Meeting{}, err
+	}
+	return s.Start(ctx, deviceID, OriginGesture)
 }
 
 // Stop ends a meeting (RM-20…22); the reason records who asked.
@@ -133,6 +150,21 @@ func (s *Service) Stop(ctx context.Context, id uuid.UUID, reason EndReason) (Mee
 		return Meeting{}, ErrNotRecording
 	}
 	return s.apply(ctx, m, Event{Kind: EvStop, At: s.now().UTC(), Reason: reason})
+}
+
+// Warn tells the unit the silence net is about to fire (RM-13/23): the agent
+// calls it ~30 s before its stop. Best effort over the LAN; a warning the
+// poll would carry later is worthless, so it is never kept pending.
+func (s *Service) Warn(ctx context.Context, id uuid.UUID) error {
+	m, err := s.store.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if m.State != StateRecording {
+		return ErrNotRecording
+	}
+	s.deliver(ctx, m, CmdWarn)
+	return nil
 }
 
 // Report is the unit's confirmation (RM-52): "recording" or "stopped" + why.
@@ -216,20 +248,21 @@ func (s *Service) Audio(ctx context.Context, id uuid.UUID, offset int64, r io.Re
 	if offset != info.Size() {
 		return info.Size(), ErrOffset
 	}
-	if m.AudioPath == "" {
-		m.AudioPath = filepath.Base(path)
-	}
-
 	total := info.Size()
 	buf := make([]byte, copyChunk)
 	lastFlush := s.now()
-	flush := func(at time.Time) error {
-		m2, err := s.apply(ctx, m, Event{Kind: EvAudio, At: at, Bytes: total})
+	// The upload outlives stops and ticks: every event applies to the meeting
+	// as it is now, never to the copy read when the stream opened.
+	flush := func(kind EventKind, at time.Time) error {
+		cur, err := s.store.Get(ctx, id)
 		if err != nil {
 			return err
 		}
-		m = m2
-		return nil
+		if cur.AudioPath == "" {
+			cur.AudioPath = filepath.Base(path)
+		}
+		_, err = s.apply(ctx, cur, Event{Kind: kind, At: at, Bytes: total})
+		return err
 	}
 	for {
 		n, readErr := r.Read(buf)
@@ -239,22 +272,25 @@ func (s *Service) Audio(ctx context.Context, id uuid.UUID, offset int64, r io.Re
 			}
 			total += int64(n)
 			if now := s.now(); now.Sub(lastFlush) >= audioFlushEvery {
-				if err := flush(now.UTC()); err != nil {
+				if err := flush(EvAudio, now.UTC()); err != nil {
 					return total, err
 				}
 				lastFlush = now
 			}
 		}
 		if readErr == io.EOF {
-			if err := flush(s.now().UTC()); err != nil {
+			if total == info.Size() {
+				// An empty body is a probe or a client's blind retry, never a close.
+				return total, nil
+			}
+			if err := flush(EvAudio, s.now().UTC()); err != nil {
 				return total, err
 			}
-			_, err := s.apply(ctx, m, Event{Kind: EvAudioClosed, At: s.now().UTC()})
-			return total, err
+			return total, flush(EvAudioClosed, s.now().UTC())
 		}
 		if readErr != nil {
 			// The connection dropped: keep what we have; the audio clock decides.
-			if err := flush(s.now().UTC()); err != nil {
+			if err := flush(EvAudio, s.now().UTC()); err != nil {
 				return total, err
 			}
 			return total, readErr
@@ -329,30 +365,142 @@ func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
 	return s.store.Delete(ctx, id, s.now().UTC())
 }
 
-// Retranscribe queues the transcription again (RM-33).
+// Retranscribe queues the transcription again (RM-33); needs stored audio.
 func (s *Service) Retranscribe(ctx context.Context, id uuid.UUID) (Meeting, error) {
 	m, err := s.store.Get(ctx, id)
 	if err != nil {
 		return Meeting{}, err
 	}
+	if m.AudioPath == "" || !m.DeletedAt.IsZero() {
+		return Meeting{}, ErrInvalid
+	}
 	return s.apply(ctx, m, Event{Kind: EvTranscribe, At: s.now().UTC()})
 }
 
-// Transcribed / TranscriptFailed close block D's loop.
-func (s *Service) Transcribed(ctx context.Context, m Meeting) (Meeting, error) {
+// Transcribed / TranscriptFailed / Summarized close block D's loop.
+func (s *Service) Transcribed(ctx context.Context, m Meeting, t Transcript) (Meeting, error) {
+	m.Transcript, m.TranscriptError = &t, ""
 	return s.apply(ctx, m, Event{Kind: EvTranscribed, At: s.now().UTC()})
 }
 
-func (s *Service) TranscriptFailed(ctx context.Context, m Meeting) (Meeting, error) {
+func (s *Service) TranscriptFailed(ctx context.Context, m Meeting, reason string) (Meeting, error) {
+	m.TranscriptError = reason
 	return s.apply(ctx, m, Event{Kind: EvTranscriptFail, At: s.now().UTC()})
+}
+
+// Summarized stores the digest; it lends the transcript its language when the
+// transcription model gave none (RM-30/32).
+func (s *Service) Summarized(ctx context.Context, m Meeting, sum Summary) (Meeting, error) {
+	m.Summary = &sum
+	if m.Transcript != nil && m.Transcript.Language == "" && sum.Language != "" {
+		t := *m.Transcript
+		t.Language = sum.Language
+		m.Transcript = &t
+	}
+	m.UpdatedAt = s.now().UTC()
+	return m, s.store.Update(ctx, m, "")
+}
+
+// Transcribing lists what a restarted job must pick up again.
+func (s *Service) Transcribing(ctx context.Context) ([]Meeting, error) {
+	return s.store.List(ctx, Filter{State: StateTranscribing, Limit: 200})
+}
+
+// Resummarize regenerates the digest of a transcribed meeting (RM-32).
+func (s *Service) Resummarize(ctx context.Context, id uuid.UUID) (Meeting, error) {
+	m, err := s.store.Get(ctx, id)
+	if err != nil {
+		return Meeting{}, err
+	}
+	if m.Transcript == nil || m.Transcript.Text == "" {
+		return Meeting{}, ErrInvalid
+	}
+	if s.OnSummarize != nil {
+		s.OnSummarize(m)
+	}
+	return m, nil
+}
+
+// Patch renames speakers (RM-31) and flags the meeting to keep (RM-45).
+func (s *Service) Patch(ctx context.Context, id uuid.UUID, speakers map[string]string, keep *bool) (Meeting, error) {
+	m, err := s.store.Get(ctx, id)
+	if err != nil {
+		return Meeting{}, err
+	}
+	if len(speakers) > 0 {
+		if m.Transcript == nil {
+			return Meeting{}, ErrInvalid
+		}
+		t := m.Transcript.Rename(speakers)
+		m.Transcript = &t
+	}
+	if keep != nil {
+		m.Keep = *keep
+	}
+	m.UpdatedAt = s.now().UTC()
+	return m, s.store.Update(ctx, m, "")
+}
+
+// Retain deletes what retention says has expired (RM-45); returns how many.
+func (s *Service) Retain(ctx context.Context, days int) int {
+	if days <= 0 {
+		return 0
+	}
+	now := s.now().UTC()
+	items, err := s.store.EndedBefore(ctx, now.Add(-time.Duration(days)*24*time.Hour), 500)
+	if err != nil {
+		s.logger.WarnContext(ctx, "retention: list failed", "error", err)
+		return 0
+	}
+	deleted := 0
+	for _, m := range Expired(items, now, days) {
+		if err := s.Delete(ctx, m.ID); err != nil {
+			s.logger.WarnContext(ctx, "retention: delete failed", "meeting", m.ID, "error", err)
+			continue
+		}
+		deleted++
+	}
+	if deleted > 0 {
+		s.logger.InfoContext(ctx, "retention: meetings deleted", "count", deleted, "days", days)
+	}
+	return deleted
+}
+
+// RunRetention applies retention now and then every `every`.
+func (s *Service) RunRetention(ctx context.Context, days int, every time.Duration) {
+	s.Retain(ctx, days)
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			s.Retain(ctx, days)
+		}
+	}
 }
 
 func (s *Service) path(id uuid.UUID) string { return filepath.Join(s.dir, id.String()+".ogg") }
 
+// limitsFor is the unit's own maximum (RM-24, from its ficha), else the
+// control room's default.
+func (s *Service) limitsFor(ctx context.Context, deviceID string) Limits {
+	detail, err := s.units.Get(ctx, deviceID)
+	if err != nil || detail.MeetingMaxHours <= 0 {
+		return s.limits
+	}
+	return Limits{MaxDuration: time.Duration(detail.MeetingMaxHours) * time.Hour}
+}
+
 // apply is the one place the core meets the world: persist, then act.
 func (s *Service) apply(ctx context.Context, m Meeting, ev Event) (Meeting, error) {
 	before := m.State
-	next, actions, err := Next(m, ev, s.limits)
+	limits := s.limits
+	if ev.Kind == EvTick {
+		limits = s.limitsFor(ctx, m.DeviceID)
+	}
+	next, actions, err := Next(m, ev, limits)
 	if err != nil {
 		return m, err
 	}

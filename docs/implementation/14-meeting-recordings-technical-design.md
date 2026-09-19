@@ -9,15 +9,35 @@
 > configuración deseada, el catálogo `recordings`, el outbox y la ficha del
 > altavoz.
 
+## Estado de ejecución (2026-09-19)
+
+A está integrado en #49; B–F están implementados en #50, con el código revisado
+hasta `84f278b6`, que incorpora las órdenes por voz del bloque F.
+[STATUS](../STATUS.md) y [RECENT_CHANGES](../RECENT_CHANGES.md) identifican las
+pruebas registradas; voz en placa y reproducción manual siguen pendientes.
+
+Diferencias respecto al plan inicial:
+
+- El servidor corta y envía **Ogg**; no remultiplexa a WebM. La sesión de
+  implementación registra aceptación del formato por el proveedor.
+- El panel usa rutas propias de reuniones y una tira en la home; no crea la fila
+  `recordings kind=meeting` propuesta para un catálogo unificado.
+- El esquema SQL inferior es el diseño inicial, no una migración ejecutable.
+  La fuente vigente es `server/db/schema.sql`; la búsqueda usa `ILIKE` en el store.
+- La transición automática `cut → transcribing` requiere revisión: el núcleo
+  encola trabajo al cortar, pero `Job.Process` solo procesa `transcribing`.
+  Existe reintento explícito de transcripción. Incluir el corte en la aceptación.
+- La reproducción del panel usa `fetch`/`blob:`; no hay fallback WebM implementado.
+
 ## 0. Hechos que condicionan el diseño (verificados hoy)
 
 | Hecho | Consecuencia |
 |-------|--------------|
-| El XVF3800 expone el estado crudo del botón: `GPI_READ_VALUES` (resid 36, cmd 0, 3 bytes). El propio XVF conmuta el mute (GPO 30) en cada pulsación. | La pulsación larga (RM-02) se mide leyendo el GPI desde la tarea del anillo (80 ms). Tras el gesto, el firmware restaura el mute que había (escritura GPO 30). **Spike 0**: confirmar en placa qué bit del GPI es el botón y su nivel activo. |
+| El XVF3800 expone el estado crudo del botón: `GPI_READ_VALUES` (resid 36, cmd 0; solo responde con longitud de lectura 4 = estado + 3 bytes). **Spike 0 hecho (2026-09-18, `68ee`)**: el botón es el bit 0 del byte 0, a nivel y activo bajo (`01` suelto, `00` pulsado); el XVF conmuta el mute (GPO 30) solo en el flanco de pulsar; una pulsación de 5 s se lee entera. | La pulsación larga (RM-02) se mide leyendo el GPI desde la tarea del anillo (80 ms) en `core/gesture_core.zig` (puro, T-B1). Los veredictos que no son un toque de mute deshacen las conmutaciones del XVF (1 la larga sola, 2 el gesto). |
 | El catálogo `recordings` existe (kind, object_url, transcript) pero **nadie lo alimenta**: el agente guarda WAV en su disco local y no registra nada. No hay object storage en Sebastian. | El audio de reunión lo custodia el **server** en su volumen: el agente se lo envía en streaming. Nueva PVC del server en el chart. |
-| OpenAI: `gpt-4o-transcribe-diarize` con `response_format=diarized_json` devuelve segmentos `{start, end, speaker, text}`; `chunking_strategy=auto`; `known_speaker_names/references` permiten fijar hablantes. Tope **25 MB por petición**; formatos `mp3 mp4 mpeg mpga m4a wav webm` (Ogg no figura). | El fichero se guarda en Ogg/Opus (decisión §11 de la spec) y el job de transcripción lo **remultiplexa a WebM sin recodificar** (`ffmpeg -c copy`), troceado en piezas de ≤ 20 MB (≈ 55 min a 48 kbit/s). Los hablantes se mantienen entre piezas pasando como referencia unos segundos de cada hablante de la pieza anterior. |
+| Transcripción implementada con `gpt-4o-transcribe-diarize`, segmentos y referencias de hablantes. La sesión de desarrollo registró aceptación de Ogg. | El job envía Ogg directamente y divide las reuniones grandes con `ffmpeg -c copy` en piezas objetivo de hasta 20 MiB, con solapamiento y margen. Mantiene referencias de hablantes entre piezas. |
 | El agente recibe el micro como `AudioFrame` PCM (no paquetes Opus). | El agente codifica con `ffmpeg` (subproceso, `libopus 48k mono`) y escribe la salida por streaming al server. `ffmpeg` entra en la imagen del agente y en la del server. |
-| La sesión LiveKit la abre siempre la placa (`token.zig` → `POST /v1/sessions`), y el server despacha al agente con metadatos. | La sesión de reunión es una sesión normal con `kind=meeting` en la petición y en los metadatos del despacho; el agente entra en **modo reunión** por esos metadatos. |
+| La sesión LiveKit la abre siempre la placa (`token.zig` → `POST /v1/sessions`), y el server despacha al agente con metadatos. | La sesión de reunión es una sesión normal con `kind=meeting` en la petición y `mode=meeting` en los metadatos del despacho; el agente entra en **modo reunión** por esos metadatos. |
 | El canal UDP de adopción ya tiene nonce + HMAC con el secreto de organización o el de altavoz; el server solo guarda el **hash** del secreto de altavoz. | Las órdenes en red se firman con el **secreto de organización** (RM-07). Sin él configurado, la orden va solo por el poll. |
 
 ## 1. Arquitectura
@@ -25,13 +45,13 @@
 ```
  asistente ──gesto──▶ placa ──────────────┐
  operador ──ficha──▶ server ──UDP cmd/poll▶ placa ──POST /v1/sessions{kind:meeting}──▶ server
- asistente ──voz───▶ agente ──POST /v1/admin/meetings/{id}/stop ▶ server            │
+ asistente ──voz───▶ agente ──POST /v1/meetings/{id}/stop ▶ server            │
                                                                                      ▼
-                     agente ◀── dispatch{mode:meeting, meetingId} ── LiveKit ◀── token
+                     agente ◀── dispatch{mode:meeting, meeting_id} ── LiveKit ◀── token
                        │ micro (PCM) → ffmpeg → Ogg/Opus
                        └──PUT /v1/meetings/{id}/audio (chunked, streaming)──▶ server ──▶ volumen
                                                                                      │
-                     job transcribe (server): ffmpeg -c copy → webm ≤20 MB → OpenAI ──┘
+                     job transcribe (server): ffmpeg -c copy → Ogg ≤20 MiB → OpenAI ──┘
                      job summary (server): chat completions (modelo mini)
                      retención (server): borra audio+transcripción > N días
  dashboard ──/v1/admin/meetings… (admin)──▶ server ; audio por proxy del dashboard (RM-47)
@@ -40,16 +60,16 @@
 Principios: la **placa** solo sabe "grabando sí/no" y lo señaliza; el
 **agente** solo captura y entrega; el **server** es el dueño del estado, del
 fichero y de los jobs; el **dashboard** es vista. Toda decisión de estado
-(§3.3 de la spec) vive en funciones puras del server (`meeting_core.go`) con
+(§3.3 de la spec) vive en funciones puras del server (`internal/meeting/core.go`) con
 tests de tabla, y la cáscara (HTTP, ficheros, OpenAI, cron) alrededor.
 
 ## 2. Modelo de datos (server, Postgres)
 
 Nueva tabla `meetings`, separada de `recordings` porque su ciclo de vida es
 distinto (una `recording` es un fichero cerrado; una reunión pasa por seis
-estados y tiene transcripción estructurada). `recordings` gana `kind=meeting`
-solo como vista unificada (RM-40), sin duplicar datos: la fila de `recordings`
-se crea al cerrar la reunión y apunta al mismo fichero.
+estados y tiene transcripción estructurada). La vista unificada mediante `recordings kind=meeting` se propuso en el diseño
+inicial; la implementación actual usa `/meetings` y no duplica filas en
+`recordings`. Esa diferencia queda pendiente de aceptación frente a RM-40.
 
 ```sql
 CREATE TABLE meetings (
@@ -86,7 +106,7 @@ tabla: `SEBASTIAN_MEETING_SUMMARY=true`, `SEBASTIAN_MEETING_RETENTION_DAYS=90`).
 Eventos de dominio (outbox): `meeting.requested`, `meeting.started`,
 `meeting.ended`, `meeting.transcribed`, `meeting.deleted`.
 
-### 2.1 Máquina de estados (`meeting_core.go`, pura)
+### 2.1 Máquina de estados (`internal/meeting/core.go`, pura)
 
 ```
 requested ──placa confirma──▶ recording ──stop (gesto|ficha|voz|silencio|máximo)──▶ closing ──fichero cerrado──▶ transcribing
@@ -124,8 +144,12 @@ transcripción, emitir evento). Tests de tabla contra §3.3, RM-05, RM-23…26.
   ya grabando (RM-05), `idle` = stop sin grabación, `profile` = micro-usb
   (RM-54).
 - **Orden por poll** (RM-06 sin LAN): la respuesta de `desired-profile` gana
-  la cabecera `X-Meeting: start:<id>` | `stop:<id>`; la placa la atiende como
-  la orden UDP. El server la retira cuando la placa confirma.
+  la cabecera `X-Meeting: start:<id>` | `stop:<id>` | `warn:<id>`; la placa la
+  atiende como la orden UDP. El server la retira cuando la placa confirma.
+- **Arranque por gesto** (RM-02): la placa no inventa ids: hace
+  `POST /v1/devices/{id}/meetings` con su secreto y recibe la reunión
+  (`requestedBy: gesture`); el server no le devuelve la orden. La placa
+  arranca la sesión con ese id.
 - **Confirmación** (RM-52): `PUT /v1/devices/{id}/meeting` con
   `X-Device-Secret`, cuerpo `{meetingId, state:"recording"|"stopped", reason}`.
   `recording` pasa la reunión a *Grabando* (fija `started_at`); `stopped` con
@@ -140,9 +164,16 @@ transcripción, emitir evento). Tests de tabla contra §3.3, RM-05, RM-23…26.
   server↔agente, `SEBASTIAN_AGENT_SECRET`), `Transfer-Encoding: chunked`,
   `Content-Type: audio/ogg`. El server **añade al fichero según llega**
   (RM-15) y actualiza `audio_bytes`; si el cuerpo se corta, lo que hay queda
-  (RM-25). Una sola conexión abierta durante toda la reunión.
-- `POST /v1/admin/meetings/{id}/stop` también lo usa el agente para la parada
-  por voz (RM-21), con `X-Agent-Secret`.
+  (RM-25). Una sola conexión abierta durante toda la reunión. Un cuerpo
+  vacío no cierra nada: es una sonda o un reintento ciego del cliente.
+- `HEAD /v1/meetings/{id}/audio` → `X-Audio-Bytes` y `X-Meeting-State`: el
+  agente pregunta antes de cada (re)envío desde dónde seguir; con la reunión
+  ya cerrada deja de subir y conserva el spool local.
+- `POST /v1/meetings/{id}/stop {reason:"silence"|"voice"}` y
+  `POST /v1/meetings/{id}/warn` (sin cuerpo), con `X-Agent-Secret`: la red de
+  silencio (RM-23) y la parada por voz (RM-21) del agente. El aviso viaja
+  solo por LAN (`record-warn`); un aviso que llegara con el siguiente poll ya
+  no serviría, así que nunca queda pendiente.
 
 ## 4. Bloques verticales y sus suites
 
@@ -152,7 +183,7 @@ del código del bloque.
 
 ### Bloque A — el server gobierna la reunión (sin OpenAI, sin placa, sin agente)
 
-Alcance: tabla `meetings`, `meeting_core.go`, contratos §3.1 y §3.2 (server
+Alcance: tabla `meetings`, `internal/meeting/core.go`, contratos §3.1 y §3.2 (server
 side), orden UDP `cmd` en `adoption.Client`, cabecera `X-Meeting` en el poll,
 confirmación de la placa, recepción del audio en streaming, redes de
 seguridad temporizadas (requested→borrada a 30 s; recording→cut a 30 s sin
@@ -188,26 +219,55 @@ Tests (Zig, host):
 
 ### Bloque C — el agente captura y entrega
 
-Alcance: `meeting_mode.py` (modo reunión: sin LLM, sin TTS salvo las dos
-frases de confirmación; `ffmpeg` subproceso PCM→Ogg/Opus 48k mono; envío
-chunked al server con reconexión que **no** reinicia el fichero: si la
-conexión cae, el agente reintenta con `Content-Range` desde `audio_bytes`);
-`ffmpeg` en la imagen; `SEBASTIAN_AGENT_SECRET`.
+Alcance: `meeting_mode.py` (modo reunión: sin `AgentSession`, sin LLM, sin
+TTS, nada por el altavoz — RM-12 manda y el anillo rojo ya confirma;
+captura directa de la pista del altavoz a 48 kHz mono; `ffmpeg` subproceso
+PCM→Ogg/Opus 48 kbit/s con una página por segundo; spool local del flujo
+codificado que el uploader sigue y del que se reanuda: antes de cada envío
+`HEAD …/audio` dice el byte y el estado, y el `PUT` lleva `Content-Range`
+desde ahí; el VAD de silero alimenta la red de silencio, `SilenceNet` pura);
+`ffmpeg` en la imagen; `SEBASTIAN_API_URL`, `SEBASTIAN_AGENT_SECRET` y
+`SEBASTIAN_MEETING_SILENCE_S` (600; el ajuste por altavoz llega con E).
 
-Tests (Python):
+Tests (Python, `tests/test_meeting_mode.py`):
 - `T-C1` el modo reunión se decide por los metadatos del job (puro, como `device_identity.py`): `mode=meeting` + `meeting_id` → modo reunión; sin ellos → conversación.
 - `T-C2` el encoder produce Ogg/Opus válido a partir de PCM sintético y el flujo es incremental (páginas Ogg cada ≤ 1 s) — con `ffmpeg` real, se salta si no está.
-- `T-C3` la subida reanuda desde el byte que el server declara tener (fake HTTP).
-- `T-C4` en modo reunión el agente no genera respuestas ni reproduce nada salvo la confirmación inicial (fake `AgentSession`).
+- `T-C3` la subida reanuda desde el byte que el server declara tener (fake HTTP): corte a mitad → `HEAD` → `Content-Range` nuevo; reunión ya cerrada → abandona.
+- `T-C4` la tubería captura → codifica → spool → subida es todo lo que el agente hace en una reunión: no existe camino de voz (sin sesión, sin `say`, sin `generate_reply`).
+- `T-C5` `SilenceNet` (puro): aviso una vez a N−30 s, parada a N, la voz reinicia el reloj; el vigilante releva `warn` y `stop:silence` al server.
+
+Trampas encontradas en placa (19-09):
+- `aiohttp` reintenta en silencio un `PUT` (idempotente) si el server cierra
+  la conexión, con el cuerpo en streaming ya consumido: el server vería un
+  cuerpo vacío y lo tomaría por "el agente colgó". Se apaga con su flag
+  privado `_retry_connection` y el server además ignora el EOF sin bytes.
+- La subida es una petición que dura toda la reunión: sus eventos (`audio`,
+  `audio_closed`) deben aplicarse a la reunión **tal como está**, no a la
+  copia leída al abrir el flujo, o una parada desde la ficha acababa en
+  `cut`/`device_lost`.
+- Probado en `68ee`: 54 s → Opus 48 kHz mono a ~44 kbit/s; parada desde el
+  API → `transcribing`/`dashboard`; aviso de silencio a los 15 s con ventana
+  de 45 s (la parada por silencio no se pudo ver: había voz en la sala).
 
 ### Bloque D — transcripción, resumen y retención (server)
 
-Alcance: job de transcripción (`ffmpeg -c copy` a WebM en piezas ≤ 20 MB,
-`gpt-4o-transcribe-diarize` + `diarized_json`, `known_speaker_references`
-entre piezas, `whisper-1` sin hablantes como reserva), normalización de
-hablantes (`A, B…` → `Hablante 1, 2…`), resumen con el modelo mini vigente
-(`SEBASTIAN_SUMMARY_MODEL`, por defecto `gpt-5-mini`; se fija al implementar
-consultando `GET /v1/models`), reintentos, retención diaria, borrado.
+Alcance: job de transcripción (`internal/transcribe`: piezas ≤ 20 MB con
+`ffmpeg -c copy` **en Ogg** — el proveedor acepta Ogg desde 2026, así que
+no hay remultiplexado a WebM; una reunión que cabe entera va tal cual, sin
+`ffmpeg`), `gpt-4o-transcribe-diarize` + `diarized_json`,
+`known_speaker_references` entre piezas (clips WAV de 16 kHz de hasta 8 s
+por hablante, máximo 4), `whisper-1` sin hablantes como reserva si el modelo
+no existe, normalización de hablantes (`A, B…` → `Hablante 1, 2…`, puro),
+resumen estructurado (`json_schema`: idioma, resumen, acuerdos, acciones)
+con el mini vigente el 19-09-2026 según `GET /v1/models`:
+**`gpt-5.4-mini`** (`SEBASTIAN_SUMMARY_MODEL`); el modelo de diarización no
+devuelve idioma, lo aporta el resumen. Reintentos con backoff en 5xx/429; un
+4xx es definitivo y deja `no_transcript` con el motivo. Cola en memoria de un
+worker; al arrancar recoge lo que quedó en `transcribing`. Retención diaria
+(`SEBASTIAN_MEETING_RETENTION_DAYS`, 90; 0 desactiva) sobre estados finales
+sin `keep`. `ffmpeg` estático en la imagen distroless del server
+(`mwader/static-ffmpeg`). `OPENAI_API_KEY` en el secreto del server; sin
+clave se graba pero acaba en `no_transcript`.
 
 Tests (Go):
 - `T-D1` troceado (puro): duración y tamaño → lista de cortes ≤ 20 MB con solape de 2 s; una reunión de 40 min → una pieza.
@@ -216,6 +276,15 @@ Tests (Go):
 - `T-D4` resumen: el prompt lleva el idioma detectado; desactivado por control room → no se llama (RM-32).
 - `T-D5` retención (puro): qué reuniones caducan a fecha dada respetando `keep` (RM-45); el borrado deja fila con `deleted_at` y sin contenido (RM-46).
 - `T-D6` privacidad: la petición a OpenAI no lleva metadatos del control room ni el id del altavoz (RM-35).
+- Además: tabla de eventos del job (pieza única sin `ffmpeg`, hablantes que viajan entre piezas, rechazo → motivo, recuperación al arrancar), `ffmpeg` real (corte y clip, se salta si no está), txt/srt y renombrado (puros), el store con Postgres (jsonb, búsqueda `q`, `EndedBefore`).
+
+Hecho (19-09): las tres reuniones de prueba del bloque C quedaron `ready`
+con dos hablantes en español y resumen de `gpt-5.4-mini` en < 40 s cada
+una. API admin nueva: `PATCH …/meetings/{id}` (`speakers`, `keep`),
+`GET …/transcript?format=txt|srt`, `POST …/transcribe`, `POST …/summarize`,
+`?q=` en el listado; el detalle lleva `transcript`, `transcriptError` y
+`summary`. Diferencia mantenida tras E: la fila `recordings` con `kind=meeting` no se
+crea — el listado del control room lee `/v1/admin/meetings` directamente.
 
 ### Bloque E — el control room
 
@@ -228,10 +297,28 @@ confirmación. Proxy de audio `/meetings/$id/audio` con Range.
 
 Tests (vitest, `meetings.ts` puro):
 - `T-E1` `meetingLabel/state → texto y tono` para los siete estados y los motivos de parada.
-- `T-E2` `activeSegment(segments, t)` y `srt(segments, speakers)` / `txt(...)`.
+- `T-E2` `activeSegment(segments, t)` (la línea sigue encendida en las pausas); txt/srt los renderiza el server (`GET …/transcript`) y el dashboard solo los descarga por proxy, sin duplicar la lógica.
 - `T-E3` `liveDuration(startedAt, now)` y "Grabando desde HH:MM (mm:ss)".
 - `T-E4` la ficha oculta *Grabar* en micro-usb y explica (RM-44); muestra *Parar* con una en curso (RM-05).
-- `T-E5` `renameSpeaker` aplica a todos los segmentos.
+- `T-E5` `speakerName/speakersOf`: el renombrado vive en el server (`PATCH`, `Transcript.Rename`) y se aplica a toda la transcripción.
+
+Hecho (19-09): `/meetings` (filtros por estado y `q`, duración en vivo,
+*Parar* en la fila), `/meetings/{id}` (reproductor + transcripción
+sincronizada con clic para saltar, resumen con acuerdos y acciones,
+renombrar hablantes, conservar, transcribir/resumir de nuevo, txt/srt,
+borrar con confirmación), tira de reuniones en *Grabaciones*, panel en la
+ficha del altavoz (grabar/parar, "Grabando desde…", últimas reuniones,
+`meetingSilenceMin` 5–60 y `meetingMaxHours` 1–8 con `PATCH /devices/{id}`;
+`devices.meeting_silence_min/meeting_max_hours`, migración
+`20260918223744_meeting_limits`). El silencio viaja al agente en los
+metadatos (`silence_s`) y el máximo lo aplica el server por unidad en cada
+tick.
+
+Trampa: el `<audio>` no puede apuntar al proxy `/meetings/{id}/audio`
+directamente — en `vite dev` las peticiones con `Sec-Fetch-Dest: audio` no
+llegan a la ruta de servidor de TanStack (404) — así que la página descarga
+el audio con `fetch` (que sí llega) y lo reproduce desde un `blob:`. El
+proxy conserva `Range` para descargas y para el día en que se sirva directo.
 
 ### Bloque F — voz (opcional, el riesgo (1) de la spec)
 
@@ -245,6 +332,24 @@ Tests: `T-F1` clasificación de frases (puro, `text_match.py` ya existe) para
 las variantes de RM-04/21; `T-F2` en modo reunión cualquier otra petición
 recibe la frase fija de RM-21.
 
+Hecho (19-09), tal como quedó:
+- **Empezar por voz (RM-04/05)**: en conversación, `function_tool`
+  `start_meeting_recording` → `POST /v1/meetings {deviceId}` con
+  `X-Agent-Secret` (ruta cruda nueva; 202/409/422) → el agente dice la frase
+  fija (sin pronunciar su nombre: el altavoz lo tomaría por interrupción) y
+  cierra la sesión con gracia; la orden `record-start` llega por LAN a la
+  placa **en plena conversación** y `adopt.c` la deja en el buzón (solo
+  responde `busy` si ya graba), así que al terminar la conversación
+  `waitForWakeWord` la recoge y abre la reunión con su id.
+- **Parar por voz (RM-21)**: la placa escucha la palabra de activación en el
+  micro en vivo durante toda la reunión (`mic_src.setWakeListen`, el mismo
+  detector del barge-in) y la releva como `sebastian.barge_in`; el agente en
+  modo reunión abre una ventana de 4 s (`CommandWindow`), la transcribe con
+  `whisper-1`, clasifica con `meeting_intent` (puro) y responde por una pista
+  propia (`Speaker`, TTS de OpenAI): "Grabación guardada, N minutos" y
+  `POST …/stop {reason:"voice"}`, o "Estoy grabando; dime que pare si quieres
+  hablar" para cualquier otra cosa. Sin LLM en modo reunión, como manda RM-12.
+
 ## 5. Orden y estimación
 
 A → B → C (con A+B+C ya se graba de verdad y se ve el fichero en el server)
@@ -257,22 +362,32 @@ frente a los 3,5 de la spec: la diferencia es la transcripción por piezas
 1. El audio vive en el **volumen del server**, no en object storage; el
    agente lo envía en streaming. (Cuando haya MinIO en Sebastian, el server
    lo mueve allí sin cambiar contratos.)
-2. `ffmpeg` en las imágenes del agente (codificar) y del server (remultiplexar
-   y trocear). Sin recodificación en ningún punto.
+2. `ffmpeg` en las imágenes del agente (PCM recibido de LiveKit → Ogg/Opus) y
+   del server (corte con `-c copy` y referencias WAV). El audio se vuelve a
+   codificar en el agente; los fragmentos Ogg del servidor no se recodifican.
 3. Transcripción en el **server** (Go), no en el agente: el job sobrevive al
    fin de la sesión y se reintenta desde el dashboard.
 4. Las órdenes en red se firman con el secreto de organización; sin él, solo
    poll (≤ 30 s), y la ficha lo dice.
-5. La placa no mide el silencio ni el máximo: lo hace el server sobre el
-   audio que recibe (una sola fuente de verdad) y manda `record-stop`; la
-   placa solo avisa con el anillo cuando recibe `X-Meeting: warn` 30 s antes.
+5. La placa no mide el silencio ni el máximo. El máximo lo mide el server
+   (RM-24); el silencio lo detecta el **agente** con el VAD que ya corre
+   (RM-23) y lo comunica con `POST …/stop {reason:"silence"}` y, 30 s antes,
+   con `…/warn` — el server no decodifica Opus. La placa solo avisa con el
+   anillo cuando recibe `record-warn`. La implementación actual de `Warn` lo
+   envía solo por LAN; no queda pendiente en `X-Meeting` como start/stop.
 6. Modelo de transcripción `gpt-4o-transcribe-diarize` (reserva `whisper-1`);
-   modelo de resumen configurable, por defecto el mini vigente.
+   modelo de resumen configurable, por defecto el mini vigente:
+   `gpt-5.4-mini` (fijado el 19-09-2026).
 
-## 7. Abierto (se decide en el spike 0 o al implementar)
+## 7. Validación pendiente
 
-- Qué bit de `GPI_READ_VALUES` es el botón y su nivel activo (spike 0 en
-  placa, 1 h).
-- Safari y Ogg/Opus en `<audio>`: si falla, el proxy del dashboard sirve el
-  WebM remultiplexado (mismo `-c copy`), sin tocar el almacenamiento.
-- Nombre exacto del modelo mini de resumen en la fecha de implementación.
+El bit del botón se resolvió en el spike 0 (§0) y el modelo de resumen está
+fijado en la configuración (§6). Queda por cerrar:
+
+- Inicio/parada por voz en la placa con el firmware de F.
+- Recuperación de reuniones cortadas, reinicios y subidas interrumpidas.
+- Aviso de silencio cuando no funciona la entrega por LAN.
+- Compatibilidad de reproducción Ogg/Opus entre navegadores: pendiente de
+  aceptación manual. El proxy actual entrega Ogg; no hay fallback WebM.
+- Aceptación de la presentación separada de reuniones frente al catálogo
+  unificado propuesto en RM-40.

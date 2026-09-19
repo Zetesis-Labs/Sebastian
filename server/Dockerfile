@@ -20,6 +20,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 FROM gcr.io/distroless/static-debian12:nonroot
 
+# ffmpeg cuts meeting audio into pieces for transcription (design 14 block D).
+COPY --from=mwader/static-ffmpeg:7.1.1 /ffmpeg /usr/local/bin/ffmpeg
 COPY --from=builder /out/sebastian-api /usr/local/bin/sebastian-api
 COPY --from=builder /out/sebastian-migrate /usr/local/bin/sebastian-migrate
 COPY --from=builder /out/sebastian-outbox /usr/local/bin/sebastian-outbox

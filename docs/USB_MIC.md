@@ -47,12 +47,20 @@ registers a 1-channel 48 kHz USB input, clean capture with no micro-cuts.
 
 ## Build & flash
 
+Compilar desde la raíz del repo **dentro del devcontainer**:
+
 ```bash
-cd firmware
-. ~/esp/esp-idf/export.sh
-idf.py build
-idf.py -p /dev/cu.usbmodemXXX flash
+make fw-build
 ```
+
+Flashear desde la raíz de este mismo worktree **en el host**:
+
+```bash
+make flash
+```
+
+El script consume los artefactos del contenedor. Ver
+[BUILD_AND_RUN.md](BUILD_AND_RUN.md) para versiones y elección del puerto.
 
 The binary carries both modes; a fresh unit boots the `agente` profile.
 Switch with the boot selector or `sebastian.profile.set` (see `PROFILES.md`).
@@ -63,13 +71,14 @@ TinyUSB owns the S3's only USB PHY, so the **USB-Serial-JTAG console/flasher
 does not exist** while this firmware runs (that's also why there are no logs
 over USB — UART0 pins are repurposed as I2S data on this board).
 
-To flash anything (back to the agent firmware, or a new USB-mic build):
+Para volver a flashear el binario que contiene ambos perfiles:
 
-1. Hold the XIAO's **BOOT (B)** button.
-2. Tap **RESET** (or replug USB) while holding BOOT, then release.
-3. The ROM download mode enumerates as a USB-Serial-JTAG port again →
-   `idf.py -p /dev/cu.usbmodemXXX flash`.
-4. Press RESET once after flashing (the ROM loader does not auto-run).
+1. Mantener pulsado **BOOT (B) del XIAO** al reconectar su USB-C y soltarlo
+   cuando aparezca el puerto del cargador ROM.
+2. Desde el host ejecutar `tools/flash.sh /dev/cu.usbmodemXXX` con ese puerto.
+3. Si no arranca automáticamente, reconectar sin mantener BOOT.
+
+El botón RESET de la placa ReSpeaker resetea el XVF, no el ESP32.
 
 ## Known limits / future
 

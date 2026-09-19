@@ -1,25 +1,43 @@
-# Sebastian Dashboard
+# Dashboard de Sebastian
 
-Panel de administración SSR construido con React y TanStack Start. Consume el
-OpenAPI de `sebastian-server` desde funciones de servidor: el secreto temporal
-de administración nunca se incluye en el JavaScript del navegador.
+Panel SSR con React y TanStack Start. Consume el contrato OpenAPI de Go desde
+funciones de servidor; el secreto administrativo no se incluye en el JavaScript
+del navegador. El panel todavía no tiene login propio: su red/ingress determina
+quién puede utilizarlo.
 
-Dentro del devcontainer:
+## Funcionalidad
+
+- Catálogo `recordings`: resumen, listado y detalle de grabaciones registradas.
+- Flota: descubrimiento/adopción, ficha, perfil, configuración deseada frente a
+  ejecutada, eventos, rotación de secreto y olvido.
+- Instalador embebido en `/installer/`, preparado con la organización y el control
+  room. Los datos de aprovisionamiento sí llegan al navegador.
+- Reuniones en `/meetings`: búsqueda, detalle, transcripción sincronizada,
+  resumen, nombres de hablantes, conservar, reintentar, exportar y borrar.
+  La ficha del dispositivo permite iniciar/parar y ajustar límites.
+
+Reuniones B–F está en el PR #50 abierto. El reproductor obtiene el audio por
+`fetch` y `blob:`; su prueba manual sigue pendiente según
+[SESSION.md](../SESSION.md). Las reuniones tienen su propio recorrido y no crean
+una fila duplicada en el catálogo `recordings`.
+
+## Desarrollo
+
+Dentro del devcontainer, instalar también las dependencias de `web-installer`
+según [DEVCONTAINER.md](../docs/DEVCONTAINER.md). Desde `/workspace/dashboard`:
 
 ```bash
-cd /workspace/dashboard
 npm ci
 npm run generate:api
 npm run check
 npm run dev
 ```
 
-El panel escucha en `http://localhost:3001`. Necesita:
+El panel escucha en `http://localhost:3001`. Necesita `SEBASTIAN_API_URL`
+(configurado como `http://127.0.0.1:8787` en desarrollo) y
+`SEBASTIAN_ADMIN_SECRET`, compartido con Go.
 
-- `SEBASTIAN_API_URL`, por defecto configurado por el devcontainer como
-  `http://127.0.0.1:8787`.
-- `SEBASTIAN_ADMIN_SECRET`, el mismo valor configurado en la API Go.
-
-`src/lib/api-schema.ts` se genera desde `server/api/openapi.yaml` y se versiona
-para permitir builds reproducibles del contenedor. CI lo regenera y comprueba
-que no haya divergencias.
+`src/lib/api-schema.ts` se genera desde `server/api/openapi.yaml` y se versiona.
+CI verifica que no haya divergencias, pasa tipos y Vitest, construye el panel
+con el instalador y audita dependencias. Las comprobaciones de reproducción,
+WebSerial y recorrido visual no están cubiertas por esos tests lógicos.

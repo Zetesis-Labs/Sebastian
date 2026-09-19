@@ -88,13 +88,14 @@ type deviceRow struct {
 	ProfileID        uuid.UUID       `bun:"profile_id"`
 	AgentName        string          `bun:"agent_name"`
 	AgentConfig      json.RawMessage `bun:"agent_config"`
+	MeetingSilence   int             `bun:"meeting_silence_min"`
 }
 
 func (s *Store) FindDevice(ctx context.Context, id string) (session.Device, error) {
 	var row deviceRow
 	err := s.db.NewSelect().
 		TableExpr("devices AS d").
-		ColumnExpr("d.id, d.livekit_identity, d.credential_digest, d.pending_credential_digest, p.id AS profile_id, p.agent_name, p.config AS agent_config").
+		ColumnExpr("d.id, d.livekit_identity, d.credential_digest, d.pending_credential_digest, p.id AS profile_id, p.agent_name, p.config AS agent_config, d.meeting_silence_min").
 		Join("JOIN agent_profiles AS p ON p.id = d.agent_profile_id").
 		Where("d.id = ?", id).
 		Where("d.enabled = TRUE").
@@ -107,13 +108,14 @@ func (s *Store) FindDevice(ctx context.Context, id string) (session.Device, erro
 		return session.Device{}, fmt.Errorf("query device: %w", err)
 	}
 	return session.Device{
-		ID:               row.ID,
-		Identity:         row.Identity,
-		CredentialDigest: row.CredentialDigest,
-		PendingDigest:    row.PendingDigest,
-		ProfileID:        row.ProfileID,
-		AgentName:        row.AgentName,
-		AgentConfig:      row.AgentConfig,
+		ID:                row.ID,
+		Identity:          row.Identity,
+		CredentialDigest:  row.CredentialDigest,
+		PendingDigest:     row.PendingDigest,
+		ProfileID:         row.ProfileID,
+		AgentName:         row.AgentName,
+		AgentConfig:       row.AgentConfig,
+		MeetingSilenceMin: row.MeetingSilence,
 	}, nil
 }
 

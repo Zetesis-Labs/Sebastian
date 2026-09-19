@@ -345,3 +345,74 @@ miraba el anillo). `68ee8f4d8dd4` y `e072a1f895f4` siguen con firmware anterior.
 - Siguiente: bloque B (firmware): `gesture_core.zig` sobre `GPI_READ_VALUES`
   (resid 36; spike 0: qué bit es el botón), orden `cmd` en `adopt.c`,
   `X-Meeting` en `control.zig`, sesión modo reunión, anillo rojo.
+
+## Reuniones, bloques B y C (madrugada del 19) — rama `feat/meetings-b`, todo el spec 13 en un solo PR
+
+- B (firmware) probado en `68ee`: orden LAN `cmd` firmada, `X-Meeting` del
+  poll, gesto corta+larga (POST `/meetings` desde la placa), anillo rojo
+  fijo/atenuado/aviso, sesión de reunión con `mode:"meeting"`; pila del
+  main 3584 → 8192 (desbordó al abrir la sesión). Spike: `GPI_READ_VALUES`
+  solo responde a lecturas de 4 bytes; botón = byte 0 bit 0, activo a bajo.
+- C (agente): `agent/meeting_mode.py` — sin `AgentSession` (RM-12), captura
+  48 kHz → `ffmpeg` Ogg/Opus 48k → spool local → `PUT …/audio` reanudable
+  (`HEAD …/audio` da byte y estado); `SilenceNet` pura + VAD silero →
+  `POST …/warn` y `…/stop {silence}`. Server: rutas crudas `HEAD/stop/warn`
+  con `X-Agent-Secret`, `Service.Warn` (`record-warn` solo por LAN), EOF sin
+  bytes no cierra, y los eventos de la subida se aplican a la reunión actual
+  (bug: la parada desde la ficha acababa en `cut`). `tasks.spawn` ya loguea
+  las excepciones de tareas de fondo. Imagen del agente con `ffmpeg`; chart:
+  `SEBASTIAN_API_URL` (servicio del server) y `SEBASTIAN_MEETING_SILENCE_S`.
+- Env local: `agent/.env` lleva `SEBASTIAN_API_URL` y `SEBASTIAN_AGENT_SECRET`.
+- Trampa: `aiohttp` reintenta un `PUT` con cuerpo vacío si el server cierra la
+  conexión; `_retry_connection = False`.
+- Siguiente: bloque D (transcripción por piezas WebM ≤ 20 MB con
+  `gpt-4o-transcribe-diarize`, resumen, retención, borrado) y E (control room).
+
+## Reuniones, bloque D (madrugada del 19) — misma rama
+
+- `server/internal/transcribe`: `Pieces`/`Merge`/`KnownSpeakers` puros,
+  cliente OpenAI (multipart `diarized_json`, reserva `whisper-1`, resumen
+  `json_schema` con `gpt-5.4-mini`, reintentos 5xx/429, 4xx definitivo),
+  `Job` de un worker con recuperación al arrancar, `FFmpeg` (corte Ogg
+  `-c copy`, clips WAV para `known_speaker_references`). Dominio:
+  `meeting.Transcript`/`Summary`, `Rename`, `TXT`/`SRT`, `Expired` (retención).
+  Servicio: `Transcribed/TranscriptFailed/Summarized/Patch/Resummarize/Retain`.
+  Store: jsonb, `q` ILIKE, `EndedBefore`. API: PATCH, transcript txt/srt,
+  transcribe, summarize, `q`. Chart: `retentionDays`, `summary`,
+  `summaryModel`, `OPENAI_API_KEY` opcional. Dockerfile: ffmpeg estático.
+- Hallazgo: OpenAI ya acepta Ogg → sin remultiplexado a WebM.
+- Probado: al relanzar el server, el job transcribió las 3 reuniones de C
+  (2 hablantes, es, resúmenes). Env local `server.env` lleva `OPENAI_API_KEY`.
+- Siguiente: bloque E (control room): lista/ficha de reuniones, reproductor
+  + transcripción sincronizada, txt/srt, renombrar, buscar, parar/borrar,
+  botones en la ficha del altavoz, `meetingSilenceMin`/`meetingMaxHours`.
+
+## Reuniones, bloque E (madrugada del 19) — misma rama, PR único del spec 13
+
+- Dashboard: `lib/meetings.ts` puro (+ 6 tests), `api.ts` (reuniones,
+  límites, proxies de audio con `Range` y de txt/srt), rutas `/meetings`,
+  `/meetings/$id` (+ `audio`/`transcript` de servidor), tira en la home,
+  panel en la ficha (grabar/parar, límites 5–60 min / 1–8 h, últimas
+  reuniones), enlace "Reuniones" en la cabecera.
+- Server: `devices.meeting_silence_min/max_hours` (Atlas, dev DB local
+  `sebastian_schema` en el Postgres de 55440), `PATCH /devices/{id}` con
+  `meetingSilenceMin/MaxHours`, límite por unidad en el tick, `silence_s` en
+  los metadatos del despacho; el agente lo lee.
+- Probado en Chrome (pestaña propia): lista, ficha con resumen y
+  transcripción, grabar desde la ficha → "Grabando desde 00:48 (0:07)" →
+  parar → `ready` con transcripción en segundos; límites guardados (15/3).
+  El `<audio>` se alimenta por `fetch` + `blob:` (con `Sec-Fetch-Dest: audio`
+  la ruta de servidor devuelve 404 en dev). La reproducción en sí no se pudo
+  ver desde la pestaña automatizada (ni un WAV sintético carga metadatos ahí):
+  probar a mano.
+- Bloque F (voz) sin hacer: opcional según el diseño.
+
+## Reuniones, bloque F (madrugada del 19) — misma rama
+
+- Voz: arranque desde la conversación (`start_meeting_recording` → `POST
+  /v1/meetings` con secreto del agente; la placa encola la orden mientras
+  conversa y la abre al colgar) y parada en modo reunión (palabra de
+  activación en el micro en vivo → barge-in → 4 s → `whisper-1` →
+  `meeting_intent` → TTS por pista propia → `/stop {voice}`). Tests T-F1/T-F2
+  (27 en el agente). Firmware compilado, pendiente de flashear en `68ee` y de
+  probar a mano las dos frases.

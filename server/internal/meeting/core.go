@@ -76,8 +76,12 @@ type Meeting struct {
 	DurationMs  int64
 	Keep        bool
 	DeletedAt   time.Time
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	// Block D (design §2): the transcript, why it failed, and the digest.
+	Transcript      *Transcript
+	TranscriptError string
+	Summary         *Summary
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 // EventKind is what can happen to a meeting.
@@ -273,6 +277,11 @@ func StopReason(origin Origin) EndReason {
 // InProgress is true while the meeting still owns the unit's mic (RM-05).
 func InProgress(s State) bool {
 	return s == StateRequested || s == StateRecording || s == StateClosing
+}
+
+// Final is true once nothing more will happen to the meeting by itself.
+func Final(s State) bool {
+	return s == StateReady || s == StateNoTranscript || s == StateCut
 }
 
 // CommandFor is what the unit must be told for a meeting in this state, if

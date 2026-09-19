@@ -88,6 +88,18 @@ func (f *fakeStore) List(_ context.Context, flt Filter) ([]Meeting, error) {
 	return out, nil
 }
 
+func (f *fakeStore) EndedBefore(_ context.Context, before time.Time, _ int) ([]Meeting, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []Meeting
+	for _, m := range f.rows {
+		if Final(m.State) && !m.Keep && m.DeletedAt.IsZero() && m.EndedAt.Before(before) {
+			out = append(out, m)
+		}
+	}
+	return out, nil
+}
+
 func (f *fakeStore) Drop(_ context.Context, id uuid.UUID) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -168,6 +180,7 @@ type harness struct {
 	store *fakeStore
 	units *fakeUnits
 	cmd   *fakeCommander
+	mu    sync.Mutex // the clock is read from upload goroutines
 	clock time.Time
 }
 
@@ -179,11 +192,19 @@ func newHarness(t *testing.T) *harness {
 		ip:     "10.0.0.125", secret: "unit-secret", org: "org-secret",
 	}
 	h.s = NewService(h.store, h.units, h.cmd, filepath.Join(t.TempDir(), "meetings"), Limits{MaxDuration: 3 * time.Hour}, nil)
-	h.s.now = func() time.Time { return h.clock }
+	h.s.now = func() time.Time {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		return h.clock
+	}
 	return h
 }
 
-func (h *harness) advance(d time.Duration) { h.clock = h.clock.Add(d) }
+func (h *harness) advance(d time.Duration) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.clock = h.clock.Add(d)
+}
 
 func (h *harness) started(t *testing.T) Meeting {
 	t.Helper()
@@ -220,9 +241,15 @@ func TestStartRefusesTheWrongUnitAndASecondMeeting(t *testing.T) {
 		t.Fatalf("a unit that is not contacting cannot be asked (RM-03): %v", err)
 	}
 	h.units.detail.State = device.StateAdopted
-	first, err := h.s.Start(ctx, "68ee", OriginGesture)
+	if _, err := h.s.StartFromUnit(ctx, "68ee", "wrong"); !errors.Is(err, device.ErrUnauthorized) {
+		t.Fatalf("a gesture start needs the unit's secret: %v", err)
+	}
+	first, err := h.s.StartFromUnit(ctx, "68ee", "unit-secret")
 	if err != nil || first.State != StateRequested || first.RequestedBy != OriginGesture {
 		t.Fatalf("start: %+v %v", first, err)
+	}
+	if len(h.cmd.got) != 0 {
+		t.Fatal("a gesture start is not ordered back to the unit")
 	}
 	if _, err := h.s.Start(ctx, "68ee", OriginDashboard); !errors.Is(err, ErrBusy) {
 		t.Fatalf("one meeting per unit (RM-05): %v", err)
@@ -370,6 +397,13 @@ func TestAudioIsAppendedAsItArrivesAndACutKeepsIt(t *testing.T) {
 	if n, err := h.s.Audio(ctx, m.ID, 0, strings.NewReader("x")); !errors.Is(err, ErrOffset) || n != 11 {
 		t.Fatalf("offset check: n=%d err=%v", n, err)
 	}
+	// An empty body at the right offset neither closes nor advances anything.
+	if n, err := h.s.Audio(ctx, m.ID, 11, strings.NewReader("")); err != nil || n != 11 {
+		t.Fatalf("empty upload: n=%d err=%v", n, err)
+	}
+	if got, _ := h.s.Get(ctx, m.ID); got.State != StateRecording {
+		t.Fatalf("an empty upload must not close the recording: %s", got.State)
+	}
 	// Resume from the right offset, clean end of stream → closing → transcribing.
 	h.advance(10 * time.Second)
 	if _, err := h.s.Stop(ctx, m.ID, EndDashboard); err != nil {
@@ -479,5 +513,149 @@ func TestLiveDurationAndDeleteKeepTheTrace(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(h.store.events, ","), "meeting.deleted") {
 		t.Fatalf("events = %v", h.store.events)
+	}
+}
+
+// ── block C: the agent's silence net (RM-23) ──────────────────────────────
+
+func TestWarnReachesTheUnitOnlyWhileRecording(t *testing.T) {
+	h := newHarness(t)
+	m := h.started(t)
+	if err := h.s.Warn(context.Background(), m.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.cmd.wait(t); got.cmd != CmdWarn || got.id != m.ID {
+		t.Fatalf("the unit must blink its warning (RM-13): %+v", got)
+	}
+	if _, err := h.s.Stop(context.Background(), m.ID, EndSilence); err != nil {
+		t.Fatal(err)
+	}
+	h.cmd.wait(t)
+	if err := h.s.Warn(context.Background(), m.ID); !errors.Is(err, ErrNotRecording) {
+		t.Fatalf("a warning after the stop is meaningless: %v", err)
+	}
+	if err := h.s.Warn(context.Background(), uuid.New()); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown meeting: %v", err)
+	}
+}
+
+// The agent's upload is one long request: a stop that lands while it is open
+// must not be undone by the upload's own bookkeeping (field bug, block C).
+func TestAStopDuringTheUploadIsNotUndoneByIt(t *testing.T) {
+	h := newHarness(t)
+	m := h.started(t)
+	ctx := context.Background()
+	pr, pw := io.Pipe()
+	done := make(chan error, 1)
+	go func() {
+		_, err := h.s.Audio(ctx, m.ID, 0, pr)
+		done <- err
+	}()
+	if _, err := pw.Write([]byte("OggS-part-1")); err != nil {
+		t.Fatal(err)
+	}
+	h.advance(6 * time.Second)
+	if _, err := pw.Write([]byte("-more")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.s.Stop(ctx, m.ID, EndDashboard); err != nil {
+		t.Fatal(err)
+	}
+	h.cmd.wait(t)
+	h.advance(6 * time.Second)
+	if _, err := pw.Write([]byte("-tail")); err != nil {
+		t.Fatal(err)
+	}
+	pw.Close()
+	if err := <-done; err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+	got, _ := h.s.Get(ctx, m.ID)
+	if got.State != StateTranscribing || got.EndReason != EndDashboard || got.AudioBytes != 21 {
+		t.Fatalf("the stop must survive the upload: %+v", got)
+	}
+}
+
+// Block D at the service edge: transcript, digest, renames, keep, retention.
+func TestTranscriptDigestRenameAndRetention(t *testing.T) {
+	h := newHarness(t)
+	m := h.started(t)
+	ctx := context.Background()
+	h.advance(time.Minute)
+	if _, err := h.s.Stop(ctx, m.ID, EndDashboard); err != nil {
+		t.Fatal(err)
+	}
+	h.cmd.wait(t)
+	if _, err := h.s.Audio(ctx, m.ID, 0, strings.NewReader("OggS")); err != nil {
+		t.Fatal(err)
+	}
+	m, _ = h.s.Get(ctx, m.ID)
+	if m.State != StateTranscribing {
+		t.Fatalf("state = %s", m.State)
+	}
+	tr := Transcript{Diarized: true, Segments: []Segment{{Start: 0, End: 2, Speaker: "Hablante 1", Text: "Hola"}}}
+	tr.Text = tr.PlainText()
+	if _, err := h.s.Transcribed(ctx, m, tr); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := h.s.Get(ctx, m.ID)
+	if got.State != StateReady || got.Transcript == nil || got.Transcript.Text != "Hablante 1: Hola\n" {
+		t.Fatalf("transcribed: %+v", got)
+	}
+	if _, err := h.s.Summarized(ctx, got, Summary{Language: "es", Text: "resumen"}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = h.s.Get(ctx, m.ID)
+	if got.Summary == nil || got.Summary.Text != "resumen" || got.Transcript.Language != "es" {
+		t.Fatalf("summarized: %+v %+v", got.Summary, got.Transcript)
+	}
+	keep := true
+	got, err := h.s.Patch(ctx, m.ID, map[string]string{"Hablante 1": "Ana"}, &keep)
+	if err != nil || !got.Keep || got.Transcript.SpeakerName("Hablante 1") != "Ana" || got.Transcript.Text != "Ana: Hola\n" {
+		t.Fatalf("patch: %+v %v", got, err)
+	}
+	if strings.Join(h.store.events, ",") != "meeting.requested,meeting.started,meeting.ended,meeting.transcribed" {
+		t.Fatalf("events = %v", h.store.events)
+	}
+	var summaries []Meeting
+	h.s.OnSummarize = func(m Meeting) { summaries = append(summaries, m) }
+	if _, err := h.s.Resummarize(ctx, m.ID); err != nil || len(summaries) != 1 {
+		t.Fatalf("resummarize: %v %d", err, len(summaries))
+	}
+	// Retention: kept → survives; unkept → gone after 90 days (RM-45).
+	h.advance(91 * 24 * time.Hour)
+	if n := h.s.Retain(ctx, 90); n != 0 {
+		t.Fatalf("a kept meeting survives retention: deleted %d", n)
+	}
+	keep = false
+	if _, err := h.s.Patch(ctx, m.ID, nil, &keep); err != nil {
+		t.Fatal(err)
+	}
+	if n := h.s.Retain(ctx, 90); n != 1 {
+		t.Fatalf("retention must delete it: %d", n)
+	}
+	got, _ = h.s.Get(ctx, m.ID)
+	if got.DeletedAt.IsZero() {
+		t.Fatal("deleted keeps the trace (RM-46)")
+	}
+}
+
+func TestTheUnitOwnMaximumRulesOverTheDefault(t *testing.T) {
+	h := newHarness(t)
+	h.units.detail.MeetingMaxHours = 1
+	m := h.started(t)
+	ctx := context.Background()
+	h.advance(59 * time.Minute)
+	// The audio clock stays alive (an aborted stream, not a clean end).
+	_, _ = h.s.Audio(ctx, m.ID, 0, &brokenReader{data: []byte("OggS"), err: io.ErrUnexpectedEOF})
+	h.s.Tick(ctx)
+	if got, _ := h.s.Get(ctx, m.ID); got.State != StateRecording {
+		t.Fatalf("59 min: %s", got.State)
+	}
+	h.advance(2 * time.Minute)
+	_, _ = h.s.Audio(ctx, m.ID, 4, &brokenReader{data: []byte("more"), err: io.ErrUnexpectedEOF})
+	h.s.Tick(ctx)
+	if got, _ := h.s.Get(context.Background(), m.ID); got.State != StateClosing || got.EndReason != EndMaxDuration {
+		t.Fatalf("the ficha said 1 h (RM-24): %+v", got)
 	}
 }

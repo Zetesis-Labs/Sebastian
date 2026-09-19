@@ -44,6 +44,7 @@ from audio_input import SebastianAudioInput, setup_recorder, setup_output_record
 from device_identity import device_identity_from_metadata
 from endpointing import AGENT_STATE_TOPIC, close_device_session, setup_endpointing
 from instrumentation import instrument_session
+from meeting_mode import meeting_from_metadata, request_meeting_by_voice, run_meeting
 from wake_verify import setup_wake_verify
 from tasks import spawn as _spawn
 from typing import Any
@@ -114,8 +115,9 @@ PHANTOM_SESSION_S = 12.0  # a user-closed session shorter than this ≈ likely p
 
 
 class Sebastian(Agent):
-    def __init__(self) -> None:
+    def __init__(self, device_id: str) -> None:
         self._started = time.monotonic()
+        self._device_id = device_id
         super().__init__(
             instructions=(
                 "Eres Sebastián, un asistente de voz que vive en un altavoz "
@@ -143,10 +145,27 @@ class Sebastian(Agent):
                 "la ambigüedad: 'enciende la luz para el salón' NO es una orden de "
                 "parar; solo cierra cuando la intención real sea detenerte o "
                 "terminar. "
+                "Si te piden grabar la reunión (grabar esto, empezar a grabar, "
+                "grabar la reunión), llama a start_meeting_recording y di "
+                "EXACTAMENTE la frase que devuelve, nada más; después la sesión "
+                "se cierra sola y el altavoz empieza a grabar. "
                 "Nunca pronuncies tu propio nombre, Sebastián: el altavoz lo "
                 "interpreta como una orden de interrupción y te cortaría a ti mismo."
             )
         )
+
+    @function_tool
+    async def start_meeting_recording(self, context: RunContext) -> str:
+        """Empieza a grabar una reunión con este altavoz. Llámala cuando el
+        usuario pida grabar la reunión, grabar esto o empezar a grabar. Devuelve
+        la frase exacta que debes decir; tras decirla, la sesión se cierra sola."""
+        _ = context
+        outcome = await request_meeting_by_voice(self._device_id)
+        if outcome.close:
+            # The unit starts recording once this conversation is over (the
+            # order waits in its mailbox); leave time for the confirmation.
+            _spawn(close_device_session(get_job_context(), reason="meeting", pre_grace_s=GOODBYE_GRACE_S + 3))
+        return outcome.say
 
     @function_tool
     async def end_session(self, context: RunContext) -> str:
@@ -330,6 +349,11 @@ async def entrypoint(ctx: agents.JobContext) -> None:
     m_jobs.add(1)
     device_identity = device_identity_from_metadata(ctx.job.metadata)
     log.info("job accepted room=%s device=%s", ctx.job.room.name, device_identity)
+    meeting = meeting_from_metadata(ctx.job.metadata)
+    if meeting is not None:
+        # A meeting recording (design 14 block C): no assistant at all (RM-12).
+        await run_meeting(ctx, meeting, device_identity, silero.VAD.load())
+        return
     mic_input = SebastianAudioInput(ctx.room, vad=silero.VAD.load(), device_identity=device_identity)
     ctx.add_shutdown_callback(mic_input.aclose)
     if RECORD and RECORD_TRACK:
@@ -372,7 +396,7 @@ async def entrypoint(ctx: agents.JobContext) -> None:
     mic_input.on_talk_over = _on_talk_over
     await session.start(
         room=ctx.room,
-        agent=Sebastian(),
+        agent=Sebastian(device_identity),
         room_options=RoomOptions(audio_input=False),
     )
     if RECORD:

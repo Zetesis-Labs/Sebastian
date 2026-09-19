@@ -1,178 +1,105 @@
-# Firmware (Zig on ESP-IDF)
+# Firmware de Sebastian
 
-The application layer of the **ESP32-S3** firmware is written in **Zig** on top of
-**ESP-IDF v5.4** and the **LiveKit C SDK** (`client-sdk-esp32`). Zig was chosen for its
-memory safety (Ruben ruled out C for this layer). The WebRTC/network core remains
-in C —it is the LiveKit SDK, which is not rewritten—; Zig covers the application layer:
-board bring-up, microphone source, speaker path, XVF DFU, and the room logic.
+Referencia: `84f278b6`, 2026-09-19. La aplicación usa Zig sobre ESP-IDF y el SDK
+LiveKit C. El CI fija ESP-IDF **5.4.4** y el fork Zig **0.16.0-xtensa**.
+C/C++ conserva los adaptadores a IDF y el motor TFLite/microWakeWord.
 
-The Zig object is built by `cmake/zig.cmake` using the **Espressif Zig fork**
-(`0.16.0-xtensa`, LLVM Xtensa backend), which is downloaded automatically during the
-build. The result (`obj/app_zig.o`) is linked inside the `main` component of
-ESP-IDF, which exports `app_main`.
+## ABI y compilación
 
-## Why hand-written `extern` bindings (and not `@cImport`)
+`cmake/zig.cmake` descarga el compilador verificado por SHA256, compila
+`main/app.zig` a un objeto y lo enlaza en el componente `main` de ESP-IDF.
+Los bindings de [csdk.zig](../firmware/main/csdk.zig) son `extern` escritos a
+mano: no se generan con `@cImport`/translate-c.
 
-This is the most important design point. Zig offers `@cImport` (translate-c)
-to generate bindings from C headers, but **it was abandoned**: translate-c
-**inverts the order of include dirs** and **chokes on ESP-IDF's newlib headers**
-(the order of `#include_next` in `sys/reent.h`, undefined `wint_t` in
-`sys/_types.h`, etc.).
+[abi_check.c](../firmware/main/abi_check.c) contrasta tamaños/offsets contra los
+headers C; Zig añade comprobaciones en compilación. Al cambiar IDF o una
+estructura compartida, revisar ambos lados. El build completo detecta errores
+que una prueba de un módulo puro no puede detectar.
 
-Instead, `csdk.zig` **hand-declares** only the functions and structs that the app
-uses, as `extern`, transcribing the exact layouts of the structs from the
-IDF 5.4 / esp32s3 and LiveKit headers (which are under
-`firmware/managed_components/`). With this, **Zig never parses C headers**, so
-there are zero translate-c issues: the C side is compiled and linked by ESP-IDF, and
-here only the called prototypes and layouts are declared.
+## Módulos
 
-The **risk** of this approach is that the struct layouts (especially nested ones
-and offsets) must be **manually matched** against the headers: if an
-IDF header changes a field, `csdk.zig` must be updated in parallel. That's
-why the file warns "Keep in sync".
+| Módulo | Responsabilidad |
+|---|---|
+| `app.zig` | Arranque, perfiles, conversación, reuniones, handoff de audio y watchdog. |
+| `board.zig` | I2C, AIC3104, I2S RX/TX separados y dispositivos codec. |
+| `xvf_dfu.zig` | Control I2C serializado, versión/DFU del XVF, mute y LEDs. |
+| `xvf_aec.zig` | Configuración con lectura de comprobación y probes acústicos. |
+| `mic_src.zig` / `xvf_pcm.zig` | Captura acompasada al consumidor y conversión de muestras. |
+| `wakeword.zig` / `components/mww` | Modelo Okay Nabu, frontend, FIR y detección local. |
+| `pre_roll.zig` | Audio previo a la activación en PSRAM y envío SBPR limitado. |
+| `profile.zig` / `profiles.c` | Perfiles NVS, selector y contabilidad de fallos de arranque. |
+| `usb_mic.zig` | Micrófono TinyUSB UAC2 y convivencia con el agente. |
+| `token.zig` / `session_http.c` | Sesiones autenticadas e intercambios HTTP con Go. |
+| `control.zig` | Sondeo, configuración deseada, reporte de configuración y órdenes de reunión. |
+| `adopt.c` / `announce.c` | Adopción firmada UDP y anuncio mDNS. |
+| `provisioning.c` | Lectura/escritura de configuración, NVS y conexión/reversión WiFi. |
+| `xvf_ui.zig` | Anillo, consentimiento, estados y gestos del botón. |
+| `log.zig` / `syslog_sink.c` / `coredump_report.c` | Logs, syslog y diagnóstico de pánicos. |
+| `core/` | Lógica pura de sesión, compuerta, perfiles, arbitraje USB, gestos y DSP. |
 
-## Modules (`main/*.zig`)
+## Arranque y modos
 
-> Note: this list predates several modules. The firmware also includes `wakeword.zig`
-> (+ the `components/mww/` C/C++ engine) for on-device wake detection, `main/core/` (pure,
-> host-tested logic: `session_reducer.zig`, `mic_gate.zig`, …), `provisioning.c` (NVS WiFi/
-> token/mode provisioning over serial), `token.zig` (per-session token fetch) and a syslog
-> telemetry sink. See the source for the current set.
+El arranque inicia aprovisionamiento y perfiles, prepara la placa/XVF, aplica
+configuración y abre la ventana serie antes de que TinyUSB reclame el USB.
+Una lectura de configuración prolonga esa ventana. Después ejecuta el perfil
+`agente` o `micro-usb`.
 
-### `app.zig` — entry point
+En agente se construye el recorrido de audio, se conecta WiFi, se activa syslog
+si está configurado y se inicia el control por red. El modelo y el anillo de
+pre-roll quedan preparados para el ciclo de activación. Una orden de reunión
+abre su recorrido específico. Un fallo de arranque del agente permite conservar
+el servicio de micrófono USB.
 
-Contains `app_main` and orchestrates the boot sequence in this order:
+La contabilidad de arranques puede seleccionar un perfil agente de recuperación
+en memoria tras tres fallos; no sobrescribe la preferencia guardada. Esto no es
+un sistema OTA ni garantiza recuperación de cada fallo de hardware.
 
-1. `livekit_system_init()`.
-2. `board.init()` — hardware bring-up.
-3. `xvf_dfu.ensureMaster(i2cBus)` + `xvf_dfu.unmute()` — puts the XVF3800 into the
-   I2S-master firmware and unmutes it.
-4. Registers the default audio codecs
-   (`esp_audio_dec_register_default` / `esp_audio_enc_register_default`).
-5. `buildCapturer()` — builds the microphone source (`mic_src`) and opens the
-   `esp_capture` pipeline.
-6. `buildRenderer()` — builds the speaker path (`av_render` over I2S), at
-   48 kHz / 2 channels / 32-bit, with a bounded FIFO (`allow_drop_data = true`) to
-   avoid accumulating latency.
-7. Connects the WiFi (`lk_example_network_connect`), **disables modem sleep**
-   (`WIFI_PS_NONE`, essential for real-time audio), starts **SNTP**
-   (to have a valid clock for TLS) and calls `joinRoom()`.
+## Audio y memoria
 
-`joinRoom()` creates and connects the LiveKit room: **publishes** Opus 48 kHz mono from the
-capturer and **subscribes** the incoming audio to the renderer.
+- XVF como maestro I2S a 48 kHz/32 bits/estéreo; ESP esclavo con RX en
+  `I2S_NUM_1` y TX en `I2S_NUM_0`.
+- Canal de micrófono compilado: **LEFT/comms**. Modo dúplex y haz se pueden
+  sobrescribir desde NVS/perfil; el canal no cambia sin recompilar.
+- Captura directa desde el consumidor para evitar deriva entre relojes.
+- Reproducción mediante `av_render`, con colas acotadas. Volumen base 100.
+- Arena de inferencia de 40 KB en **PSRAM**, junto a otros buffers que no
+  necesitan DMA interno. La convivencia TinyUSB/LiveKit depende de ese margen.
+- Anillo de pre-roll de 12 s; ventana enviada de hasta 2,5 s/80 KB. Una conexión
+  lenta no debe convertir toda la espera en un envío mayor que la caché SCTP.
+- Probes de AEC apagados mediante constantes de compilación: convertirlos en
+  flags runtime mantiene buffers internos que pueden impedir el transporte.
 
-It also defines a custom **panic handler** (`panicFn`) that calls `abort()` so
-that ESP-IDF dumps a backtrace and reboots, instead of hanging. It also
-sets `std_options` (log level and `logFn` → `log.zig`).
+Las operaciones de control XVF mantienen un lock durante solicitud y respuesta.
+Si el chip deja de contestar, la tarea del anillo reduce consultas para no
+monopolizar el bus. El CI 5.4.4 incorpora la corrección del driver I2C que motivó
+los pánicos investigados en septiembre.
 
-### `board.zig` — hardware bring-up
+## Configuración y credenciales
 
-- **I2C master** (SDA=5, SCL=6), with a bus scan for diagnostics.
-- **AIC3104** via I2C (address `0x18`): DAC volumes and output routing
-  (HP / line-out).
-- **I2S**: the ESP32 is configured as a **SLAVE** to the 48 kHz clock generated by the
-  XVF3800, on **two separate ports**:
-  - **TX (speaker)** on `I2S_NUM_0`, `DOUT=44`.
-  - **RX (microphone)** on `I2S_NUM_1`, `DIN=43`.
-  - Both 32-bit stereo, slaves, **sharing BCLK=8 and WS=7**.
-  - They are two separate ports because a single shared duplex channel **corrupted
-    the DMA and caused crashes**.
-- Creates the playback (`play_dev`) and recording (`rec_dev`) `esp_codec_dev` devices
-  with a **no-op `codec_if`** (the AIC3104 is configured directly via I2C
-  and the XVF self-configures, so `esp_codec_dev` only moves I2S data).
-- Speaker volume set to **35** (moderate: too high feeds back into the microphone).
+El instalador envía `sebastian.config.v1`; el firmware valida, guarda en NVS y
+reinicia. `sebastian.config.get` devuelve la configuración existente sin la
+contraseña WiFi. La unidad genera su secreto y lo comparte con el control room
+al adoptar; no lleva claves API de LiveKit ni de modelos.
 
-### `csdk.zig` — hand-written `extern` bindings
+`tokenServerUrl` conserva su nombre histórico. Se deriva su origen para llamar a
+`POST /v1/sessions` con `X-Device-Id` y `X-Device-Secret`. El recorrido legado
+`token_http.c` se retiró. Ver [protocolo de aprovisionamiento](../web-installer/public/PROVISIONING.md).
 
-All the `extern` declarations for the ESP-IDF / LiveKit C ABI: I2C, I2S,
-`esp_codec_dev` and its vtable, `esp_capture` and the audio source interface,
-`av_render`, LiveKit room/sandbox, FreeRTOS (`xTaskCreatePinnedToCore`),
-`esp_timer`, `abort`, etc. Exists for the reason explained above (avoiding
-translate-c on newlib headers). The layouts are transcribed from the
-IDF v5.4 headers for esp32s3 (`SOC_I2S_HW_VERSION_2`).
+## Pruebas, build y flasheo
 
-### `mic_src.zig` — custom `esp_capture` audio source
-
-Implements the `esp_capture_audio_src_if_t` vtable
-(`open` / `negotiate_caps` / `start` / `read_frame` / `stop` / `close`).
-
-The key decision: **reads `i2s_rx` directly inside `read_frame()`**, consumer-paced.
-The pipeline requests a frame of N samples and blocks
-exactly on N I2S samples — **without a producer task and without a ring
-buffer**, so there is no drift between the XVF's clock and the consumer's. A
-previous version with a freewheeling ring buffer drifted and produced a
-periodic "helicopter"/warble.
-
-Takes the **LEFT slot** of the I2S (the *comms beam* of the XVF: on-chip NS + residual-echo
-suppression, path B since 2026-07-08), converts from 32-bit to 16-bit with a **fixed right
-shift** (`SHIFT`, comptime-selected per channel in `xvf_pcm.zig`, calibrated so the voice
-falls around **-18 dBFS** without clipping), and publishes
-the source as **48 kHz** (LiveKit resamples). In the **first `read_frame()`** it does
-a disable+enable of the RX channel to lock onto the XVF's already running clock (the
-board enabled the channel before the XVF was clocking).
-
-### `xvf_dfu.zig` — XVF3800 update
-
-Flashes the XVF3800 to the **inthost** (I2S-master) firmware over I2C (XMOS DFU
-protocol, address `0x2C`, `resid` 240) and **unmutes** it (the XVF boots with its internal mute GPIO
-asserted). The firmware binary is **embedded** into the object via
-`@embedFile`. The chip keeps an intact factory image, so a failed upgrade
-cannot brick it. See `docs/XVF3800.md` for protocol details.
-
-### `log.zig` — logging bridge
-
-Redirects Zig's `std.log` to ESP-IDF's `esp_log_write`, preserving
-compile-time checked format strings and Zig's scoped logging,
-but the output appears on the serial monitor.
-
-## Build system
-
-`cmake/zig.cmake` (included from `main/CMakeLists.txt` after
-`idf_component_register`):
-
-1. Detects host, downloads and verifies (SHA256) the **Espressif Zig fork**
-   (`0.16.0-xtensa`).
-2. **Harvests** the include dirs and defines from the ESP-IDF component graph via
-   generator expression (version-agnostic, no hardcoded IDF paths).
-3. Compiles `main/app.zig` (and its imports) to `obj/app_zig.o` and links it into the
-   `main` component.
-
-The XVF firmware binary
-(`firmware/main/xvf_fw/xvf_master_1.0.7.bin`, ~868 KB) is **embedded at compile time**
-with `@embedFile`.
-
-Component structure:
-
-```
-main/
-  app.zig      ← app_main; media (capturer/renderer), WiFi/SNTP, join room
-  board.zig    ← I2C, AIC3104, dual port slave I2S, esp_codec_dev (no-op codec_if)
-  csdk.zig     ← hand-written extern bindings (IDF + codec_dev + capture/render + livekit)
-  mic_src.zig  ← custom esp_capture source (reads i2s_rx directly, left/comms slot)
-  xvf_dfu.zig  ← XVF3800 DFU via I2C + embedded firmware (@embedFile)
-  log.zig      ← std.log → esp_log_write bridge
-  placeholder.c← empty (keeps the IDF component non-empty)
-```
-
-## Build & flash
-
-Requires ESP-IDF v5.4+ exported (`. ~/esp/esp-idf/export.sh`).
+Dentro del devcontainer, desde `/workspace`:
 
 ```bash
-cd firmware
-idf.py set-target esp32s3
-idf.py build
-idf.py -p /dev/cu.usbmodem101 flash monitor
+make fw-test
+make fw-build
 ```
 
-WiFi and the token-server URL are **provisioned over serial into NVS** (see `provisioning.c`
-and `token.zig`), not compiled in. `secrets.zig` holds only a fallback default and is
-gitignored; nothing sensitive goes in `sdkconfig.defaults`.
+En el host macOS, desde la raíz del worktree:
 
-## Backend / agent
+```bash
+make flash
+```
 
-The device opens a session on a **self-hosted LiveKit SFU** (no longer LiveKit Cloud): it
-fetches a **per-session token** from its own **token/session server** (URL provisioned into
-NVS, see above), and the [Python agent](../agent/) joins the same room to provide STT/LLM/TTS
-with server-side wake verification. The Go server, admin dashboard, agent and control plane
-run on the `cortes` cluster (`server/`, `dashboard/`, `helm/sebastian/`).
+[BUILD_AND_RUN.md](BUILD_AND_RUN.md) cubre recuperación USB y conversión de
+familia del firmware XVF. [TESTING.md](../TESTING.md) distingue pruebas lógicas,
+compilación y comprobaciones en placa.

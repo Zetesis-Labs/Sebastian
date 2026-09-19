@@ -34,6 +34,7 @@ type DeviceService interface {
 	Get(ctx context.Context, id string) (device.Detail, error)
 	SetDesiredProfile(ctx context.Context, id, name string) error
 	Rename(ctx context.Context, id, name string) error
+	SetMeetingLimits(ctx context.Context, id string, silenceMin, maxHours int) error
 	SetDesiredConfig(ctx context.Context, id string, config map[string]any) (string, error)
 	ClearDesiredConfig(ctx context.Context, id string) error
 	DeviceConfig(ctx context.Context, id, secret string) (json.RawMessage, error)
@@ -172,6 +173,8 @@ func deviceResponse(item device.Device) Device {
 		DisplayName:           item.DisplayName,
 		Enabled:               item.Enabled,
 		State:                 DeviceState(item.State),
+		MeetingSilenceMin:     optionalInt(item.MeetingSilenceMin),
+		MeetingMaxHours:       optionalInt(item.MeetingMaxHours),
 		AdoptedAt:             optionalTime(item.AdoptedAt),
 		DesiredProfile:        optional(item.DesiredProfile),
 		ReportedProfile:       optional(item.ReportedProfile),
@@ -356,3 +359,10 @@ func problem(status int, title, detail string) Problem {
 }
 
 func jsonUnmarshal(data []byte, v any) error { return json.Unmarshal(data, v) }
+
+func optionalInt(v int) *int {
+	if v == 0 {
+		return nil
+	}
+	return &v
+}

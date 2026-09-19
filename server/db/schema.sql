@@ -46,6 +46,10 @@ CREATE TABLE devices (
   -- first poll that carried that value.
   last_event varchar,
   last_event_at timestamptz,
+  -- Meeting recordings (docs/implementation/13 RM-23/24): the silence that
+  -- ends a recording and its maximum length, set from the unit's ficha.
+  meeting_silence_min integer NOT NULL DEFAULT 10,
+  meeting_max_hours integer NOT NULL DEFAULT 3,
   forgotten_at timestamptz,
   CONSTRAINT devices_agent_profiles_devices
     FOREIGN KEY (agent_profile_id) REFERENCES agent_profiles(id)

@@ -39,6 +39,9 @@ function RootComponent() {
           <Link to="/" activeOptions={{ exact: true }} activeProps={{ className: 'active' }}>
             Grabaciones
           </Link>
+          <Link to="/meetings" activeProps={{ className: 'active' }}>
+            Reuniones
+          </Link>
           <Link to="/devices" activeProps={{ className: 'active' }}>
             Dispositivos
           </Link>

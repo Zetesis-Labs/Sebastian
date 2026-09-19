@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"reflect"
 	"testing"
 	"time"
 
@@ -51,6 +52,7 @@ func (s stubRecordings) Summary(context.Context) (recording.Summary, error) {
 }
 
 type stubDevices struct {
+	limits   [2]int
 	desired  string
 	items    []device.Device
 	err      error
@@ -81,6 +83,10 @@ func (s *stubDevices) Get(context.Context, string) (device.Detail, error) {
 
 func (s *stubDevices) SetDesiredProfile(context.Context, string, string) error { return s.err }
 func (s *stubDevices) Rename(context.Context, string, string) error            { return s.err }
+func (s *stubDevices) SetMeetingLimits(_ context.Context, _ string, silence, hours int) error {
+	s.limits = [2]int{silence, hours}
+	return s.err
+}
 func (s *stubDevices) SetDesiredConfig(context.Context, string, map[string]any) (string, error) {
 	return "abc123", s.err
 }
@@ -352,5 +358,20 @@ func TestListDevicesExposesTheFleetState(t *testing.T) {
 	list := response.(ListDevices200JSONResponse)
 	if len(list.Items) != 1 || list.Items[0].State != "orphan" || *list.Items[0].Ip != "10.0.0.130" || *list.Items[0].LastError != "timeout" {
 		t.Fatalf("unexpected %#v", list.Items)
+	}
+}
+
+// RM-23/24: the ficha reads and writes the unit's meeting limits.
+func TestDeviceMeetingLimitsTravel(t *testing.T) {
+	devices := &stubDevices{items: []device.Device{{ID: "68ee", DisplayName: "68ee", Enabled: true, State: device.StateAdopted, MeetingSilenceMin: 15, MeetingMaxHours: 2}}}
+	h := NewHandler(nil, nil, devices, &stubMeetings{}, stubReadiness{}, testLogger(), time.Second)
+	got, _ := h.GetDevice(context.Background(), GetDeviceRequestObject{DeviceId: "68ee"})
+	detail := got.(GetDevice200JSONResponse)
+	if detail.MeetingSilenceMin == nil || *detail.MeetingSilenceMin != 15 || detail.MeetingMaxHours == nil || *detail.MeetingMaxHours != 2 {
+		t.Fatalf("detail limits: %+v %+v", detail.MeetingSilenceMin, detail.MeetingMaxHours)
+	}
+	silence := 20
+	if res, _ := h.UpdateDevice(context.Background(), UpdateDeviceRequestObject{DeviceId: "68ee", Body: &DeviceUpdate{MeetingSilenceMin: &silence}}); reflect.TypeOf(res).Name() != "UpdateDevice204Response" || devices.limits != [2]int{20, 2} {
+		t.Fatalf("patch keeps the other limit: %T %v", res, devices.limits)
 	}
 }

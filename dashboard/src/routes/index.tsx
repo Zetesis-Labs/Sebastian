@@ -1,6 +1,7 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { getDashboard } from '../lib/api'
 import { formatBytes, formatDate, formatDuration, kindLabel } from '../lib/format'
+import { MEETING_STATE_LABEL, MEETING_STATE_TONE, meetingLabel } from '../lib/meetings'
 
 export const Route = createFileRoute('/')({
   loader: () => getDashboard(),
@@ -9,7 +10,7 @@ export const Route = createFileRoute('/')({
 })
 
 function Dashboard() {
-  const { recordings, summary } = Route.useLoaderData()
+  const { recordings, summary, meetings } = Route.useLoaderData()
 
   return (
     <main className="page-shell">
@@ -41,6 +42,36 @@ function Dashboard() {
           note="hora local de Madrid"
           compact
         />
+      </section>
+
+      <section className="archive-section">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Con el altavoz · RM-40</p>
+            <h2>Reuniones</h2>
+          </div>
+          <Link to="/meetings" className="button-link">Todas las reuniones →</Link>
+        </div>
+        {meetings.length === 0 ? (
+          <p className="device-meta">Ninguna todavía. Se graban desde la ficha del altavoz o con su botón MUTE (corta + larga).</p>
+        ) : (
+          <div className="recording-list">
+            {meetings.map((m) => (
+              <Link key={m.id} to="/meetings/$meetingId" params={{ meetingId: m.id }} className="recording-row">
+                <span className="row-index">{MEETING_STATE_LABEL[m.state].slice(0, 2).toUpperCase()}</span>
+                <span className={`kind-dot tone-${MEETING_STATE_TONE[m.state]}`} style={{ background: 'currentColor', boxShadow: 'none' }} />
+                <span className="recording-primary">
+                  <strong>{m.summary?.text ? m.summary.text.slice(0, 90) : `Reunión · ${MEETING_STATE_LABEL[m.state]}`}</strong>
+                  <small>{meetingLabel(m)} · {m.deviceId}</small>
+                </span>
+                <span className="recording-date">{formatDate(m.startedAt ?? m.requestedAt)}</span>
+                <span className="recording-duration">{formatDuration(m.durationMs)}</span>
+                <span className="recording-size">{formatBytes(m.audioBytes)}</span>
+                <span className="row-arrow" aria-hidden="true">↗</span>
+              </Link>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="archive-section">

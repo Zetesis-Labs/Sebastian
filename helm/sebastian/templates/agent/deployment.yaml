@@ -1,5 +1,5 @@
 {{- if .Values.agent.enabled }}
-{{- $secret := required "agent.existingSecret must be set (keys: LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET, GOOGLE_API_KEY and/or OPENAI_API_KEY, SEBASTIAN_HA_MCP_URL, SEBASTIAN_HA_TOKEN)" .Values.agent.existingSecret }}
+{{- $secret := required "agent.existingSecret must be set (keys: LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET, GOOGLE_API_KEY and/or OPENAI_API_KEY, SEBASTIAN_HA_MCP_URL, SEBASTIAN_HA_TOKEN, SEBASTIAN_AGENT_SECRET)" .Values.agent.existingSecret }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -60,6 +60,12 @@ spec:
               value: /data/phantoms
             - name: TMPDIR
               value: /tmp
+            # Meeting recordings stream to the server (design 14 block C);
+            # SEBASTIAN_AGENT_SECRET comes with the secret above.
+            - name: SEBASTIAN_API_URL
+              value: {{ .Values.agent.apiURL | default (printf "http://%s-server:%d" (include "sebastian.fullname" .) (int .Values.server.service.port)) | quote }}
+            - name: SEBASTIAN_MEETING_SILENCE_S
+              value: {{ .Values.agent.meetingSilenceSeconds | quote }}
             {{- if .Values.agent.otel.endpoint }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: {{ .Values.agent.otel.endpoint | quote }}

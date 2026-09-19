@@ -80,6 +80,15 @@ pub fn setFullDuplex(v: bool) void {
 // user turns and the room feeds on itself. The agent announces speaking over the
 // data channel; we send silence for the duration plus a short reverb tail.
 var barge_flag = std.atomic.Value(bool).init(false);
+// Meeting recordings (spec 13 RM-12/21): nobody speaks for the agent, so the
+// wake word is listened for on the live mic the whole time, not only while
+// the agent's speech is gated.
+var listen_flag = std.atomic.Value(bool).init(false);
+
+pub fn setWakeListen(v: bool) void {
+    if (v) wakeword.bargeReset();
+    listen_flag.store(v, .monotonic);
+}
 
 pub fn setAgentSpeaking(v: bool) void {
     if (gate.setAgentSpeaking(v)) wakeword.bargeReset(); // fresh detector window per burst
@@ -294,6 +303,12 @@ fn writeGatedFrame(out: [*]i16, got: usize, total: usize, agent_gated: bool) voi
     mic_level.store(0, .monotonic);
 }
 
+fn detectWakeInLiveAudio(got: usize) void {
+    if (got == 0 or !wakeword.bargeFeed(read_buf[0 .. got * 2])) return;
+    barge_flag.store(true, .monotonic);
+    log.info("wake word heard during the meeting", .{});
+}
+
 fn writeCapturedSamples(out: [*]i16, got: usize, total: usize) void {
     var i: usize = 0;
     var peak: u32 = 0;
@@ -340,6 +355,7 @@ fn readLiveSamples(frame: *c.esp_capture_stream_frame_t, total: usize) c_int {
         return c.ESP_CAPTURE_ERR_OK;
     }
 
+    if (listen_flag.load(.monotonic)) detectWakeInLiveAudio(got);
     writeCapturedSamples(out, got, total);
     return c.ESP_CAPTURE_ERR_OK;
 }

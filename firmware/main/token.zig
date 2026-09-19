@@ -20,6 +20,7 @@ var token_server_url: [256]u8 = undefined;
 var origin_z: [256]u8 = undefined;
 var secret_buf: [129]u8 = undefined;
 var id_z: [13]u8 = undefined;
+var body_buf: [96]u8 = undefined;
 
 pub const Connection = struct {
     server_url: [*:0]const u8,
@@ -32,6 +33,17 @@ pub const Error = error{ HttpFailed, Unprovisioned };
 /// strings. They reference module-static buffers valid until the next fetch()
 /// — connect immediately, don't stash them across sessions.
 pub fn fetch() Error!Connection {
+    return fetchWith(null);
+}
+
+/// A meeting session (design 14 §3.2): the server dispatches the agent in
+/// meeting mode for `meeting_id`.
+pub fn fetchMeeting(meeting_id: []const u8) Error!Connection {
+    const body = std.fmt.bufPrintZ(&body_buf, "{{\"kind\":\"meeting\",\"meetingId\":\"{s}\"}}", .{meeting_id}) catch return error.HttpFailed;
+    return fetchWith(body.ptr);
+}
+
+fn fetchWith(body: ?[*:0]const u8) Error!Connection {
     if (!c.sebastian_get_token_url(&token_server_url, token_server_url.len)) {
         log.err("no control room URL in NVS — device unprovisioned", .{});
         return error.Unprovisioned;
@@ -42,7 +54,7 @@ pub fn fetch() Error!Connection {
     }
     const o = url_core.origin(std.mem.sliceTo(&token_server_url, 0));
     const origin = std.fmt.bufPrintZ(&origin_z, "{s}", .{o}) catch return error.HttpFailed;
-    const rc = c.sebastian_session_create(origin.ptr, @ptrCast(&id_z), @ptrCast(&secret_buf), &url_buf, url_buf.len, &token_buf, token_buf.len);
+    const rc = c.sebastian_session_create(origin.ptr, @ptrCast(&id_z), @ptrCast(&secret_buf), body, &url_buf, url_buf.len, &token_buf, token_buf.len);
     if (rc != 0) {
         log.err("POST /v1/sessions failed (rc={d}) — is this unit adopted by {s}?", .{ rc, origin });
         return error.HttpFailed;

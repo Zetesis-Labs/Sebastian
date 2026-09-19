@@ -649,6 +649,12 @@ paths:
           in: query
           schema:
             $ref: "#/components/schemas/MeetingState"
+        - name: q
+          in: query
+          description: Text to find in the transcript or the summary (RM-42).
+          schema:
+            type: string
+            maxLength: 200
         - name: limit
           in: query
           schema:
@@ -689,6 +695,39 @@ paths:
           $ref: "#/components/responses/MeetingNotFound"
         "503":
           $ref: "#/components/responses/Unavailable"
+    patch:
+      operationId: updateMeeting
+      summary: Rename speakers and flag the meeting to keep (RM-31, RM-45)
+      tags: [administration, meetings]
+      security:
+        - AdminSecret: []
+      parameters:
+        - $ref: "#/components/parameters/MeetingId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MeetingPatch"
+      responses:
+        "200":
+          description: The meeting as updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Meeting"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/MeetingNotFound"
+        "409":
+          description: There is no transcript whose speakers could be renamed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "503":
+          $ref: "#/components/responses/Unavailable"
     delete:
       operationId: deleteMeeting
       summary: Delete audio and content irreversibly, keeping the trace (RM-46)
@@ -706,6 +745,90 @@ paths:
           $ref: "#/components/responses/MeetingNotFound"
         "409":
           description: The meeting is still in progress.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/admin/meetings/{meetingId}/transcript:
+    get:
+      operationId: getMeetingTranscript
+      summary: The transcript as a download, txt or srt (RM-41)
+      tags: [administration, meetings]
+      security:
+        - AdminSecret: []
+      parameters:
+        - $ref: "#/components/parameters/MeetingId"
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum: [txt, srt]
+            default: txt
+      responses:
+        "200":
+          description: The transcript.
+          content:
+            text/plain:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/MeetingNotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/admin/meetings/{meetingId}/transcribe:
+    post:
+      operationId: transcribeMeeting
+      summary: Transcribe again (RM-33)
+      tags: [administration, meetings]
+      security:
+        - AdminSecret: []
+      parameters:
+        - $ref: "#/components/parameters/MeetingId"
+      responses:
+        "202":
+          description: Queued.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Meeting"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/MeetingNotFound"
+        "409":
+          description: The meeting is in progress, already transcribing, or has no audio.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/admin/meetings/{meetingId}/summarize:
+    post:
+      operationId: summarizeMeeting
+      summary: Generate the summary again (RM-32)
+      tags: [administration, meetings]
+      security:
+        - AdminSecret: []
+      parameters:
+        - $ref: "#/components/parameters/MeetingId"
+      responses:
+        "202":
+          description: Queued.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Meeting"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/MeetingNotFound"
+        "409":
+          description: There is no transcript to summarize.
           content:
             application/problem+json:
               schema:
@@ -740,6 +863,43 @@ paths:
           $ref: "#/components/responses/MeetingNotFound"
         "409":
           description: The meeting is not in progress.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/devices/{deviceId}/meetings:
+    post:
+      operationId: requestMeeting
+      summary: The unit asks for a meeting after the MUTE gesture (RM-02)
+      tags: [devices, meetings]
+      security:
+        - DeviceSecret: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+        - name: X-Device-Secret
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        "202":
+          description: Meeting requested; the unit starts it with this id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Meeting"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: A meeting is already in progress on this unit (RM-05).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "422":
+          description: The unit cannot record (not adopted here, not contacting, or not in the agente profile).
           content:
             application/problem+json:
               schema:
@@ -1125,6 +1285,12 @@ components:
         seenOnLanAt:
           type: string
           format: date-time
+        meetingSilenceMin:
+          type: integer
+          description: Minutes without voice that end a meeting recording (RM-23).
+        meetingMaxHours:
+          type: integer
+          description: Maximum length of a meeting recording (RM-24).
     DeviceDetail:
       allOf:
         - $ref: "#/components/schemas/Device"
@@ -1168,12 +1334,21 @@ components:
     DeviceUpdate:
       type: object
       additionalProperties: false
-      required: [displayName]
       properties:
         displayName:
           type: string
           minLength: 1
           maxLength: 64
+        meetingSilenceMin:
+          type: integer
+          minimum: 5
+          maximum: 60
+          description: Minutes without voice that end a meeting recording (RM-23).
+        meetingMaxHours:
+          type: integer
+          minimum: 1
+          maximum: 8
+          description: A recording never exceeds this (RM-24).
     DeviceConfig:
       type: object
       description: A sebastian.config.v1 document (see web-installer/public/PROVISIONING.md). Validated by the firmware.
@@ -1358,6 +1533,86 @@ components:
         deletedAt:
           type: string
           format: date-time
+        transcript:
+          $ref: "#/components/schemas/MeetingTranscript"
+        transcriptError:
+          type: string
+          description: Why the transcription failed (RM-33), with state no_transcript.
+        summary:
+          $ref: "#/components/schemas/MeetingSummary"
+    MeetingTranscript:
+      type: object
+      required: [text, segments, diarized]
+      properties:
+        language:
+          type: string
+          description: ISO-639-1, when known.
+        text:
+          type: string
+          description: 'The whole transcript, one "Speaker: text" line per segment.'
+        segments:
+          type: array
+          items:
+            $ref: "#/components/schemas/MeetingSegment"
+        speakers:
+          type: object
+          additionalProperties:
+            type: string
+          description: Names the operator gave to speaker ids (RM-31).
+        model:
+          type: string
+        diarized:
+          type: boolean
+          description: False when the fallback model transcribed without speakers.
+    MeetingSegment:
+      type: object
+      required: [start, end, speaker, text]
+      properties:
+        start:
+          type: number
+          format: double
+          description: Seconds from the start of the recording.
+        end:
+          type: number
+          format: double
+        speaker:
+          type: string
+          description: 'Speaker id ("Hablante 1"); empty without diarization.'
+        text:
+          type: string
+    MeetingSummary:
+      type: object
+      required: [text, agreements, actions, model, generatedAt]
+      properties:
+        language:
+          type: string
+        text:
+          type: string
+        agreements:
+          type: array
+          items:
+            type: string
+        actions:
+          type: array
+          items:
+            type: string
+        model:
+          type: string
+          description: Generated automatically by this model (RM-32).
+        generatedAt:
+          type: string
+          format: date-time
+    MeetingPatch:
+      type: object
+      properties:
+        speakers:
+          type: object
+          additionalProperties:
+            type: string
+          description: 'Speaker id → name; an empty name removes the alias (RM-31).'
+        keep:
+          type: boolean
+          description: Exclude from retention (RM-45).
     MeetingList:
       type: object
       required: [items]

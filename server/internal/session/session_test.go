@@ -155,8 +155,9 @@ func TestDispatchMetadataCarriesTheMeetingMode(t *testing.T) {
 		t.Fatalf("a conversation carries no mode: %v", plain)
 	}
 	id := uuid.New()
+	dev.MeetingSilenceMin = 15
 	meeting := dispatchMetadata(dev, Credentials{DeviceID: "68ee", Kind: KindMeeting, MeetingID: id})
-	if meeting["mode"] != "meeting" || meeting["meeting_id"] != id {
+	if meeting["mode"] != "meeting" || meeting["meeting_id"] != id || meeting["silence_s"] != 900 {
 		t.Fatalf("meeting metadata: %v", meeting)
 	}
 }

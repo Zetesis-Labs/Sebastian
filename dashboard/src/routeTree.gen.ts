@@ -11,10 +11,14 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as InstallerRouteImport } from './routes/installer'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as MeetingsIndexRouteImport } from './routes/meetings.index'
 import { Route as DevicesIndexRouteImport } from './routes/devices.index'
 import { Route as RecordingsRecordingIdRouteImport } from './routes/recordings.$recordingId'
+import { Route as MeetingsMeetingIdRouteImport } from './routes/meetings.$meetingId'
 import { Route as InstallerControlRoomDotjsonRouteImport } from './routes/installer.control-room[.]json'
 import { Route as DevicesDeviceIdRouteImport } from './routes/devices.$deviceId'
+import { Route as MeetingsMeetingIdTranscriptRouteImport } from './routes/meetings.$meetingId.transcript'
+import { Route as MeetingsMeetingIdAudioRouteImport } from './routes/meetings.$meetingId.audio'
 
 const InstallerRoute = InstallerRouteImport.update({
   id: '/installer',
@@ -26,6 +30,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const MeetingsIndexRoute = MeetingsIndexRouteImport.update({
+  id: '/meetings/',
+  path: '/meetings/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DevicesIndexRoute = DevicesIndexRouteImport.update({
   id: '/devices/',
   path: '/devices/',
@@ -34,6 +43,11 @@ const DevicesIndexRoute = DevicesIndexRouteImport.update({
 const RecordingsRecordingIdRoute = RecordingsRecordingIdRouteImport.update({
   id: '/recordings/$recordingId',
   path: '/recordings/$recordingId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MeetingsMeetingIdRoute = MeetingsMeetingIdRouteImport.update({
+  id: '/meetings/$meetingId',
+  path: '/meetings/$meetingId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const InstallerControlRoomDotjsonRoute =
@@ -47,22 +61,41 @@ const DevicesDeviceIdRoute = DevicesDeviceIdRouteImport.update({
   path: '/devices/$deviceId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const MeetingsMeetingIdTranscriptRoute =
+  MeetingsMeetingIdTranscriptRouteImport.update({
+    id: '/transcript',
+    path: '/transcript',
+    getParentRoute: () => MeetingsMeetingIdRoute,
+  } as any)
+const MeetingsMeetingIdAudioRoute = MeetingsMeetingIdAudioRouteImport.update({
+  id: '/audio',
+  path: '/audio',
+  getParentRoute: () => MeetingsMeetingIdRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/installer': typeof InstallerRouteWithChildren
   '/devices/$deviceId': typeof DevicesDeviceIdRoute
   '/installer/control-room.json': typeof InstallerControlRoomDotjsonRoute
+  '/meetings/$meetingId': typeof MeetingsMeetingIdRouteWithChildren
   '/recordings/$recordingId': typeof RecordingsRecordingIdRoute
   '/devices/': typeof DevicesIndexRoute
+  '/meetings/': typeof MeetingsIndexRoute
+  '/meetings/$meetingId/audio': typeof MeetingsMeetingIdAudioRoute
+  '/meetings/$meetingId/transcript': typeof MeetingsMeetingIdTranscriptRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/installer': typeof InstallerRouteWithChildren
   '/devices/$deviceId': typeof DevicesDeviceIdRoute
   '/installer/control-room.json': typeof InstallerControlRoomDotjsonRoute
+  '/meetings/$meetingId': typeof MeetingsMeetingIdRouteWithChildren
   '/recordings/$recordingId': typeof RecordingsRecordingIdRoute
   '/devices': typeof DevicesIndexRoute
+  '/meetings': typeof MeetingsIndexRoute
+  '/meetings/$meetingId/audio': typeof MeetingsMeetingIdAudioRoute
+  '/meetings/$meetingId/transcript': typeof MeetingsMeetingIdTranscriptRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -70,8 +103,12 @@ export interface FileRoutesById {
   '/installer': typeof InstallerRouteWithChildren
   '/devices/$deviceId': typeof DevicesDeviceIdRoute
   '/installer/control-room.json': typeof InstallerControlRoomDotjsonRoute
+  '/meetings/$meetingId': typeof MeetingsMeetingIdRouteWithChildren
   '/recordings/$recordingId': typeof RecordingsRecordingIdRoute
   '/devices/': typeof DevicesIndexRoute
+  '/meetings/': typeof MeetingsIndexRoute
+  '/meetings/$meetingId/audio': typeof MeetingsMeetingIdAudioRoute
+  '/meetings/$meetingId/transcript': typeof MeetingsMeetingIdTranscriptRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -80,32 +117,46 @@ export interface FileRouteTypes {
     | '/installer'
     | '/devices/$deviceId'
     | '/installer/control-room.json'
+    | '/meetings/$meetingId'
     | '/recordings/$recordingId'
     | '/devices/'
+    | '/meetings/'
+    | '/meetings/$meetingId/audio'
+    | '/meetings/$meetingId/transcript'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/installer'
     | '/devices/$deviceId'
     | '/installer/control-room.json'
+    | '/meetings/$meetingId'
     | '/recordings/$recordingId'
     | '/devices'
+    | '/meetings'
+    | '/meetings/$meetingId/audio'
+    | '/meetings/$meetingId/transcript'
   id:
     | '__root__'
     | '/'
     | '/installer'
     | '/devices/$deviceId'
     | '/installer/control-room.json'
+    | '/meetings/$meetingId'
     | '/recordings/$recordingId'
     | '/devices/'
+    | '/meetings/'
+    | '/meetings/$meetingId/audio'
+    | '/meetings/$meetingId/transcript'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   InstallerRoute: typeof InstallerRouteWithChildren
   DevicesDeviceIdRoute: typeof DevicesDeviceIdRoute
+  MeetingsMeetingIdRoute: typeof MeetingsMeetingIdRouteWithChildren
   RecordingsRecordingIdRoute: typeof RecordingsRecordingIdRoute
   DevicesIndexRoute: typeof DevicesIndexRoute
+  MeetingsIndexRoute: typeof MeetingsIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -124,6 +175,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/meetings/': {
+      id: '/meetings/'
+      path: '/meetings'
+      fullPath: '/meetings/'
+      preLoaderRoute: typeof MeetingsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/devices/': {
       id: '/devices/'
       path: '/devices'
@@ -136,6 +194,13 @@ declare module '@tanstack/react-router' {
       path: '/recordings/$recordingId'
       fullPath: '/recordings/$recordingId'
       preLoaderRoute: typeof RecordingsRecordingIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/meetings/$meetingId': {
+      id: '/meetings/$meetingId'
+      path: '/meetings/$meetingId'
+      fullPath: '/meetings/$meetingId'
+      preLoaderRoute: typeof MeetingsMeetingIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/installer/control-room.json': {
@@ -152,6 +217,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DevicesDeviceIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/meetings/$meetingId/transcript': {
+      id: '/meetings/$meetingId/transcript'
+      path: '/transcript'
+      fullPath: '/meetings/$meetingId/transcript'
+      preLoaderRoute: typeof MeetingsMeetingIdTranscriptRouteImport
+      parentRoute: typeof MeetingsMeetingIdRoute
+    }
+    '/meetings/$meetingId/audio': {
+      id: '/meetings/$meetingId/audio'
+      path: '/audio'
+      fullPath: '/meetings/$meetingId/audio'
+      preLoaderRoute: typeof MeetingsMeetingIdAudioRouteImport
+      parentRoute: typeof MeetingsMeetingIdRoute
+    }
   }
 }
 
@@ -167,12 +246,27 @@ const InstallerRouteWithChildren = InstallerRoute._addFileChildren(
   InstallerRouteChildren,
 )
 
+interface MeetingsMeetingIdRouteChildren {
+  MeetingsMeetingIdAudioRoute: typeof MeetingsMeetingIdAudioRoute
+  MeetingsMeetingIdTranscriptRoute: typeof MeetingsMeetingIdTranscriptRoute
+}
+
+const MeetingsMeetingIdRouteChildren: MeetingsMeetingIdRouteChildren = {
+  MeetingsMeetingIdAudioRoute: MeetingsMeetingIdAudioRoute,
+  MeetingsMeetingIdTranscriptRoute: MeetingsMeetingIdTranscriptRoute,
+}
+
+const MeetingsMeetingIdRouteWithChildren =
+  MeetingsMeetingIdRoute._addFileChildren(MeetingsMeetingIdRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   InstallerRoute: InstallerRouteWithChildren,
   DevicesDeviceIdRoute: DevicesDeviceIdRoute,
+  MeetingsMeetingIdRoute: MeetingsMeetingIdRouteWithChildren,
   RecordingsRecordingIdRoute: RecordingsRecordingIdRoute,
   DevicesIndexRoute: DevicesIndexRoute,
+  MeetingsIndexRoute: MeetingsIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

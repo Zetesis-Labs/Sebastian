@@ -82,6 +82,18 @@ spec:
               value: {{ .Values.server.meetings.dir | quote }}
             - name: SEBASTIAN_MEETING_MAX_DURATION
               value: {{ .Values.server.meetings.maxDuration | quote }}
+            - name: SEBASTIAN_MEETING_RETENTION_DAYS
+              value: {{ .Values.server.meetings.retentionDays | quote }}
+            - name: SEBASTIAN_MEETING_SUMMARY
+              value: {{ .Values.server.meetings.summary | quote }}
+            - name: SEBASTIAN_SUMMARY_MODEL
+              value: {{ .Values.server.meetings.summaryModel | quote }}
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.server.existingSecret }}
+                  key: OPENAI_API_KEY
+                  optional: true
             - name: SEBASTIAN_ADMIN_SECRET
               valueFrom:
                 secretKeyRef:

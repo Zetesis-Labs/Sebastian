@@ -45,6 +45,7 @@ var origin_z: [256]u8 = undefined;
 var url_buf: [384]u8 = undefined;
 var resp_buf: [64]u8 = undefined;
 var hdr_buf: [32]u8 = undefined;
+var meeting_hdr: [48]u8 = undefined;
 var cfg_ver: [24]u8 = undefined;
 var dev_secret: [129]u8 = undefined;
 var org_secret: [129]u8 = undefined;
@@ -148,6 +149,41 @@ fn fetchAndApplyConfig(origin: [*:0]const u8, version: []const u8) void {
     requestRestart(text);
 }
 
+/// The poll's X-Meeting header carries a pending meeting order (RM-06):
+/// "start:<id>" | "stop:<id>" | "warn:<id>". Same mailbox as the LAN command.
+fn relayMeetingOrder(header: []const u8) void {
+    const colon = std.mem.indexOfScalar(u8, header, ':') orelse return;
+    const verb = header[0..colon];
+    const id = header[colon + 1 ..];
+    if (id.len == 0 or id.len >= 40) return;
+    const cmd: [*:0]const u8 = if (std.mem.eql(u8, verb, "start")) "record-start" else if (std.mem.eql(u8, verb, "stop")) "record-stop" else if (std.mem.eql(u8, verb, "warn")) "record-warn" else return;
+    if (std.mem.eql(u8, verb, "start") and c.sebastian_meeting_is_active()) return; // already recording (RM-05)
+    if (!std.mem.eql(u8, verb, "start") and !c.sebastian_meeting_is_active()) return; // nothing to stop
+    var id_buf: [40]u8 = undefined;
+    const id_z2 = std.fmt.bufPrintZ(&id_buf, "{s}", .{id}) catch return;
+    c.sebastian_meeting_push(cmd, id_z2.ptr, 'n');
+}
+
+/// A gesture start (RM-02): ask the control room for a meeting and queue the
+/// order with its id, as if it had arrived over the network.
+pub fn requestMeeting() c_int {
+    const origin = originZ() orelse return -10;
+    const secret = secretZ() orelse return -11;
+    var id_buf: [40]u8 = undefined;
+    const rc = c.sebastian_request_meeting(origin, @ptrCast(&id_z), secret, &id_buf, id_buf.len);
+    if (rc != 0) return rc;
+    c.sebastian_meeting_push("record-start", @ptrCast(&id_buf), 'g');
+    return 0;
+}
+
+/// The unit's confirmation to the control room (RM-52). Returns the HTTP-ish
+/// result of sebastian_report_meeting (0 = ok).
+pub fn reportMeeting(meeting_id: [*:0]const u8, state: [*:0]const u8, reason: [*:0]const u8) c_int {
+    const origin = originZ() orelse return -10;
+    const secret = secretZ() orelse return -11;
+    return c.sebastian_report_meeting(origin, @ptrCast(&id_z), secret, meeting_id, state, reason);
+}
+
 /// Born adopted: when the control room of the token URL does not hold our
 /// secret yet and we carry the organization secret, hand it over. Retried on
 /// every poll until it succeeds.
@@ -190,8 +226,9 @@ fn pollOnce() void {
     }) catch return;
 
     var status: c_int = 0;
-    const n = c.sebastian_http_get_auth(url.ptr, @ptrCast(&id_z), secretZ(), "X-Desired-Config", &hdr_buf, hdr_buf.len, &resp_buf, resp_buf.len, &status);
+    const n = c.sebastian_http_get_auth2(url.ptr, @ptrCast(&id_z), secretZ(), "X-Desired-Config", &hdr_buf, hdr_buf.len, "X-Meeting", &meeting_hdr, meeting_hdr.len, &resp_buf, resp_buf.len, &status);
     announceResult(status, n);
+    if (n >= 0) relayMeetingOrder(std.mem.sliceTo(&meeting_hdr, 0));
     if (status == 401 and c.sebastian_is_bound()) {
         // The control room does not know our secret (rebuilt, or we were
         // forgotten there): enrol again on the next poll if we can.

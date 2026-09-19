@@ -51,7 +51,7 @@ func (h *Server) GetDevice(ctx context.Context, request GetDeviceRequestObject) 
 	}
 	base := deviceResponse(detail.Device)
 	response := DeviceDetail{
-		Id: base.Id, DisplayName: base.DisplayName, Enabled: base.Enabled, State: base.State,
+		Id: base.Id, DisplayName: base.DisplayName, Enabled: base.Enabled, State: base.State, MeetingSilenceMin: base.MeetingSilenceMin, MeetingMaxHours: base.MeetingMaxHours,
 		AdoptedAt: base.AdoptedAt, DesiredProfile: base.DesiredProfile, ReportedProfile: base.ReportedProfile,
 		ProfileReportedAt: base.ProfileReportedAt, Firmware: base.Firmware, Ip: base.Ip, ControlRoom: base.ControlRoom,
 		LastError: base.LastError, LastEvent: base.LastEvent, LastEventAt: base.LastEventAt,
@@ -75,16 +75,35 @@ func (h *Server) GetDevice(ctx context.Context, request GetDeviceRequestObject) 
 	return GetDevice200JSONResponse(response), nil
 }
 
+// UpdateDevice renames the unit and/or sets its meeting limits (RM-23/24).
 func (h *Server) UpdateDevice(ctx context.Context, request UpdateDeviceRequestObject) (UpdateDeviceResponseObject, error) {
-	if request.Body == nil || strings.TrimSpace(request.Body.DisplayName) == "" {
+	if request.Body == nil {
 		return UpdateDevice404ApplicationProblemPlusJSONResponse{DeviceNotFoundApplicationProblemPlusJSONResponse: notFound()}, nil
 	}
-	err := h.devices.Rename(ctx, request.DeviceId, strings.TrimSpace(request.Body.DisplayName))
+	var err error
+	if request.Body.DisplayName != nil && strings.TrimSpace(*request.Body.DisplayName) != "" {
+		err = h.devices.Rename(ctx, request.DeviceId, strings.TrimSpace(*request.Body.DisplayName))
+	}
+	if err == nil && (request.Body.MeetingSilenceMin != nil || request.Body.MeetingMaxHours != nil) {
+		current, getErr := h.devices.Get(ctx, request.DeviceId)
+		if getErr != nil {
+			err = getErr
+		} else {
+			silence, hours := current.MeetingSilenceMin, current.MeetingMaxHours
+			if request.Body.MeetingSilenceMin != nil {
+				silence = *request.Body.MeetingSilenceMin
+			}
+			if request.Body.MeetingMaxHours != nil {
+				hours = *request.Body.MeetingMaxHours
+			}
+			err = h.devices.SetMeetingLimits(ctx, request.DeviceId, silence, hours)
+		}
+	}
 	if errors.Is(err, device.ErrNotFound) {
 		return UpdateDevice404ApplicationProblemPlusJSONResponse{DeviceNotFoundApplicationProblemPlusJSONResponse: notFound()}, nil
 	}
 	if err != nil {
-		return UpdateDevice503ApplicationProblemPlusJSONResponse{UnavailableApplicationProblemPlusJSONResponse: h.unavailable(ctx, "rename device failed", err, "device_id", request.DeviceId)}, nil
+		return UpdateDevice503ApplicationProblemPlusJSONResponse{UnavailableApplicationProblemPlusJSONResponse: h.unavailable(ctx, "update device failed", err, "device_id", request.DeviceId)}, nil
 	}
 	return UpdateDevice204Response{}, nil
 }
