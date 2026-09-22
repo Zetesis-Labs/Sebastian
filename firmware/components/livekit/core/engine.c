@@ -325,6 +325,12 @@ static engine_err_t media_stream_begin(engine_t *eng)
     if (media_lib_thread_create_from_scheduler(&handle, "lk_eng_stream", media_stream_task, eng) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to create media stream thread");
         eng->is_media_streaming = false;
+        // The capture is already started: undo it here. Clearing the flag makes
+        // media_stream_end() return early, so this is the only place that can,
+        // and leaving it started wedges the capture for good — the next session
+        // dies with "Not support add path after started" and the pipeline it
+        // built is never released (observed on 68ee8f4d8dd4, 2026-09-22).
+        esp_capture_stop(eng->options.media.capturer);
         return ENGINE_ERR_MEDIA;
     }
     return ENGINE_ERR_NONE;
