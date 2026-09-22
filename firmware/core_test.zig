@@ -175,7 +175,7 @@ test "pcm convert bounds raw i32 extremes" {
 }
 
 test "pre-roll header is stable little-endian SBPR" {
-    const header = pre_roll.makeHeader(0x11223344, 0x55667788);
+    const header = pre_roll.makeHeader(0x11223344, 0x55667788, 0);
 
     try std.testing.expectEqualSlices(u8, "SBPR", header[0..4]);
     try std.testing.expectEqual(@as(u8, 1), header[4]);
@@ -190,6 +190,28 @@ test "pre-roll header is stable little-endian SBPR" {
     try std.testing.expectEqual(@as(u8, 0x33), header[13]);
     try std.testing.expectEqual(@as(u8, 0x22), header[14]);
     try std.testing.expectEqual(@as(u8, 0x11), header[15]);
+}
+
+test "pre-roll header declares the duplex mode actually in force" {
+    const half = pre_roll.makeHeader(1, 1, pre_roll.makeFlags(false));
+    const full = pre_roll.makeHeader(1, 1, pre_roll.makeFlags(true));
+
+    // Both state that they know; only one is full-duplex.
+    try std.testing.expect(half[5] & pre_roll.FLAG_DECLARED != 0);
+    try std.testing.expect(full[5] & pre_roll.FLAG_DECLARED != 0);
+    try std.testing.expect(half[5] & pre_roll.FLAG_FULL_DUPLEX == 0);
+    try std.testing.expect(full[5] & pre_roll.FLAG_FULL_DUPLEX != 0);
+
+    // Byte 5 was reserved and always zero: a pre-roll from older firmware must
+    // stay distinguishable from one that declares half-duplex, or the agent
+    // would read "no opinion" as "half" and arm nothing on a full-duplex unit.
+    const legacy = pre_roll.makeHeader(1, 1, 0);
+    try std.testing.expectEqual(@as(u8, 0), legacy[5]);
+    try std.testing.expect(legacy[5] & pre_roll.FLAG_DECLARED == 0);
+
+    // The rest of the header must not move: same bytes as the legacy layout.
+    try std.testing.expectEqualSlices(u8, legacy[0..5], half[0..5]);
+    try std.testing.expectEqualSlices(u8, legacy[6..], half[6..]);
 }
 
 test "pre-roll window is anchored to wake mark" {

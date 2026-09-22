@@ -42,14 +42,30 @@ fn putU32LE(out: *[HEADER_BYTES]u8, offset: usize, value: u32) void {
     out[offset + 3] = @truncate(value >> 24);
 }
 
-pub fn makeHeader(wake_id: u32, sample_count: u32) [HEADER_BYTES]u8 {
+/// Byte 5 of the header. It was reserved (always 0), so 0 still parses: an
+/// agent reading it from an older firmware learns nothing and must fall back to
+/// its safe default rather than assume half-duplex.
+pub const FLAG_DECLARED: u8 = 1 << 0;
+pub const FLAG_FULL_DUPLEX: u8 = 1 << 1;
+
+/// The duplex mode the device is ACTUALLY running, which only the device knows:
+/// app.zig downgrades a full-duplex request to half whenever the AEC config
+/// failed or the beam is adaptive (fullDuplexAllowed). The agent cannot derive
+/// this from the desired config, so we state it at the hand-off.
+pub fn makeFlags(full_duplex_active: bool) u8 {
+    var flags: u8 = FLAG_DECLARED;
+    if (full_duplex_active) flags |= FLAG_FULL_DUPLEX;
+    return flags;
+}
+
+pub fn makeHeader(wake_id: u32, sample_count: u32, flags: u8) [HEADER_BYTES]u8 {
     var out = [_]u8{0} ** HEADER_BYTES;
     out[0] = 'S';
     out[1] = 'B';
     out[2] = 'P';
     out[3] = 'R';
     out[4] = 1; // version
-    out[5] = 0; // reserved
+    out[5] = flags;
     putU16LE(&out, 6, SAMPLE_RATE);
     putU32LE(&out, 8, sample_count);
     putU32LE(&out, 12, wake_id);

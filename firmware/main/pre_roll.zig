@@ -81,7 +81,7 @@ fn writeSamples(room: c.livekit_room_handle_t, stream: c.livekit_data_stream_han
     return c.livekit_room_data_stream_write(room, stream, bytes, slice.len * @sizeOf(i16)) == c.LIVEKIT_ERR_NONE;
 }
 
-pub fn send(room: c.livekit_room_handle_t, wake_id: u32) bool {
+pub fn send(room: c.livekit_room_handle_t, wake_id: u32, full_duplex_active: bool) bool {
     const count = windowSamples();
     if (ring == null or count == 0) {
         log.warn("no pre-roll available for wake_id={d}", .{wake_id});
@@ -110,7 +110,7 @@ pub fn send(room: c.livekit_room_handle_t, wake_id: u32) bool {
     }
 
     var ok = true;
-    const header = core.makeHeader(wake_id, sample_count);
+    const header = core.makeHeader(wake_id, sample_count, core.makeFlags(full_duplex_active));
     ok = ok and c.livekit_room_data_stream_write(room, stream, header[0..].ptr, header.len) == c.LIVEKIT_ERR_NONE;
 
     // Newest `count` samples end at write_idx; start may wrap.
@@ -123,10 +123,11 @@ pub fn send(room: c.livekit_room_handle_t, wake_id: u32) bool {
     const closed = c.livekit_room_data_stream_close(room, stream) == c.LIVEKIT_ERR_NONE;
     ok = ok and closed;
     if (ok) {
-        log.info("sent pre-roll wake_id={d} duration_ms={d} bytes={d}", .{
+        log.info("sent pre-roll wake_id={d} duration_ms={d} bytes={d} full_duplex={}", .{
             wake_id,
             availableMs(),
             total_len,
+            full_duplex_active,
         });
     } else {
         log.err("send pre-roll failed wake_id={d}", .{wake_id});

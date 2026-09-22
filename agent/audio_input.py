@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import time
 import wave
 from collections.abc import Callable
 from datetime import datetime
@@ -10,6 +11,7 @@ from livekit import agents, rtc
 from livekit.agents import vad as agents_vad
 from livekit.plugins import noise_cancellation
 import preroll
+import talk_over
 from tasks import spawn as _spawn
 
 log = logging.getLogger("sebastian.agent.audio")
@@ -54,10 +56,6 @@ RECORD = os.getenv("SEBASTIAN_RECORD", "1") != "0"
 # (agent/record.py covers the ad-hoc case too).
 RECORD_TRACK = os.getenv("SEBASTIAN_RECORD_TRACK", "0") == "1"
 GATE_SILENCE_PEAK = 100
-# Sustained speech (s) before the talk-over callback fires. Long enough that
-# residual echo blips and TV noise don't trigger it; short enough to feel
-# instant. Tune with SEBASTIAN_TALKOVER_MIN_S.
-TALK_OVER_MIN_SPEECH_S = float(os.getenv("SEBASTIAN_TALKOVER_MIN_S", "0.4"))
 
 def _frame_peak(frame: rtc.AudioFrame) -> int:
     mv = memoryview(frame.data)
@@ -179,8 +177,15 @@ class SebastianAudioInput(agents.io.AudioInput):
         # full-duplex FELT half-duplex: you couldn't shut the agent up mid-reply.
         # We run silero over the same frames the model gets and let agent.py
         # decide (session.interrupt(), same call the wake-word barge-in uses).
-        self.on_talk_over: Callable[[], None] | None = None  # set by agent.py
+        # Called with (speech_started_at, speech_duration) on one monotonic
+        # clock; agent.py owns the decision because only it knows when he
+        # started speaking. See talk_over.should_interrupt.
+        self.on_talk_over: Callable[[float, float], None] | None = None  # set by agent.py
         self._vad_stream = vad.stream() if vad is not None else None
+        # The device's EFFECTIVE duplex mode, declared in the pre-roll header.
+        # None until it arrives — and on older firmware it never does.
+        self._full_duplex: bool | None = None
+        self._duplex_noted = False
         # Bounded so a stalled consumer applies backpressure instead of growing
         # unbounded in memory. ~1000 * 50ms frames is generous headroom for the
         # pre-roll burst at hand-off while still capping the queue.
@@ -219,6 +224,11 @@ class SebastianAudioInput(agents.io.AudioInput):
                 if track is not None and track.kind == rtc.TrackKind.KIND_AUDIO:
                     self._on_track_subscribed(track, pub, participant)
 
+    @property
+    def full_duplex(self) -> bool | None:
+        """The device's effective duplex mode, None until it declares one."""
+        return self._full_duplex
+
     def on_attached(self) -> None:
         self._attached = True
 
@@ -233,24 +243,30 @@ class SebastianAudioInput(agents.io.AudioInput):
         return frame
 
     async def _consume_vad(self) -> None:
-        """Fire on_talk_over after sustained speech. agent.py gates on the
-        agent actually speaking, so a callback while he is quiet is a no-op —
-        which also debounces: after the interrupt he stops speaking."""
+        """Report sustained speech, with the instant its window OPENED.
+
+        That instant is the whole point: agent.py can then tell speech that
+        began while Sebastián was talking (a real barge-in) from a sentence
+        that merely had not finished decaying when he started (which used to
+        cut him off mid-answer). This coroutine decides nothing itself.
+        """
         assert self._vad_stream is not None
         log.info("[talk-over] vad consumer started")
         last_speaking = False
+        speech_started_at: float | None = None
         async for ev in self._vad_stream:
             if ev.type != agents_vad.VADEventType.INFERENCE_DONE:
                 continue
             if ev.speaking != last_speaking:
                 last_speaking = ev.speaking
+                speech_started_at = time.monotonic() if ev.speaking else None
                 log.info(
                     "[talk-over] vad speaking=%s dur=%.2fs", ev.speaking, ev.speech_duration
                 )
-            if not ev.speaking or ev.speech_duration < TALK_OVER_MIN_SPEECH_S:
+            if not ev.speaking or ev.speech_duration < talk_over.MIN_SPEECH_S:
                 continue
-            if self.on_talk_over is not None:
-                self.on_talk_over()
+            if self.on_talk_over is not None and speech_started_at is not None:
+                self.on_talk_over(speech_started_at, ev.speech_duration)
 
     def _record_model_frame(self, frame: rtc.AudioFrame) -> None:
         """Tee of EXACTLY what the model consumes: pre-roll injected, gate
@@ -316,7 +332,8 @@ class SebastianAudioInput(agents.io.AudioInput):
         if parsed is None:
             return
 
-        wake_id, sample_rate, pcm = parsed
+        wake_id, sample_rate, pcm = parsed.wake_id, parsed.sample_rate, parsed.pcm
+        self._note_duplex_mode(parsed.full_duplex)
         if self._preroll_consumed:
             log.info("[preroll] late stream ignored wake_id=%s", wake_id)
             return
@@ -337,10 +354,30 @@ class SebastianAudioInput(agents.io.AudioInput):
             _write_wav(PREROLL_PATH, pcm, sample_rate)
             log.info("[preroll] wrote %s", PREROLL_PATH)
 
+    def _note_duplex_mode(self, full_duplex: bool | None) -> None:
+        """Arm or disarm the talk-over detector for what the device really runs.
+
+        In half-duplex the device publishes digital silence while he speaks
+        (writeGatedFrame -> fillSilence), so nothing here could ever be a real
+        barge-in: feeding silero costs CPU and can only produce false hits.
+        Interrupting him there is the firmware's job anyway — the wake word
+        heard over his own voice (detectBargeInFromGatedAudio).
+        """
+        if self._duplex_noted and full_duplex == self._full_duplex:
+            return
+        self._duplex_noted = True
+        self._full_duplex = full_duplex
+        if full_duplex:
+            log.info("[talk-over] armed — device runs full duplex")
+        elif full_duplex is None:
+            log.info("[talk-over] disarmed — firmware declares no duplex mode")
+        else:
+            log.info("[talk-over] disarmed — device runs half duplex")
+
     @staticmethod
     def _parse_preroll(
         payload: bytes, participant: str
-    ) -> tuple[int, int, bytes] | None:
+    ) -> preroll.ParsedPreRoll | None:
         parsed = preroll.parse_header(payload)
         if parsed is None:
             log.warning(
@@ -349,7 +386,7 @@ class SebastianAudioInput(agents.io.AudioInput):
                 len(payload),
             )
             return None
-        return parsed.wake_id, parsed.sample_rate, parsed.pcm
+        return parsed
 
     def _pcm_to_frames(self, pcm: bytes, sample_rate: int) -> list[rtc.AudioFrame]:
         frame_samples = sample_rate * LIVE_FRAME_MS // 1000
@@ -418,7 +455,7 @@ class SebastianAudioInput(agents.io.AudioInput):
             leading_silence = True
             dropped = 0
             async for ev in stream:
-                if self._vad_stream is not None:
+                if self._vad_stream is not None and self._full_duplex:
                     self._vad_stream.push_frame(ev.frame)
                 if not self._attached:
                     continue
