@@ -56,6 +56,7 @@ ACTION = os.getenv("SEBASTIAN_WAKE_VERIFY_ACTION", "kill")
 # transcribed with no trace of the wake word and was falsely REJECTed.
 WINDOW_S = float(os.getenv("SEBASTIAN_WAKE_VERIFY_WINDOW_S", "8.0"))
 ASR_MODEL = os.getenv("SEBASTIAN_WAKE_VERIFY_MODEL", "whisper-1")
+ASR_LANGUAGE = os.getenv("SEBASTIAN_WAKE_VERIFY_LANGUAGE", "es")
 ASR_TIMEOUT_S = 5.0
 PREROLL_WAIT_S = 6.0  # no pre-roll by then = greeting path, nothing to verify
 # Reject only when the transcript carries at least this much alphabetic
@@ -96,7 +97,13 @@ def matches_wake_word(transcript: str) -> bool:
 
 
 def is_clear_speech(transcript: str) -> bool:
-    return sum(c.isalpha() for c in _normalize(transcript)) >= MIN_SPEECH_CHARS
+    """Enough Latin letters to judge. Non-Latin output is a transcription
+    anomaly, not clear speech: matches_wake_word() looks for "nabu" in Latin
+    script, so a Devanagari or Cyrillic transcript could only ever REJECT.
+    Counting only Latin here keeps those on the fail-open path — a real
+    "Okay Nabu" came back as 'प्रस्तुत करते हैं नाभू' on 2026-09-22 and killed
+    the session."""
+    return sum("a" <= c <= "z" for c in _normalize(transcript)) >= MIN_SPEECH_CHARS
 
 
 def _tail_wav(pcm: bytes, sample_rate: int) -> io.BytesIO:
@@ -136,6 +143,9 @@ async def _transcribe(buf: io.BytesIO) -> str:
             client.audio.transcriptions.create(
                 model=ASR_MODEL,
                 file=buf,
+                # Pinned, not auto-detected: "Okay Nabu" in a Spanish sentence
+                # made Whisper pick Hindi and answer in Devanagari (2026-09-22).
+                language=ASR_LANGUAGE,
                 # Bias toward hearing the name — errs toward PASS (fail-open).
                 prompt="Okay Nabu",
             ),
