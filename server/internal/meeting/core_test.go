@@ -2,6 +2,7 @@ package meeting
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -52,7 +53,7 @@ func TestStateTable(t *testing.T) {
 		{"recording: the unit lost its control room → closing, nothing to order (RM-26)", recording(), Event{Kind: EvStop, At: t0.Add(time.Minute), Reason: EndRoomLost}, StateClosing, "", EndRoomLost, nil},
 		{"recording: audio keeps it alive", recording(), Event{Kind: EvAudio, At: t0.Add(20 * time.Second), Bytes: 100}, StateRecording, "", "", nil},
 		{"recording: 30 s without audio → cut (RM-25)", recording(), Event{Kind: EvTick, At: t0.Add(2*time.Second + AudioSilenceWindow)}, StateCut, "command_stop,close_file,enqueue_transcribe", EndDeviceLost, nil},
-		{"recording: the agent hangs up → cut (RM-25)", recording(), Event{Kind: EvAudioClosed, At: t0.Add(time.Minute)}, StateCut, "close_file,enqueue_transcribe", EndDeviceLost, nil},
+		{"recording: the agent hangs up → cut, and the unit still gets the stop (RM-25)", recording(), Event{Kind: EvAudioClosed, At: t0.Add(time.Minute)}, StateCut, "command_stop,close_file,enqueue_transcribe", EndDeviceLost, nil},
 		{"recording: max duration → closing by limit (RM-24)", recording(), Event{Kind: EvTick, At: t0.Add(2*time.Second + 3*time.Hour)}, StateClosing, "command_stop", EndMaxDuration, nil},
 		{"recording: repeated confirmation is harmless", recording(), Event{Kind: EvDeviceRecording, At: t0.Add(3 * time.Second)}, StateRecording, "", "", nil},
 		{"recording: transcribe makes no sense", recording(), Event{Kind: EvTranscribe, At: t0}, StateRecording, "", "", ErrInvalid},
@@ -120,6 +121,23 @@ func TestTranscriptionOutcomesAndRetry(t *testing.T) {
 	}
 	if _, _, err := Next(ready, Event{Kind: EvStop, Reason: EndDashboard}, Limits{}); !errors.Is(err, ErrInvalid) {
 		t.Fatal("stopping a finished meeting must be invalid")
+	}
+}
+
+// A failure in the agent (no ffmpeg, an upload the server rejects) closes the
+// audio stream while the unit is still happily recording. If that does not
+// order a stop, the unit records forever and answers "busy" to every later
+// meeting — which is what wedged unit 68ee8f4d8dd4 on 2026-09-22.
+func TestAgentHangupStillStopsTheUnit(t *testing.T) {
+	cut, actions, err := Next(recording(), Event{Kind: EvAudioClosed, At: t0.Add(time.Minute)}, Limits{})
+	if err != nil {
+		t.Fatalf("EvAudioClosed must be accepted while recording: %v", err)
+	}
+	if cut.State != StateCut {
+		t.Fatalf("an agent hangup cuts the meeting, got %q", cut.State)
+	}
+	if !slices.Contains(actions, ActCommandStop) {
+		t.Fatalf("the unit must be told to stop, got %v", actions)
 	}
 }
 

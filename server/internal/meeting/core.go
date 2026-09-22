@@ -176,10 +176,15 @@ func nextRecording(m Meeting, ev Event, limits Limits) (Meeting, []Action, error
 		}
 		return m, []Action{ActCommandStop}, nil
 	case EvAudioClosed:
-		// The agent hung up without a stop: the unit is gone (RM-25).
+		// The agent hung up without a stop. That says nothing about the unit:
+		// the agent is a separate process and its own failures (no ffmpeg, a
+		// rejected upload) look identical from here. Order the stop anyway —
+		// to a unit that already stopped it is a no-op it answers "idle", while
+		// skipping it leaves a live unit recording forever and refusing every
+		// later meeting with "busy".
 		m = stop(m, ev.At, EndDeviceLost)
 		m.State = StateCut
-		return m, []Action{ActCloseFile, ActEnqueueTranscribe}, nil
+		return m, []Action{ActCommandStop, ActCloseFile, ActEnqueueTranscribe}, nil
 	case EvTick:
 		if limits.MaxDuration > 0 && ev.At.Sub(m.StartedAt) >= limits.MaxDuration {
 			m = stop(m, ev.At, EndMaxDuration)
