@@ -35,3 +35,11 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/b
 # interactivos y profile.d los de login (docker compose exec bash -lc).
 RUN echo '. "$IDF_PATH/export.sh" > /dev/null 2>&1 || true' >> /etc/bash.bashrc \
     && echo '. "$IDF_PATH/export.sh" > /dev/null 2>&1 || true' > /etc/profile.d/esp-idf.sh
+
+# ffmpeg: el agente corta y codifica el Ogg/Opus de las reuniones con él
+# (meeting_mode.py), y el worker de transcripción lo usa para trocear el audio.
+# La imagen de ESP-IDF no lo trae: sin esto el pipeline muere en start() con
+# FileNotFoundError y la reunión queda en `cut` sin audio.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
