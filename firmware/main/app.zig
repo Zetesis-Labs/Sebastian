@@ -560,7 +560,7 @@ fn completeWakeHandoff(st: *reducer.State, wake_id: u32) void {
     wakeword.stop();
     const t_stop = c.esp_timer_get_time();
     mic_src.setLive(true);
-    const sent = pre_roll.send(room, wake_id);
+    const sent = pre_roll.send(room, wake_id, mic_src.isFullDuplexActive());
     const t_send = c.esp_timer_get_time();
     log.info("mic handoff wake_id={d} pre_roll_ms={d} stop_ms={d} send_ms={d}", .{
         wake_id,
@@ -572,7 +572,7 @@ fn completeWakeHandoff(st: *reducer.State, wake_id: u32) void {
 }
 
 fn retryPreroll(st: *reducer.State, wake_id: u32) void {
-    if (pre_roll.send(room, wake_id)) {
+    if (pre_roll.send(room, wake_id, mic_src.isFullDuplexActive())) {
         log.info("pre-roll retry ok (attempt {d})", .{st.preroll_attempts});
         _ = st.step(.{ .preroll_sent = true });
         return;

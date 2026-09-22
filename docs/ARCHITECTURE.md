@@ -45,8 +45,12 @@ etapa en la que el callback de volumen era inefectivo.
 
 `xvf_aec.applyConfig()` escribe y comprueba la configuración de referencia y haz.
 El firmware permite full-duplex si se cumplen sus precondiciones y fuerza
-half-duplex si fallan. En half-duplex, el agente recibe silencio durante la
-reproducción; la detección de interrupción conserva acceso al audio local.
+half-duplex si fallan. Como esa rebaja ocurre en ejecución, el modo *efectivo*
+solo lo conoce la placa: lo declara al agente en la cabecera del pre-roll. En
+half-duplex, el agente recibe silencio durante la reproducción; la detección de
+interrupción conserva acceso al audio local y la vía para cortar al agente es la
+palabra de activación oída sobre su propia voz. El detector de voz superpuesta
+del agente solo se arma cuando la placa declara full-duplex.
 Los ajustes y la calidad acústica requieren pruebas con la placa.
 
 El ESP32 también ejecuta conversión de PCM, filtrado/decimación para activación,
@@ -64,7 +68,9 @@ con overrides NVS y de perfil.
 3. La placa espera conexión y presencia del agente, detiene el lector de
    activación y transfiere la captura al recorrido LiveKit. Envía primero el
    pre-roll por byte stream fiable con cabecera `SBPR`: PCM mono de 16 kHz,
-   limitado a 2,5 s aunque el anillo retenga hasta 12 s.
+   limitado a 2,5 s aunque el anillo retenga hasta 12 s. La cabecera lleva los
+   indicadores del modo dúplex en vigor; un firmware anterior no declara nada y
+   el agente se abstiene.
 4. El agente antepone ese audio a la entrada en directo, descarta el silencio
    inicial de la compuerta y adapta los frames para el modelo.
 5. El agente publica estado de escucha/habla/interrupción. Una interrupción

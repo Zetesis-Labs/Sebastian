@@ -39,6 +39,7 @@ from google.genai import types as genai_types
 from livekit.plugins import google, openai, silero
 from openai.types.beta.realtime.session import TurnDetection
 
+import talk_over
 import telemetry
 from audio_input import SebastianAudioInput, setup_recorder, setup_output_recorder, RECORD, RECORD_TRACK
 from device_identity import device_identity_from_metadata
@@ -379,12 +380,26 @@ async def entrypoint(ctx: agents.JobContext) -> None:
         except Exception as e:
             log.warning("device flush publish failed: %r", e)
 
-    def _on_talk_over() -> None:
-        # Sustained voice while Sebastian speaks → cut him off NOW. The
-        # framework won't do this itself in realtime_llm mode (see
+    speaking_since: float | None = None
+
+    @session.on("agent_state_changed")
+    def _track_speaking_start(ev) -> None:
+        # When he STARTED, not merely that he is speaking now: talk_over needs
+        # it to tell a barge-in from the tail of the turn he is replying to.
+        nonlocal speaking_since
+        speaking_since = time.monotonic() if str(ev.new_state) == "speaking" else None
+
+    def _on_talk_over(speech_started_at: float, speech_duration: float) -> None:
+        # Voice that began while Sebastian was already talking → cut him off
+        # NOW. The framework won't do this itself in realtime_llm mode (see
         # _build_session): interrupt() truncates the agent-side playout and
         # the direct publish flushes what the device already buffered.
-        if str(getattr(session, "agent_state", "")) != "speaking":
+        if not talk_over.should_interrupt(
+            full_duplex=mic_input.full_duplex,
+            agent_speaking_since=speaking_since,
+            speech_started_at=speech_started_at,
+            speech_duration=speech_duration,
+        ):
             return
         log.info("talk-over detected — interrupting agent speech")
         try:

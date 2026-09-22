@@ -74,6 +74,13 @@ pub fn setFullDuplex(v: bool) void {
     gate.setFullDuplex(v);
 }
 
+/// The mode actually in force. app.zig may have downgraded a full-duplex
+/// request to half (fullDuplexAllowed), so this is the only truthful answer —
+/// and the one the agent is told at the hand-off.
+pub fn isFullDuplexActive() bool {
+    return gate.full_duplex_active;
+}
+
 // Half-duplex gate (the fallback when full_duplex_active is false — i.e. an
 // adaptive beam, where the AEC can't converge, or an AEC-config failure): while
 // the agent speaks its own voice would come back through the mic as crisp phantom
