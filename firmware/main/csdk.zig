@@ -24,6 +24,14 @@ pub extern fn vTaskDelete(task: ?*anyopaque) void; // null = delete calling task
 pub const TaskFunction_t = ?*const fn (?*anyopaque) callconv(.c) void;
 pub const TSK_NO_AFFINITY: c_int = 0x7FFFFFFF;
 pub extern fn xTaskCreatePinnedToCore(code: TaskFunction_t, name: [*:0]const u8, stack_depth: u32, params: ?*anyopaque, prio: u32, handle: ?*anyopaque, core_id: c_int) c_int;
+// Same, with the stack allocated from a chosen heap (idf_additions.h). Used to
+// keep a task's stack OUT of internal RAM: a boot-time internal allocation of a
+// few KB splits the contiguous region a LiveKit session needs and the session
+// then fails with plenty of free memory (2026-09-22).
+pub extern fn xTaskCreatePinnedToCoreWithCaps(code: TaskFunction_t, name: [*:0]const u8, stack_depth: u32, params: ?*anyopaque, prio: u32, handle: ?*anyopaque, core_id: c_int, caps: u32) c_int;
+// Minimum free stack the task has ever had, in BYTES: StackType_t is uint8_t
+// on the Xtensa port. null = calling task.
+pub extern fn uxTaskGetStackHighWaterMark(task: ?*anyopaque) c_uint;
 
 // FreeRTOS queues. xQueueCreate/xQueueSend/xQueueReset are queue.h macros over
 // these Generic variants: queue_type 0 = queueQUEUE_TYPE_BASE, copy_position
@@ -439,6 +447,12 @@ pub extern fn esp_reset_reason() c_int;
 // Logs (and erases) the core dump left in flash by a previous panic. See
 // main/coredump_report.c.
 pub extern fn sebastian_coredump_report() void;
+
+// Heap tracing around one session (heap_trace_report.c): start before the
+// connect, report after the teardown; what survives is what leaked.
+pub extern fn sebastian_heaptrace_init() void;
+pub extern fn sebastian_heaptrace_start() void;
+pub extern fn sebastian_heaptrace_report() void;
 
 pub const I2S_DATA_BIT_WIDTH_16BIT: c_int = 16;
 pub const I2S_SLOT_BIT_WIDTH_32BIT: c_int = 32;

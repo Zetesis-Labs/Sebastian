@@ -220,6 +220,7 @@ fn uiTask(_: ?*anyopaque) callconv(.c) void {
             .active => renderActive(&last, &speaking, BEAM, HALO, HELD),
             .usb => renderActive(&last, &speaking, USB_BEAM, USB_HALO, USB_HELD),
         }
+        if (frame % 750 == 0) log.info("stack_free_min={d}B", .{c.uxTaskGetStackHighWaterMark(null)});
         c.vTaskDelay(80);
     }
 }
@@ -245,6 +246,14 @@ fn actOnGesture(verdict: gesture.Verdict) void {
 }
 
 /// Start the LED UI task. Call after the XVF is up (post ensureMaster).
+//
+// The stack lives in PSRAM, not internal RAM. It overflowed at 2960/3072 while
+// starting a recording, smashed the neighbouring TCB and took the unit down
+// with a DoubleException — but simply enlarging it in internal RAM split the
+// contiguous block a LiveKit session needs, and sessions began failing with
+// memory to spare. In PSRAM it costs internal RAM nothing and can be generous.
+// Safe here: this task only talks I2C and paints LEDs, never runs with the
+// flash cache disabled. stack_free_min below reports the real margin.
 pub fn start() void {
-    _ = c.xTaskCreatePinnedToCore(uiTask, "xvf_ui", 3072, null, 3, null, 0);
+    _ = c.xTaskCreatePinnedToCoreWithCaps(uiTask, "xvf_ui", 8192, null, 3, null, 0, c.MALLOC_CAP_SPIRAM | c.MALLOC_CAP_8BIT);
 }

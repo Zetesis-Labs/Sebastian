@@ -69,3 +69,16 @@ CONFIG_MDNS_MAX_SERVICES=4
 # The whole agent loop runs on the main task (app_main → runAgent); the IDF
 # default of 3584 B overflowed with one more frame (meeting sessions, block B).
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+# El canario solo se mira en el cambio de contexto: para entonces el
+# desbordamiento ya ha corrompido memoria y el panic cae en cualquier sitio con
+# un marco de excepcion basura. El watchpoint para en la instruccion exacta.
+CONFIG_FREERTOS_WATCHPOINT_END_OF_STACK=y
+
+# Estos tres solo existian en el sdkconfig generado (gitignorado), no aqui: un
+# build limpio producia un firmware distinto en silencio. Fijados al valor con
+# el que la unidad lleva funcionando.
+CONFIG_PERIPH_CTRL_FUNC_IN_IRAM=y
+CONFIG_MDNS_MAX_SERVICES=10
+CONFIG_MDNS_TASK_CREATE_FROM_INTERNAL=y
+CONFIG_MDNS_MEMORY_ALLOC_INTERNAL=y

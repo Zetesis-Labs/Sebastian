@@ -47,6 +47,10 @@ void sebastian_coredump_report(void) {
                  s->exc_bt_info.corrupted ? " (corrupted)" : "", line);
     }
     free(s);
-    // One report per crash: erase so the next boot does not repeat it.
-    esp_core_dump_image_erase();
+    // The image is kept, not erased: the summary is nine addresses, while the
+    // dump itself holds the registers, the stacks and every task — which is
+    // what a crash like the esp-nn one actually needs. A new panic overwrites
+    // the partition, so keeping it never costs the next dump. Extract with
+    //   idf.py coredump-info   (or espcoredump.py info_corefile)
+    // and erase by hand once it is off the board.
 }

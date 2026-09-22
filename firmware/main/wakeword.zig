@@ -197,8 +197,9 @@ const Telemetry = struct {
         self.frames += 1;
         if (self.frames >= 500) { // 500 × 10ms = 5s
             const pct: u32 = @intFromFloat(self.max_prob * 100.0);
-            log.info("5s window: pcm peak={d} max prob={d}% feed_max={d}us gap_max={d}us dc={d}", .{
-                self.peak_pcm, pct, self.feed_max_us, self.gap_max_us, self.dc_worst,
+            log.info("5s window: pcm peak={d} max prob={d}% feed_max={d}us gap_max={d}us dc={d} stack_free_min={d}B", .{
+                self.peak_pcm,                       pct, self.feed_max_us, self.gap_max_us, self.dc_worst,
+                c.uxTaskGetStackHighWaterMark(null),
             });
             self.* = .{};
         }
