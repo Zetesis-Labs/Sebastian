@@ -8,7 +8,7 @@ import {
   renameDevice,
   setDesiredConfig,
   setDeviceProfile,
-  setMeetingLimits,
+  setMeetingSettings,
   startMeeting,
   stopMeeting,
   type ControlRoomPublic,
@@ -373,6 +373,21 @@ function Detail({ label, value }: Readonly<{ label: string; value: string }>) {
   )
 }
 
+// What the transcription can be told to expect. 'auto' is the old behaviour,
+// kept for whoever records in a language that is not in the list.
+const MEETING_LANGUAGES = [
+  { code: 'es', label: 'Español' },
+  { code: 'eu', label: 'Euskera' },
+  { code: 'en', label: 'Inglés' },
+  { code: 'fr', label: 'Francés' },
+  { code: 'pt', label: 'Portugués' },
+  { code: 'ca', label: 'Catalán' },
+  { code: 'gl', label: 'Gallego' },
+  { code: 'de', label: 'Alemán' },
+  { code: 'it', label: 'Italiano' },
+  { code: 'auto', label: 'Detectar automáticamente' },
+]
+
 // Spec 13 (RM-03/05/22/23/24/43/44): record and stop from the ficha, the
 // unit's own silence and maximum, and its last meetings.
 function MeetingsPanel({ detail, meetings, busy, now, act }: Readonly<{ detail: DeviceDetail; meetings: Meeting[]; busy: boolean; now: Date | null; act: (label: string, fn: () => Promise<unknown>, done: string) => Promise<void> }>) {
@@ -380,11 +395,16 @@ function MeetingsPanel({ detail, meetings, busy, now, act }: Readonly<{ detail: 
   const active = activeMeeting(meetings)
   const [silence, setSilence] = useState(detail.meetingSilenceMin ?? 10)
   const [hours, setHours] = useState(detail.meetingMaxHours ?? 3)
+  const [language, setLanguage] = useState(detail.meetingLanguage ?? 'es')
   useEffect(() => {
     setSilence(detail.meetingSilenceMin ?? 10)
     setHours(detail.meetingMaxHours ?? 3)
-  }, [detail.meetingSilenceMin, detail.meetingMaxHours])
-  const limitsDirty = silence !== (detail.meetingSilenceMin ?? 10) || hours !== (detail.meetingMaxHours ?? 3)
+    setLanguage(detail.meetingLanguage ?? 'es')
+  }, [detail.meetingSilenceMin, detail.meetingMaxHours, detail.meetingLanguage])
+  const limitsDirty =
+    silence !== (detail.meetingSilenceMin ?? 10) ||
+    hours !== (detail.meetingMaxHours ?? 3) ||
+    language !== (detail.meetingLanguage ?? 'es')
   return (
     <section className="device-panel">
       <div className="section-heading">
@@ -414,7 +434,7 @@ function MeetingsPanel({ detail, meetings, busy, now, act }: Readonly<{ detail: 
         style={{ marginTop: 18 }}
         onSubmit={(e) => {
           e.preventDefault()
-          void act('Guardando límites…', () => setMeetingLimits({ data: { deviceId: detail.id, meetingSilenceMin: silence, meetingMaxHours: hours } }), 'Límites guardados; valen para la próxima grabación.')
+          void act('Guardando…', () => setMeetingSettings({ data: { deviceId: detail.id, meetingSilenceMin: silence, meetingMaxHours: hours, meetingLanguage: language } }), 'Guardado; vale para la próxima grabación y para los reintentos de transcripción.')
         }}
       >
         <label className="config-field">
@@ -427,9 +447,18 @@ function MeetingsPanel({ detail, meetings, busy, now, act }: Readonly<{ detail: 
           <input type="number" min={1} max={8} value={hours} onChange={(e) => setHours(Number(e.target.value) || 0)} />
           <small>Una grabación nunca supera este máximo.</small>
         </label>
+        <label className="config-field">
+          <span>Idioma de la transcripción</span>
+          <select value={language} onChange={(e) => setLanguage(e.target.value)}>
+            {MEETING_LANGUAGES.map((l) => (
+              <option key={l.code} value={l.code}>{l.label}</option>
+            ))}
+          </select>
+          <small>Detectarlo solo falla: una reunión en español ha llegado a transcribirse en inglés, y el resumen sigue al idioma de la transcripción. Vale también al reintentar una transcripción ya hecha.</small>
+        </label>
         {limitsDirty && (
           <div className="device-actions" style={{ alignSelf: 'end' }}>
-            <button type="submit" className="chip-button primary" disabled={busy || silence < 5 || silence > 60 || hours < 1 || hours > 8}>Guardar límites</button>
+            <button type="submit" className="chip-button primary" disabled={busy || silence < 5 || silence > 60 || hours < 1 || hours > 8}>Guardar</button>
           </div>
         )}
       </form>

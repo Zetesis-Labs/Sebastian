@@ -34,7 +34,7 @@ type DeviceService interface {
 	Get(ctx context.Context, id string) (device.Detail, error)
 	SetDesiredProfile(ctx context.Context, id, name string) error
 	Rename(ctx context.Context, id, name string) error
-	SetMeetingLimits(ctx context.Context, id string, silenceMin, maxHours int) error
+	SetMeetingSettings(ctx context.Context, id string, silenceMin, maxHours int, language string) error
 	SetDesiredConfig(ctx context.Context, id string, config map[string]any) (string, error)
 	ClearDesiredConfig(ctx context.Context, id string) error
 	DeviceConfig(ctx context.Context, id, secret string) (json.RawMessage, error)
@@ -174,6 +174,7 @@ func deviceResponse(item device.Device) Device {
 		Enabled:               item.Enabled,
 		State:                 DeviceState(item.State),
 		MeetingSilenceMin:     optionalInt(item.MeetingSilenceMin),
+		MeetingLanguage:       optionalString(item.MeetingLanguage),
 		MeetingMaxHours:       optionalInt(item.MeetingMaxHours),
 		AdoptedAt:             optionalTime(item.AdoptedAt),
 		DesiredProfile:        optional(item.DesiredProfile),

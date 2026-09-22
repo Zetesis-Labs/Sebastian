@@ -624,6 +624,8 @@ export interface components {
             meetingSilenceMin?: number;
             /** @description Maximum length of a meeting recording (RM-24). */
             meetingMaxHours?: number;
+            /** @description ISO-639-1 the transcription is told to expect, or "auto" to let the provider guess. Guessing returned a Spanish meeting in English, and the summary follows the transcript's language (RM-32). */
+            meetingLanguage?: string;
         };
         DeviceDetail: components["schemas"]["Device"] & {
             hasDeviceSecret: boolean;
@@ -650,6 +652,8 @@ export interface components {
             meetingSilenceMin?: number;
             /** @description A recording never exceeds this (RM-24). */
             meetingMaxHours?: number;
+            /** @description ISO-639-1 for the transcription, or "auto" to let the provider guess. */
+            meetingLanguage?: string;
         };
         /** @description A sebastian.config.v1 document (see web-installer/public/PROVISIONING.md). Validated by the firmware. */
         DeviceConfig: {
@@ -1278,6 +1282,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description A meeting limit is out of range or the language is not ISO-639-1 nor `auto`. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["DeviceNotFound"];

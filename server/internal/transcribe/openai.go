@@ -18,7 +18,9 @@ import (
 const (
 	DefaultBaseURL         = "https://api.openai.com/v1"
 	DefaultTranscribeModel = "gpt-4o-transcribe-diarize"
-	FallbackModel          = "whisper-1"
+	// LanguageAuto means: say nothing and let the provider decide.
+	LanguageAuto  = "auto"
+	FallbackModel = "whisper-1"
 	// DefaultSummaryModel is the economy model in force when block D was
 	// implemented (GET /v1/models, 2026-09-19).
 	DefaultSummaryModel = "gpt-5.4-mini"
@@ -60,18 +62,19 @@ func NewOpenAI(apiKey string) *OpenAI {
 }
 
 // Transcribe sends one piece. The diarizing model first; if the provider
-// does not know it, whisper-1 without speakers (RM-34).
-func (c *OpenAI) Transcribe(ctx context.Context, audio []byte, known []Reference) (Result, error) {
-	res, err := c.transcribeWith(ctx, c.TranscribeModel, audio, known)
+// does not know it, whisper-1 without speakers (RM-34). An empty language (or
+// "auto") leaves the guess to the provider.
+func (c *OpenAI) Transcribe(ctx context.Context, audio []byte, known []Reference, language string) (Result, error) {
+	res, err := c.transcribeWith(ctx, c.TranscribeModel, audio, known, language)
 	if errors.Is(err, errModelUnavailable) && c.TranscribeModel != FallbackModel {
-		return c.transcribeWith(ctx, FallbackModel, audio, nil)
+		return c.transcribeWith(ctx, FallbackModel, audio, nil, language)
 	}
 	return res, err
 }
 
 var errModelUnavailable = errors.New("model unavailable")
 
-func (c *OpenAI) transcribeWith(ctx context.Context, model string, audio []byte, known []Reference) (Result, error) {
+func (c *OpenAI) transcribeWith(ctx context.Context, model string, audio []byte, known []Reference, language string) (Result, error) {
 	diarize := model == DefaultTranscribeModel || strings.Contains(model, "diarize")
 	var body bytes.Buffer
 	w := multipart.NewWriter(&body)
@@ -83,6 +86,11 @@ func (c *OpenAI) transcribeWith(ctx context.Context, model string, audio []byte,
 		return Result{}, err
 	}
 	fields := map[string]string{"model": model}
+	// Without this the provider guesses per PIECE, so a long meeting could even
+	// come back with its pieces in different languages.
+	if language != "" && language != LanguageAuto {
+		fields["language"] = language
+	}
 	if diarize {
 		fields["response_format"] = "diarized_json"
 		fields["chunking_strategy"] = "auto"

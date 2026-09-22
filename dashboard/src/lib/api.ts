@@ -221,10 +221,14 @@ export const resummarizeMeeting = createServerFn({ method: 'POST' })
   .validator((input: { meetingId: string }) => input)
   .handler(async ({ data }) => apiSend<Meeting>(`/v1/admin/meetings/${id(data.meetingId)}/summarize`, 'POST'))
 
-export const setMeetingLimits = createServerFn({ method: 'POST' })
-  .validator((input: { deviceId: string; meetingSilenceMin: number; meetingMaxHours: number }) => input)
+export const setMeetingSettings = createServerFn({ method: 'POST' })
+  .validator((input: { deviceId: string; meetingSilenceMin: number; meetingMaxHours: number; meetingLanguage: string }) => input)
   .handler(async ({ data }) =>
-    apiSend(`/v1/admin/devices/${id(data.deviceId)}`, 'PATCH', { meetingSilenceMin: data.meetingSilenceMin, meetingMaxHours: data.meetingMaxHours }),
+    apiSend(`/v1/admin/devices/${id(data.deviceId)}`, 'PATCH', {
+      meetingSilenceMin: data.meetingSilenceMin,
+      meetingMaxHours: data.meetingMaxHours,
+      meetingLanguage: data.meetingLanguage,
+    }),
   )
 
 // Server-only proxies: the browser never carries the admin secret (RM-47).

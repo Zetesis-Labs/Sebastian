@@ -80,7 +80,16 @@ func run(logger *slog.Logger) error {
 	} else {
 		logger.Warn("OPENAI_API_KEY not set — meetings will record but not transcribe")
 	}
-	transcriber := transcribe.NewJob(meetings, provider, transcribe.FFmpeg{Path: cfg.FFmpeg}, cfg.MeetingSummary, logger)
+	languageFor := func(ctx context.Context, deviceID string) string {
+		language, err := store.MeetingLanguage(ctx, deviceID)
+		if err != nil {
+			// Not fatal: the provider guessing is exactly the old behaviour.
+			logger.Warn("meeting language lookup failed", "device", deviceID, "error", err)
+			return ""
+		}
+		return language
+	}
+	transcriber := transcribe.NewJob(meetings, provider, transcribe.FFmpeg{Path: cfg.FFmpeg}, cfg.MeetingSummary, languageFor, logger)
 	meetings.OnTranscribe, meetings.OnSummarize = transcriber.Enqueue, transcriber.EnqueueSummary
 	go meetings.Run(ctx, 5*time.Second)
 	go transcriber.Run(ctx)

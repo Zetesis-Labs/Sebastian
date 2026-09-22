@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -77,6 +78,8 @@ type Device struct {
 	// Meeting recordings (RM-23/24), set from the ficha.
 	MeetingSilenceMin int
 	MeetingMaxHours   int
+	// ISO-639-1 the transcription is told to expect, or MeetingLanguageAuto.
+	MeetingLanguage string
 
 	// Derived / from the LAN announce.
 	State       State
@@ -142,7 +145,7 @@ type Store interface {
 	SetPendingSecret(ctx context.Context, id string, digest []byte) error
 	Forget(ctx context.Context, id string) error
 	Rename(ctx context.Context, id, name string) error
-	SetMeetingLimits(ctx context.Context, id string, silenceMin, maxHours int) error
+	SetMeetingSettings(ctx context.Context, id string, silenceMin, maxHours int, language string) error
 }
 
 // Adopter is the network side (adoption.Client); swapped in tests. Adopt
@@ -316,13 +319,33 @@ const (
 	MinMeetingMaxHours, MaxMeetingMaxHours     = 1, 8
 )
 
-var ErrMeetingLimits = errors.New("device: meeting limits out of range")
+// MeetingLanguageAuto lets the provider guess, which is what it did before this
+// was configurable: a Spanish meeting came back in English, and the summary
+// follows the transcript's language by design (RM-32).
+const MeetingLanguageAuto = "auto"
 
-func (s *Service) SetMeetingLimits(ctx context.Context, id string, silenceMin, maxHours int) error {
+var (
+	ErrMeetingLimits   = errors.New("device: meeting limits out of range")
+	ErrMeetingLanguage = errors.New("device: meeting language is not ISO-639-1 nor auto")
+)
+
+var iso6391 = regexp.MustCompile(`^[a-z]{2}$`)
+
+// ValidMeetingLanguage accepts auto or a two-letter code. Not a closed list:
+// the provider knows far more languages than we want to enumerate here, and a
+// wrong code degrades one meeting instead of rejecting a legitimate one.
+func ValidMeetingLanguage(language string) bool {
+	return language == MeetingLanguageAuto || iso6391.MatchString(language)
+}
+
+func (s *Service) SetMeetingSettings(ctx context.Context, id string, silenceMin, maxHours int, language string) error {
 	if silenceMin < MinMeetingSilenceMin || silenceMin > MaxMeetingSilenceMin || maxHours < MinMeetingMaxHours || maxHours > MaxMeetingMaxHours {
 		return ErrMeetingLimits
 	}
-	return s.store.SetMeetingLimits(ctx, id, silenceMin, maxHours)
+	if !ValidMeetingLanguage(language) {
+		return ErrMeetingLanguage
+	}
+	return s.store.SetMeetingSettings(ctx, id, silenceMin, maxHours, language)
 }
 
 // ── desired config ──────────────────────────────────────────────────────────
