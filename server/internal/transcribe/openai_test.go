@@ -61,7 +61,7 @@ func TestTranscribeSendsAudioAndSpeakersOnly(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"task":"transcribe","duration":9.1,"text":"Hablante 1: Hola.\nA: Buenas.","segments":[{"start":0,"end":4,"speaker":"Hablante 1","text":"Hola."},{"start":4.2,"end":9.1,"speaker":"A","text":"Buenas."}]}`))
 	})
-	res, err := client(srv).Transcribe(context.Background(), []byte("OggS...."), []Reference{{Name: "Hablante 1", DataURL: "data:audio/wav;base64,AAAA"}})
+	res, err := client(srv).Transcribe(context.Background(), []byte("OggS...."), []Reference{{Name: "Hablante 1", DataURL: "data:audio/wav;base64,AAAA"}}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestTranscribeFallsBackToWhisperWhenTheModelIsMissing(t *testing.T) {
 		}
 		_, _ = w.Write([]byte(`{"text":"todo seguido","language":"spanish","segments":[{"start":0,"end":3,"text":"todo seguido"}]}`))
 	})
-	res, err := client(srv).Transcribe(context.Background(), []byte("x"), nil)
+	res, err := client(srv).Transcribe(context.Background(), []byte("x"), nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func TestProviderErrorsAreFinalOrRetried(t *testing.T) {
 		w.WriteHeader(413)
 		_, _ = w.Write([]byte(`{"error":{"message":"Maximum content size limit exceeded"}}`))
 	})
-	_, err := client(srv).Transcribe(context.Background(), []byte("x"), nil)
+	_, err := client(srv).Transcribe(context.Background(), []byte("x"), nil, "")
 	if !errors.Is(err, ErrRejected) || !strings.Contains(err.Error(), "413 Maximum content size") || len(*seen) != 1 {
 		t.Fatalf("4xx is final with the reason (RM-33): %v calls=%d", err, len(*seen))
 	}
@@ -122,12 +122,12 @@ func TestProviderErrorsAreFinalOrRetried(t *testing.T) {
 		}
 		_, _ = w.Write([]byte(`{"text":"ok","segments":[{"start":0,"end":1,"speaker":"A","text":"ok"}]}`))
 	})
-	res, err := client(srv2).Transcribe(context.Background(), []byte("x"), nil)
+	res, err := client(srv2).Transcribe(context.Background(), []byte("x"), nil, "")
 	if err != nil || res.Text != "ok" || len(*seen2) != 3 {
 		t.Fatalf("5xx retries with backoff: %v calls=%d", err, len(*seen2))
 	}
 	srv3, seen3 := fakeServer(t, func(_ capture, _ int32, w http.ResponseWriter) { w.WriteHeader(500) })
-	if _, err := client(srv3).Transcribe(context.Background(), []byte("x"), nil); err == nil || errors.Is(err, ErrRejected) || len(*seen3) != 4 {
+	if _, err := client(srv3).Transcribe(context.Background(), []byte("x"), nil, ""); err == nil || errors.Is(err, ErrRejected) || len(*seen3) != 4 {
 		t.Fatalf("exhausted retries are not final: %v calls=%d", err, len(*seen3))
 	}
 }
@@ -163,5 +163,29 @@ func TestSummarizeAsksForStructuredDigestInTheMeetingLanguage(t *testing.T) {
 	}
 	if s.Language != "es" || s.Text != "Se acordó el plan." || s.Agreements[0] != "Plan aprobado" || s.Actions[0] != "Ana envía el acta" || s.Model != DefaultSummaryModel || s.GeneratedAt.IsZero() {
 		t.Fatalf("summary = %+v", s)
+	}
+}
+
+// The language must reach the provider, or it guesses per piece — a Spanish
+// meeting came back in English, and the summary follows the transcript (RM-32).
+func TestTranscribeSendsTheAskedForLanguage(t *testing.T) {
+	srv, seen := fakeServer(t, func(_ capture, _ int32, w http.ResponseWriter) {
+		_, _ = w.Write([]byte(`{"text":"hola","segments":[{"start":0,"end":1,"speaker":"A","text":"hola"}]}`))
+	})
+	if _, err := client(srv).Transcribe(context.Background(), []byte("x"), nil, "es"); err != nil {
+		t.Fatal(err)
+	}
+	if got := (*seen)[0].fields["language"]; len(got) != 1 || got[0] != "es" {
+		t.Fatalf("language = %v, want es", got)
+	}
+
+	srv2, seen2 := fakeServer(t, func(_ capture, _ int32, w http.ResponseWriter) {
+		_, _ = w.Write([]byte(`{"text":"hola","segments":[{"start":0,"end":1,"speaker":"A","text":"hola"}]}`))
+	})
+	if _, err := client(srv2).Transcribe(context.Background(), []byte("x"), nil, LanguageAuto); err != nil {
+		t.Fatal(err)
+	}
+	if got := (*seen2)[0].fields["language"]; len(got) != 0 {
+		t.Fatalf("auto must send nothing, sent %v", got)
 	}
 }

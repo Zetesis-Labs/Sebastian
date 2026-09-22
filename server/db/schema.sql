@@ -50,6 +50,12 @@ CREATE TABLE devices (
   -- ends a recording and its maximum length, set from the unit's ficha.
   meeting_silence_min integer NOT NULL DEFAULT 10,
   meeting_max_hours integer NOT NULL DEFAULT 3,
+  -- ISO-639-1 the transcription is told to expect, or 'auto' to let the
+  -- provider guess. Guessing is what it did before, and on short or noisy
+  -- pieces it returned a Spanish meeting in English — and the summary follows
+  -- the transcript's language by design (RM-32), so one wrong guess upstream
+  -- turns the whole record.
+  meeting_language varchar NOT NULL DEFAULT 'es',
   forgotten_at timestamptz,
   CONSTRAINT devices_agent_profiles_devices
     FOREIGN KEY (agent_profile_id) REFERENCES agent_profiles(id)

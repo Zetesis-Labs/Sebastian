@@ -62,6 +62,7 @@ type stubDevices struct {
 	config   []byte
 	secret   string
 	running  map[string]any
+	language string
 }
 
 func (s *stubDevices) Reconcile(_ context.Context, poll device.Poll) (device.PollResult, error) {
@@ -83,8 +84,9 @@ func (s *stubDevices) Get(context.Context, string) (device.Detail, error) {
 
 func (s *stubDevices) SetDesiredProfile(context.Context, string, string) error { return s.err }
 func (s *stubDevices) Rename(context.Context, string, string) error            { return s.err }
-func (s *stubDevices) SetMeetingLimits(_ context.Context, _ string, silence, hours int) error {
+func (s *stubDevices) SetMeetingSettings(_ context.Context, _ string, silence, hours int, language string) error {
 	s.limits = [2]int{silence, hours}
+	s.language = language
 	return s.err
 }
 func (s *stubDevices) SetDesiredConfig(context.Context, string, map[string]any) (string, error) {
