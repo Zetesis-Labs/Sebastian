@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.1.9](https://github.com/Zetesis-Labs/Sebastian/compare/agent-v0.1.8...agent-v0.1.9) (2026-09-22)
+
+
+### Features
+
+* **agent,server:** meeting recordings block C — the agent captures and delivers (RM-12/15/23) ([b992b1f](https://github.com/Zetesis-Labs/Sebastian/commit/b992b1f4ec479eabe3d7028eae2d6962bc75cc16))
+* **dashboard,server:** meeting recordings block E — the control room (RM-14/22/23/24/31/40..47) ([3ec5a7b](https://github.com/Zetesis-Labs/Sebastian/commit/3ec5a7b63566e7bbadb05c87f641f33a458a108a))
+* **firmware,agent,server:** meeting recordings block F — start and stop by voice (RM-04/05/21) ([d5369d3](https://github.com/Zetesis-Labs/Sebastian/commit/d5369d3ad330723db8806fd09d25ae5a5b549eeb))
+
+
+### Bug Fixes
+
+* **agent:** the speaker's identity comes from the dispatch metadata, not a fixed esp32-respeaker (RF-12) ([63790f1](https://github.com/Zetesis-Labs/Sebastian/commit/63790f1fa78433616c335b574f1f2250f8349dc6))
+* **agent:** transcribe the wake word in Spanish and fail open on non-Latin output ([a972fd3](https://github.com/Zetesis-Labs/Sebastian/commit/a972fd37469037789622c9715e60251d3871d165))
+* **firmware,agent:** arm talk-over only when the device declares full duplex ([c4a7ab4](https://github.com/Zetesis-Labs/Sebastian/commit/c4a7ab4d6f630f4bc50714c4ee01b84f1baf6187))
+
+
+### Documentation
+
+* actualiza la documentación de flota y reuniones ([3417fae](https://github.com/Zetesis-Labs/Sebastian/commit/3417faed895512a17e348b3e435fb10ffd77d7a8))
+
 ## [0.1.8](https://github.com/Zetesis-Labs/Sebastian/compare/agent-v0.1.7...agent-v0.1.8) (2026-07-14)
 
 
