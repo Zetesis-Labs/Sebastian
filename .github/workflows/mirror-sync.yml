@@ -1,0 +1,39 @@
+name: Mirror Sync
+
+# Runs only in a mirror fork (vars.MIRROR_UPSTREAM). Daily, or on demand:
+# fast-forwards the fork's main to upstream and re-enables the mirror's
+# scheduled workflows, which GitHub disables after 60 days without commits.
+#
+# GITHUB_TOKEN cannot push commits that touch .github/workflows; when upstream
+# changes a workflow, set secrets.MIRROR_SYNC_TOKEN (Contents + Workflows write
+# on this repo) or the sync step fails and says so.
+
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  sync:
+    if: vars.MIRROR_UPSTREAM != ''
+    runs-on: ${{ vars.RUNNER || 'herschel-runners' }}
+    steps:
+      - name: Fast-forward main to upstream
+        env:
+          GH_TOKEN: ${{ secrets.MIRROR_SYNC_TOKEN || github.token }}
+        run: |
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/merge-upstream" -f branch=main \
+            --jq '"\(.merge_type): \(.message)"'
+
+      - name: Keep the scheduled workflows enabled
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for workflow in mirror-publish.yml mirror-sync.yml; do
+            gh api -X PUT "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/enable"
+            echo "enabled ${workflow}"
+          done
