@@ -101,3 +101,68 @@ jobs:
     secrets:
       HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
       HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+
+  # Opens a PR in the mirror's GitOps repo (vars.MIRROR_BUMP_REPO) with the
+  # versions just published — the mirror's counterpart of bump-mileto.
+  bump:
+    needs: [plan, publish-images, publish-server, publish-dashboard, publish-helm]
+    if: |
+      always() && vars.MIRROR_BUMP_REPO != '' &&
+      needs.plan.result == 'success' &&
+      (needs.plan.outputs.agent != '' || needs.plan.outputs.server != '' ||
+       needs.plan.outputs.dashboard != '' || needs.plan.outputs.helm != '') &&
+      needs.publish-images.result != 'failure' &&
+      needs.publish-server.result != 'failure' &&
+      needs.publish-dashboard.result != 'failure' &&
+      needs.publish-helm.result != 'failure'
+    runs-on: ${{ vars.RUNNER || 'herschel-runners' }}
+    env:
+      ENV_FILE: ${{ vars.MIRROR_BUMP_ENV_FILE || 'envs/prod/env.json' }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: ${{ vars.MIRROR_BUMP_REPO }}
+          token: ${{ secrets.MIRROR_BUMP_TOKEN }}
+          path: gitops
+      - name: Bump env.json
+        env:
+          AGENT: ${{ needs.plan.outputs.agent }}
+          SERVER: ${{ needs.plan.outputs.server }}
+          DASHBOARD: ${{ needs.plan.outputs.dashboard }}
+          HELM: ${{ needs.plan.outputs.helm }}
+        run: |
+          set -euo pipefail
+          cd gitops
+          tmp=$(mktemp)
+          jq --arg agent "$AGENT" --arg server "$SERVER" --arg dashboard "$DASHBOARD" --arg helm "$HELM" '
+            (if $agent     != "" then .agentImageTag = "v\($agent)" | .controlPlaneImageTag = "v\($agent)" else . end) |
+            (if $server    != "" then .serverImageTag = "v\($server)" else . end) |
+            (if $dashboard != "" then .dashboardImageTag = "v\($dashboard)" else . end) |
+            (if $helm      != "" then .chartVersion = $helm else . end)
+          ' "$ENV_FILE" > "$tmp"
+          mv "$tmp" "$ENV_FILE"
+          git diff "$ENV_FILE"
+      - name: Commit and open PR
+        env:
+          GH_TOKEN: ${{ secrets.MIRROR_BUMP_TOKEN }}
+          SUMMARY: "agent=${{ needs.plan.outputs.agent }} server=${{ needs.plan.outputs.server }} dashboard=${{ needs.plan.outputs.dashboard }} helm=${{ needs.plan.outputs.helm }}"
+        run: |
+          set -euo pipefail
+          cd gitops
+          if git diff --quiet; then
+            echo "No env.json changes to push."
+            exit 0
+          fi
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          BRANCH="auto-bump/sebastian-${{ github.run_id }}"
+          git checkout -b "$BRANCH"
+          git add "$ENV_FILE"
+          git commit -m "chore(prod): bump Sebastian images and chart" -m "Published by ${{ github.repository }} from ${{ vars.MIRROR_UPSTREAM }}: ${SUMMARY}."
+          git push origin "$BRANCH"
+          gh pr create \
+            --repo "${{ vars.MIRROR_BUMP_REPO }}" \
+            --title "chore(prod): bump Sebastian — ${SUMMARY}" \
+            --body "Automated bump after ${{ github.repository }} published new upstream releases (${SUMMARY}). Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --head "$BRANCH" \
+            --base main
