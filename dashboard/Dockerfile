@@ -4,10 +4,10 @@
 # control room, and reuses its form metadata for the device page.
 
 FROM node:24.18.0-bookworm-slim AS builder
-RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
+RUN corepack enable
 WORKDIR /app
 COPY dashboard/package.json dashboard/package-lock.json ./dashboard/
-COPY web-installer/package.json web-installer/pnpm-lock.yaml ./web-installer/
+COPY web-installer/package.json web-installer/pnpm-lock.yaml web-installer/pnpm-workspace.yaml ./web-installer/
 RUN --mount=type=cache,target=/root/.npm cd dashboard && npm ci
 RUN --mount=type=cache,target=/root/.local/share/pnpm cd web-installer && pnpm install --frozen-lockfile
 COPY web-installer ./web-installer

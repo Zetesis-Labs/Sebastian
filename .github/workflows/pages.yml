@@ -36,9 +36,9 @@ jobs:
       # ../docs/installer (vite outDir) and creates docs/installer/firmware/ via
       # public/, so the firmware merge below has a place to drop the real .bin.
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6.1.0
         with:
-          version: 9
+          package_json_file: web-installer/package.json
 
       - name: Set up Node
         uses: actions/setup-node@v4
