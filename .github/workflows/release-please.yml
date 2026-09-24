@@ -24,7 +24,9 @@ permissions:
 
 jobs:
   release-please:
-    runs-on: herschel-runners
+    # A mirror (vars.MIRROR_UPSTREAM set) publishes upstream tags instead of cutting its own.
+    if: vars.MIRROR_UPSTREAM == ''
+    runs-on: ${{ vars.RUNNER || 'herschel-runners' }}
     outputs:
       releases_created: ${{ steps.release.outputs.releases_created }}
       agent_released: ${{ steps.release.outputs['agent--release_created'] }}
@@ -101,7 +103,7 @@ jobs:
       needs.publish-server.result != 'failure' &&
       needs.publish-dashboard.result != 'failure' &&
       needs.publish-helm.result != 'failure'
-    runs-on: herschel-runners
+    runs-on: ${{ vars.RUNNER || 'herschel-runners' }}
     steps:
       - name: Checkout Mileto-Infra-GitOps
         uses: actions/checkout@v6

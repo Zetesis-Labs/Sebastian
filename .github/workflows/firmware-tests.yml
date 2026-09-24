@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   zig-host-tests:
-    runs-on: herschel-runners
+    runs-on: ${{ vars.RUNNER || 'herschel-runners' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -46,7 +46,7 @@ jobs:
   esp-idf-build:
     # Validate the full ESP-IDF build/link on PRs too — pages.yml only builds on
     # push to main, so a PR could break the link/compile without CI noticing.
-    runs-on: herschel-runners
+    runs-on: ${{ vars.RUNNER || 'herschel-runners' }}
     steps:
       - uses: actions/checkout@v4
       - name: Build firmware (no deploy)

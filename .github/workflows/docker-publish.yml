@@ -18,6 +18,16 @@ on:
       version:
         required: true
         type: string
+      repository:
+        description: "Repository to build from (default: this one)"
+        required: false
+        type: string
+        default: ""
+      ref:
+        description: "Git ref to build (default: the triggering ref)"
+        required: false
+        type: string
+        default: ""
     secrets:
       HARBOR_USERNAME:
         required: true
@@ -25,18 +35,21 @@ on:
         required: true
 
 env:
-  REGISTRY: gauss.nexolabs.dev
+  REGISTRY: ${{ vars.REGISTRY || 'gauss.nexolabs.dev' }}
   HARBOR_PROJECT: sebastian
 
 jobs:
   build:
-    runs-on: herschel-runners
+    runs-on: ${{ vars.RUNNER || 'herschel-runners' }}
     strategy:
       matrix:
         service: [agent, control-plane]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          repository: ${{ inputs.repository || github.repository }}
+          ref: ${{ inputs.ref }}
 
       - name: Log into registry
         env:
