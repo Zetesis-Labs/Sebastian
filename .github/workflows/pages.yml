@@ -28,7 +28,8 @@ concurrency:
 
 jobs:
   build:
-    runs-on: herschel-runners
+    if: vars.MIRROR_UPSTREAM == ''
+    runs-on: ${{ vars.RUNNER || 'herschel-runners' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -90,7 +91,7 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: herschel-runners
+    runs-on: ${{ vars.RUNNER || 'herschel-runners' }}
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4

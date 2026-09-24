@@ -1,0 +1,103 @@
+name: Mirror Upstream Releases
+
+# Runs only in a mirror fork (vars.MIRROR_UPSTREAM, e.g. Zetesis-Labs/Sebastian):
+# publishes the latest upstream release of each component to this repo's
+# registry (vars.REGISTRY) when that version is not there yet. The fork keeps
+# the upstream code untouched and never cuts releases of its own.
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+concurrency: ${{ github.workflow }}
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    if: vars.MIRROR_UPSTREAM != ''
+    runs-on: ${{ vars.RUNNER || 'herschel-runners' }}
+    outputs:
+      agent: ${{ steps.missing.outputs.agent }}
+      server: ${{ steps.missing.outputs.server }}
+      dashboard: ${{ steps.missing.outputs.dashboard }}
+      helm: ${{ steps.missing.outputs.helm }}
+    steps:
+      - id: missing
+        env:
+          UPSTREAM: ${{ vars.MIRROR_UPSTREAM }}
+          REGISTRY: ${{ vars.REGISTRY }}
+          HARBOR_USER: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASS: ${{ secrets.HARBOR_PASSWORD }}
+        run: |
+          set -euo pipefail
+          latest() {
+            git ls-remote --tags --refs "https://github.com/${UPSTREAM}.git" "refs/tags/$1-v*" \
+              | sed "s#.*refs/tags/$1-v##" | sort -V | tail -1
+          }
+          published() {
+            skopeo inspect --raw --creds "${HARBOR_USER}:${HARBOR_PASS}" \
+              "docker://${REGISTRY}/sebastian/$1:$2" >/dev/null 2>&1
+          }
+          plan() {
+            local component=$1 image=$2 prefix=$3 version
+            version=$(latest "$component")
+            if [ -n "$version" ] && ! published "$image" "${prefix}${version}"; then
+              echo "$component $version missing"
+              echo "$component=$version" >> "$GITHUB_OUTPUT"
+            fi
+          }
+          plan agent agent v
+          plan server server v
+          plan dashboard dashboard v
+          plan helm sebastian ""
+
+  publish-images:
+    needs: plan
+    if: needs.plan.outputs.agent != ''
+    uses: ./.github/workflows/docker-publish.yml
+    with:
+      version: ${{ needs.plan.outputs.agent }}
+      repository: ${{ vars.MIRROR_UPSTREAM }}
+      ref: agent-v${{ needs.plan.outputs.agent }}
+    secrets:
+      HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+      HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+
+  publish-server:
+    needs: plan
+    if: needs.plan.outputs.server != ''
+    uses: ./.github/workflows/server-publish.yml
+    with:
+      version: ${{ needs.plan.outputs.server }}
+      repository: ${{ vars.MIRROR_UPSTREAM }}
+      ref: server-v${{ needs.plan.outputs.server }}
+    secrets:
+      HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+      HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+
+  publish-dashboard:
+    needs: plan
+    if: needs.plan.outputs.dashboard != ''
+    uses: ./.github/workflows/dashboard-publish.yml
+    with:
+      version: ${{ needs.plan.outputs.dashboard }}
+      repository: ${{ vars.MIRROR_UPSTREAM }}
+      ref: dashboard-v${{ needs.plan.outputs.dashboard }}
+    secrets:
+      HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+      HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+
+  publish-helm:
+    needs: plan
+    if: needs.plan.outputs.helm != ''
+    uses: ./.github/workflows/helm-publish.yml
+    with:
+      version: ${{ needs.plan.outputs.helm }}
+      repository: ${{ vars.MIRROR_UPSTREAM }}
+      ref: helm-v${{ needs.plan.outputs.helm }}
+    secrets:
+      HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+      HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
