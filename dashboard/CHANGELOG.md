@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.1](https://github.com/Zetesis-Labs/Sebastian/compare/dashboard-v1.1.0...dashboard-v1.1.1) (2026-09-24)
+
+
+### Bug Fixes
+
+* **dashboard:** build the web installer with pnpm 12 and approve esbuild ([#54](https://github.com/Zetesis-Labs/Sebastian/issues/54)) ([509979f](https://github.com/Zetesis-Labs/Sebastian/commit/509979f39e42460b6c7f4d2ea165fa613e544297))
+* **dashboard:** pin pnpm 9 for the embedded web installer build ([#52](https://github.com/Zetesis-Labs/Sebastian/issues/52)) ([cc625f7](https://github.com/Zetesis-Labs/Sebastian/commit/cc625f70268583f11b55471e16d2aa3674d10f24))
+
 ## [1.1.0](https://github.com/Zetesis-Labs/Sebastian/compare/dashboard-v1.0.0...dashboard-v1.1.0) (2026-09-22)
 
 
