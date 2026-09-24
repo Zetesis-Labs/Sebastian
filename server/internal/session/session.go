@@ -121,7 +121,9 @@ func (s *Service) Create(ctx context.Context, credentials Credentials) (Created,
 	if err != nil {
 		return Created{}, fmt.Errorf("generate event id: %w", ErrUnavailable)
 	}
-	room := fmt.Sprintf("%s-%s", s.roomPrefix, sessionID.String()[:8])
+	// The whole id: a UUIDv7's first 8 hex digits are timestamp bits that only
+	// change every ~65 s, so a short prefix collides between back-to-back sessions.
+	room := fmt.Sprintf("%s-%s", s.roomPrefix, sessionID.String())
 	now := s.now().UTC()
 	expiresAt := now.Add(s.tokenTTL)
 	// Persist the session BEFORE any LiveKit side effect. If the record fails we

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -75,6 +76,33 @@ func TestCreateDispatchesAndRecordsOutboxEvent(t *testing.T) {
 	}
 	if !json.Valid(livekit.metadata) {
 		t.Fatalf("metadata is not JSON: %s", livekit.metadata)
+	}
+}
+
+// A unit that opens a meeting right after a conversation creates two sessions
+// seconds apart; UUIDv7 ids share their first 8 hex digits for ~65 s, and a
+// room named from that prefix collided on sessions_room_name_key (503).
+func TestCreateGivesBackToBackSessionsDistinctRooms(t *testing.T) {
+	store := &fakeStore{device: Device{
+		ID: "e072a1f96ef0", Identity: "e072a1f96ef0",
+		CredentialDigest: DigestSecret("correct"), ProfileID: uuid.New(), AgentName: "sebastian",
+	}}
+	service := NewService(store, &fakeLiveKit{}, "ws://livekit:7880", "sebastian", time.Hour)
+	credentials := Credentials{DeviceID: "e072a1f96ef0", Secret: "correct"}
+
+	first, err := service.Create(context.Background(), credentials)
+	if err != nil {
+		t.Fatalf("first Create() error = %v", err)
+	}
+	second, err := service.Create(context.Background(), credentials)
+	if err != nil {
+		t.Fatalf("second Create() error = %v", err)
+	}
+	if first.Room == second.Room {
+		t.Fatalf("back-to-back sessions share room %q", first.Room)
+	}
+	if !strings.HasPrefix(second.Room, "sebastian-") {
+		t.Fatalf("room %q lost the prefix the control plane filters on", second.Room)
 	}
 }
 
