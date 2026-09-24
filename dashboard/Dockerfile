@@ -4,7 +4,7 @@
 # control room, and reuses its form metadata for the device page.
 
 FROM node:24.18.0-bookworm-slim AS builder
-RUN corepack enable
+RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
 WORKDIR /app
 COPY dashboard/package.json dashboard/package-lock.json ./dashboard/
 COPY web-installer/package.json web-installer/pnpm-lock.yaml ./web-installer/
