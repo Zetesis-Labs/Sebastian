@@ -1,5 +1,5 @@
 {
-  "agent": "0.1.10",
+  "agent": "0.1.11",
   "helm/sebastian": "0.1.7",
   "server": "1.1.1",
   "dashboard": "1.1.1"
