@@ -13,6 +13,7 @@ from meeting_mode import (
     VoiceCommands,
     command_reply,
     meeting_intent,
+    voice_start_asked,
     voice_start_reply,
     http_session,
     OpusEncoder,
@@ -233,6 +234,17 @@ def test_meeting_intent_recognizes_the_spec_variants() -> None:
         assert meeting_intent(text) == "start", text
     for text in ("qué hora es", "enciende la luz del salón", "", "la grabación de ayer fue larga"):
         assert meeting_intent(text) is None, text
+
+
+def test_voice_start_is_honored_only_when_the_latest_turn_asks() -> None:
+    # cortes, 2026-09-25 12:26: the pre-roll came back as Tamil and Gemini
+    # called start_meeting_recording on it, 13 ms later.
+    assert not voice_start_asked(["ஓகே நம்ம"])
+    assert not voice_start_asked(["¿Qué tal? ¿Hacemos una prueba?"])
+    assert not voice_start_asked([])
+    assert voice_start_asked(["Sebastián, graba la reunión"])
+    assert voice_start_asked(["qué hora es", "vale, empieza a grabar"])
+    assert not voice_start_asked(["graba esto", "no, déjalo, qué hora es"])
 
 
 def test_voice_start_reply_follows_the_server_answer() -> None:

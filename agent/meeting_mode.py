@@ -20,7 +20,7 @@ import os
 import tempfile
 import time
 import wave
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -482,6 +482,18 @@ def command_reply(intent: str | None, recorded_s: float) -> tuple[str, str]:
 class VoiceStart:
     say: str
     close: bool  # the conversation ends so the unit can start the recording
+
+
+NOT_ASKED_TO_RECORD = VoiceStart(
+    "No he entendido que quieras grabar. Si quieres, dime: graba la reunión.", False
+)
+
+
+def voice_start_asked(user_turns: Sequence[str]) -> bool:
+    """T-F1c (pure): the model's start_meeting_recording call is honored only
+    when the user's latest turn asks for it — Gemini once called it on a
+    pre-roll transcribed as Tamil (cortes, 2026-09-25)."""
+    return bool(user_turns) and meeting_intent(user_turns[-1]) == "start"
 
 
 def voice_start_reply(status: int, detail: str = "") -> VoiceStart:

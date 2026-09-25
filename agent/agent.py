@@ -45,7 +45,13 @@ from audio_input import SebastianAudioInput, setup_recorder, setup_output_record
 from device_identity import device_identity_from_metadata
 from endpointing import AGENT_STATE_TOPIC, close_device_session, setup_endpointing
 from instrumentation import instrument_session
-from meeting_mode import meeting_from_metadata, request_meeting_by_voice, run_meeting
+from meeting_mode import (
+    NOT_ASKED_TO_RECORD,
+    meeting_from_metadata,
+    request_meeting_by_voice,
+    run_meeting,
+    voice_start_asked,
+)
 from wake_verify import setup_wake_verify
 from tasks import spawn as _spawn
 from typing import Any
@@ -112,6 +118,8 @@ def _ha_mcp_servers() -> list:
 
 
 GOODBYE_GRACE_S = 3.0
+# The realtime model can call a tool a few ms before the user's transcript lands.
+VOICE_START_SETTLE_S = 1.5
 PHANTOM_SESSION_S = 12.0  # a user-closed session shorter than this ≈ likely phantom wake
 
 
@@ -160,7 +168,8 @@ class Sebastian(Agent):
         """Empieza a grabar una reunión con este altavoz. Llámala cuando el
         usuario pida grabar la reunión, grabar esto o empezar a grabar. Devuelve
         la frase exacta que debes decir; tras decirla, la sesión se cierra sola."""
-        _ = context
+        if not await _user_asked_to_record(context.session):
+            return NOT_ASKED_TO_RECORD.say
         outcome = await request_meeting_by_voice(self._device_id)
         if outcome.close:
             # The unit starts recording once this conversation is over (the
@@ -194,6 +203,25 @@ class Sebastian(Agent):
             )
         )
         return "Sesión terminándose."
+
+
+def _user_turns(session: AgentSession) -> list[str]:
+    return [
+        item.text_content or ""
+        for item in session.history.items
+        if getattr(item, "type", None) == "message" and item.role == "user"
+    ]
+
+
+async def _user_asked_to_record(session: AgentSession) -> bool:
+    if voice_start_asked(_user_turns(session)):
+        return True
+    await asyncio.sleep(VOICE_START_SETTLE_S)
+    turns = _user_turns(session)
+    if voice_start_asked(turns):
+        return True
+    log.warning("[voice] start_meeting_recording ignored: no start phrase in %r", turns[-1:])
+    return False
 
 
 def _build_gemini_realtime_model() -> google.realtime.RealtimeModel:
