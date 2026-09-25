@@ -489,11 +489,18 @@ NOT_ASKED_TO_RECORD = VoiceStart(
 )
 
 
+RECORDING_STEMS = ("grab", "grav", "record", "reunion")
+
+
 def voice_start_asked(user_turns: Sequence[str]) -> bool:
     """T-F1c (pure): the model's start_meeting_recording call is honored only
-    when the user's latest turn asks for it — Gemini once called it on a
-    pre-roll transcribed as Tamil (cortes, 2026-09-25)."""
-    return bool(user_turns) and meeting_intent(user_turns[-1]) == "start"
+    when the user's latest turn talks about recording — Gemini once called it
+    on a pre-roll transcribed as Tamil (cortes, 2026-09-25). Stems, not exact
+    phrases: the transcript writes "graves", "grava" and paraphrases."""
+    if not user_turns:
+        return False
+    words = norm(user_turns[-1]).split()
+    return any(word.startswith(RECORDING_STEMS) for word in words)
 
 
 def voice_start_reply(status: int, detail: str = "") -> VoiceStart:
