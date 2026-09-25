@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.11](https://github.com/Zetesis-Labs/Sebastian/compare/agent-v0.1.10...agent-v0.1.11) (2026-09-25)
+
+
+### Bug Fixes
+
+* **agent:** accept any request that talks about recording, not only exact phrases ([#62](https://github.com/Zetesis-Labs/Sebastian/issues/62)) ([62293b0](https://github.com/Zetesis-Labs/Sebastian/commit/62293b0e4ff0de71d15e45f1c74168ce4b4b1866))
+
 ## [0.1.10](https://github.com/Zetesis-Labs/Sebastian/compare/agent-v0.1.9...agent-v0.1.10) (2026-09-25)
 
 
