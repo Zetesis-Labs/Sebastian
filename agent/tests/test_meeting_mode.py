@@ -245,6 +245,13 @@ def test_voice_start_is_honored_only_when_the_latest_turn_asks() -> None:
     assert voice_start_asked(["Sebastián, graba la reunión"])
     assert voice_start_asked(["qué hora es", "vale, empieza a grabar"])
     assert not voice_start_asked(["graba esto", "no, déjalo, qué hora es"])
+    # cortes, 2026-09-25 12:47: real requests the exact-phrase check refused —
+    # the transcript spells "grabar" with a v and paraphrases freely.
+    assert voice_start_asked(["Vale, ahora quiero que graves una reunión."])
+    assert voice_start_asked(["Sí, te he dicho que es una reunión."])
+    assert voice_start_asked(["Grava la reunión."])
+    assert voice_start_asked(["¿Puedes grabarlo?"])
+    assert voice_start_asked(["record this meeting"])
 
 
 def test_voice_start_reply_follows_the_server_answer() -> None:
