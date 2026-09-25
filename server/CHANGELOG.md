@@ -2,6 +2,13 @@
 
 All notable changes to Sebastian Server will be documented in this file.
 
+## [1.1.1](https://github.com/Zetesis-Labs/Sebastian/compare/server-v1.1.0...server-v1.1.1) (2026-09-25)
+
+
+### Bug Fixes
+
+* **server:** name each session's room after its whole id ([#58](https://github.com/Zetesis-Labs/Sebastian/issues/58)) ([04965c9](https://github.com/Zetesis-Labs/Sebastian/commit/04965c93f969d3d63437dbf33257ed7ff1569fb8))
+
 ## [1.1.0](https://github.com/Zetesis-Labs/Sebastian/compare/server-v1.0.0...server-v1.1.0) (2026-09-22)
 
 
