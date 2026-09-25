@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.10](https://github.com/Zetesis-Labs/Sebastian/compare/agent-v0.1.9...agent-v0.1.10) (2026-09-25)
+
+
+### Bug Fixes
+
+* **agent:** start a recording by voice only when the user asked for it ([#60](https://github.com/Zetesis-Labs/Sebastian/issues/60)) ([39a28ff](https://github.com/Zetesis-Labs/Sebastian/commit/39a28ff28b517034b17f8248d04ba966da347e9c))
+
 ## [0.1.9](https://github.com/Zetesis-Labs/Sebastian/compare/agent-v0.1.8...agent-v0.1.9) (2026-09-22)
 
 
