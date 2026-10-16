@@ -82,14 +82,16 @@ func (f *fakeMeetings) Summarized(_ context.Context, m meeting.Meeting, s meetin
 }
 
 type fakeProvider struct {
-	calls   [][]Reference
-	sizes   []int
-	fail    error
-	noSum   bool
-	summary meeting.Summary
+	calls    [][]Reference
+	sizes    []int
+	fail     error
+	noSum    bool
+	summary  meeting.Summary
+	language string
 }
 
-func (p *fakeProvider) Transcribe(_ context.Context, audio []byte, known []Reference) (Result, error) {
+func (p *fakeProvider) Transcribe(_ context.Context, audio []byte, known []Reference, language string) (Result, error) {
+	p.language = language
 	p.calls = append(p.calls, known)
 	p.sizes = append(p.sizes, len(audio))
 	if p.fail != nil {
@@ -133,7 +135,7 @@ func TestAShortMeetingGoesWholeToTheProviderThenTheSummary(t *testing.T) {
 	store, m := fixture(t, 1000, 60_000)
 	provider := &fakeProvider{summary: meeting.Summary{Language: "es", Model: "mini"}}
 	cutter := &fakeCutter{}
-	job := NewJob(store, provider, cutter, true, nil)
+	job := NewJob(store, provider, cutter, true, nil, nil)
 	if err := job.Process(context.Background(), m.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +158,7 @@ func TestALongMeetingIsCutAndSpeakersTravelBetweenPieces(t *testing.T) {
 	store, m := fixture(t, 3000, 3_000_000) // 3000 s at 1 byte/s
 	provider := &fakeProvider{noSum: true}
 	cutter := &fakeCutter{}
-	job := NewJob(store, provider, cutter, false, nil)
+	job := NewJob(store, provider, cutter, false, nil, nil)
 	job.maxBytes = 1000
 	if err := job.Process(context.Background(), m.ID); err != nil {
 		t.Fatal(err)
@@ -182,7 +184,7 @@ func TestALongMeetingIsCutAndSpeakersTravelBetweenPieces(t *testing.T) {
 func TestProviderRejectionLeavesNoTranscriptWithTheReason(t *testing.T) {
 	store, m := fixture(t, 100, 10_000)
 	provider := &fakeProvider{fail: fmt.Errorf("%w: 413 too big", ErrRejected)}
-	job := NewJob(store, provider, &fakeCutter{}, true, nil)
+	job := NewJob(store, provider, &fakeCutter{}, true, nil, nil)
 	if err := job.Process(context.Background(), m.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +194,7 @@ func TestProviderRejectionLeavesNoTranscriptWithTheReason(t *testing.T) {
 	}
 	// Without a provider (no key) the reason says so.
 	store2, m2 := fixture(t, 100, 10_000)
-	if err := NewJob(store2, nil, &fakeCutter{}, true, nil).Process(context.Background(), m2.ID); err != nil {
+	if err := NewJob(store2, nil, &fakeCutter{}, true, nil, nil).Process(context.Background(), m2.ID); err != nil {
 		t.Fatal(err)
 	}
 	if got := store2.rows[m2.ID]; got.State != meeting.StateNoTranscript || !strings.Contains(got.TranscriptError, "OPENAI_API_KEY") {
@@ -203,7 +205,7 @@ func TestProviderRejectionLeavesNoTranscriptWithTheReason(t *testing.T) {
 	m3.State = meeting.StateReady
 	store3.rows[m3.ID] = m3
 	provider3 := &fakeProvider{}
-	_ = NewJob(store3, provider3, &fakeCutter{}, true, nil).Process(context.Background(), m3.ID)
+	_ = NewJob(store3, provider3, &fakeCutter{}, true, nil, nil).Process(context.Background(), m3.ID)
 	if len(provider3.calls) != 0 {
 		t.Fatal("only transcribing meetings are processed")
 	}
@@ -212,7 +214,7 @@ func TestProviderRejectionLeavesNoTranscriptWithTheReason(t *testing.T) {
 func TestRunRecoversWhatWasLeftTranscribing(t *testing.T) {
 	store, m := fixture(t, 100, 10_000)
 	provider := &fakeProvider{noSum: true}
-	job := NewJob(store, provider, &fakeCutter{}, false, nil)
+	job := NewJob(store, provider, &fakeCutter{}, false, nil, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	go job.Run(ctx)
 	deadline := time.Now().Add(2 * time.Second)

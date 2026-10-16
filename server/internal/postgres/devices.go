@@ -29,14 +29,15 @@ type adminDeviceRow struct {
 	LastEventAt           *time.Time `bun:"last_event_at"`
 	MeetingSilenceMin     int        `bun:"meeting_silence_min"`
 	MeetingMaxHours       int        `bun:"meeting_max_hours"`
+	MeetingLanguage       string     `bun:"meeting_language"`
 }
 
 const adminDeviceColumns = `id, display_name, enabled, desired_device_profile, reported_device_profile,
 	profile_reported_at, credential_digest IS NOT NULL AS adopted, adopted_at, reported_firmware,
-	reported_config_version, desired_config_version, last_event, last_event_at, meeting_silence_min, meeting_max_hours`
+	reported_config_version, desired_config_version, last_event, last_event_at, meeting_silence_min, meeting_max_hours, meeting_language`
 
 func (r adminDeviceRow) toDomain() device.Device {
-	item := device.Device{ID: r.ID, DisplayName: r.DisplayName, Enabled: r.Enabled, Adopted: r.Adopted, MeetingSilenceMin: r.MeetingSilenceMin, MeetingMaxHours: r.MeetingMaxHours}
+	item := device.Device{ID: r.ID, DisplayName: r.DisplayName, Enabled: r.Enabled, Adopted: r.Adopted, MeetingSilenceMin: r.MeetingSilenceMin, MeetingMaxHours: r.MeetingMaxHours, MeetingLanguage: r.MeetingLanguage}
 	if r.DesiredProfile != nil {
 		item.DesiredProfile = *r.DesiredProfile
 	}
@@ -366,14 +367,27 @@ func (s *Store) Forget(ctx context.Context, id string) error {
 	return err
 }
 
-func (s *Store) SetMeetingLimits(ctx context.Context, id string, silenceMin, maxHours int) error {
+func (s *Store) SetMeetingSettings(ctx context.Context, id string, silenceMin, maxHours int, language string) error {
 	err := s.updateDevice(ctx, id, func(q *bun.UpdateQuery) *bun.UpdateQuery {
-		return q.Set("meeting_silence_min = ?", silenceMin).Set("meeting_max_hours = ?", maxHours)
+		return q.Set("meeting_silence_min = ?", silenceMin).Set("meeting_max_hours = ?", maxHours).Set("meeting_language = ?", language)
 	})
 	if err != nil && !errors.Is(err, device.ErrNotFound) {
-		return fmt.Errorf("set meeting limits: %w", err)
+		return fmt.Errorf("set meeting settings: %w", err)
 	}
 	return err
+}
+
+// MeetingLanguage is what the transcription job asks for when it reaches this
+// unit's recording. Read at transcription time, not frozen into the meeting:
+// changing it and retrying is how a meeting that came back in the wrong
+// language gets fixed.
+func (s *Store) MeetingLanguage(ctx context.Context, id string) (string, error) {
+	var language string
+	err := s.db.NewSelect().Table("devices").Column("meeting_language").Where("id = ?", id).Scan(ctx, &language)
+	if err != nil {
+		return "", fmt.Errorf("meeting language: %w", err)
+	}
+	return language, nil
 }
 
 func (s *Store) Rename(ctx context.Context, id, name string) error {

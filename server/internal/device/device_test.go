@@ -183,8 +183,9 @@ func (f *fakeStore) Rename(_ context.Context, id, name string) error {
 	return nil
 }
 
-func (f *fakeStore) SetMeetingLimits(_ context.Context, id string, silenceMin, maxHours int) error {
+func (f *fakeStore) SetMeetingSettings(_ context.Context, id string, silenceMin, maxHours int, language string) error {
 	f.renamed[id+":limits"] = fmt.Sprintf("%d/%d", silenceMin, maxHours)
+	f.renamed[id+":language"] = language
 	return nil
 }
 
@@ -605,13 +606,34 @@ func TestRegenerateSecretTravelsInTheConfigUntilConfirmed(t *testing.T) {
 func TestMeetingLimitsStayInRange(t *testing.T) {
 	store := newFakeStore()
 	svc := NewService(store, nil, nil, ControlRoom{}, nil)
-	if err := svc.SetMeetingLimits(context.Background(), "68ee", 4, 3); !errors.Is(err, ErrMeetingLimits) {
+	if err := svc.SetMeetingSettings(context.Background(), "68ee", 4, 3, "es"); !errors.Is(err, ErrMeetingLimits) {
 		t.Fatalf("4 min: %v", err)
 	}
-	if err := svc.SetMeetingLimits(context.Background(), "68ee", 10, 9); !errors.Is(err, ErrMeetingLimits) {
+	if err := svc.SetMeetingSettings(context.Background(), "68ee", 10, 9, "es"); !errors.Is(err, ErrMeetingLimits) {
 		t.Fatalf("9 h: %v", err)
 	}
-	if err := svc.SetMeetingLimits(context.Background(), "68ee", 15, 2); err != nil || store.renamed["68ee:limits"] != "15/2" {
+	if err := svc.SetMeetingSettings(context.Background(), "68ee", 15, 2, "es"); err != nil || store.renamed["68ee:limits"] != "15/2" {
 		t.Fatalf("15 min / 2 h: %v %v", err, store.renamed)
+	}
+}
+
+// The transcription language is ISO-639-1 or auto. Not a closed list: the
+// provider knows more languages than we want to enumerate, and a wrong code
+// degrades one meeting instead of rejecting a legitimate one.
+func TestMeetingLanguageIsIsoOrAuto(t *testing.T) {
+	store := newFakeStore()
+	svc := NewService(store, nil, nil, ControlRoom{}, nil)
+	for _, bad := range []string{"", "spanish", "ES", "es-ES", "e"} {
+		if err := svc.SetMeetingSettings(context.Background(), "68ee", 10, 3, bad); !errors.Is(err, ErrMeetingLanguage) {
+			t.Fatalf("%q should be rejected: %v", bad, err)
+		}
+	}
+	for _, good := range []string{"es", "eu", "en", MeetingLanguageAuto} {
+		if err := svc.SetMeetingSettings(context.Background(), "68ee", 10, 3, good); err != nil {
+			t.Fatalf("%q should be accepted: %v", good, err)
+		}
+		if store.renamed["68ee:language"] != good {
+			t.Fatalf("%q was not stored: %v", good, store.renamed["68ee:language"])
+		}
 	}
 }

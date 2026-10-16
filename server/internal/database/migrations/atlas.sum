@@ -1,4 +1,4 @@
-h1:szydYxLkJKipujFGe8acZ8p1nYl0oy8pPRgiwqkQbpc=
+h1:h43cKO+WWuaY8VhOtyBa64PQN4AaltFEn11w4xejxwM=
 20260713232307_initial.sql h1:mqRg1oxbRmb38XLhlCVwBLI5pGx5xCK3pQ5kTswQlvU=
 20260713234301_outbox_retry_schedule.sql h1:VYS+YYRUGt5KkiQk5c3/zmolpzSHiMjukvm7RPxVc/k=
 20260714001624_recordings.sql h1:/6Lc6rcHhsvjOGq9Ex0waiDBWPxBADADtW+/TFeotnk=
@@ -8,3 +8,4 @@ h1:szydYxLkJKipujFGe8acZ8p1nYl0oy8pPRgiwqkQbpc=
 20260918160146_last_event.sql h1:qNBD+/tkG0tu7bRN5y3ovWdldR4wlSlXfnB8EFgTyqM=
 20260918195057_meetings.sql h1:g0lNq4CpGKki+dde2+cwQrAuILBoPmRDO08A22k36zM=
 20260918223744_meeting_limits.sql h1:guBfHIQPg4/loC+8En+MLImyc6yXFyeDoIavoTAj2O8=
+20260922144110_meeting_language.sql h1:d8dyvoifM6kn+/UV+6TI0cP3SepGCyB8E0BNfhzDVjo=

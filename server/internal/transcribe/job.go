@@ -15,7 +15,7 @@ import (
 
 // Provider is what the job needs from OpenAI (RM-34).
 type Provider interface {
-	Transcribe(ctx context.Context, audio []byte, known []Reference) (Result, error)
+	Transcribe(ctx context.Context, audio []byte, known []Reference, language string) (Result, error)
 	Summarize(ctx context.Context, transcript string) (meeting.Summary, error)
 }
 
@@ -43,21 +43,28 @@ type task struct {
 
 // Job transcribes and summarizes meetings one at a time, in the background
 // (RM-30/32/33). Enqueue never blocks the caller.
+// LanguageFor answers what language this unit's recordings are in. Read at
+// transcription time, not frozen when the meeting was recorded: changing the
+// unit's setting and retrying is how a meeting that came back in the wrong
+// language gets fixed. An empty answer means let the provider guess.
+type LanguageFor func(ctx context.Context, deviceID string) string
+
 type Job struct {
-	meetings Meetings
-	provider Provider
-	cutter   Cutter
-	summary  bool
-	logger   *slog.Logger
-	queue    chan task
-	maxBytes int64
+	meetings    Meetings
+	provider    Provider
+	cutter      Cutter
+	summary     bool
+	logger      *slog.Logger
+	queue       chan task
+	maxBytes    int64
+	languageFor LanguageFor
 }
 
-func NewJob(meetings Meetings, provider Provider, cutter Cutter, summary bool, logger *slog.Logger) *Job {
+func NewJob(meetings Meetings, provider Provider, cutter Cutter, summary bool, languageFor LanguageFor, logger *slog.Logger) *Job {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Job{meetings: meetings, provider: provider, cutter: cutter, summary: summary, logger: logger, queue: make(chan task, 256), maxBytes: MaxPieceBytes}
+	return &Job{meetings: meetings, provider: provider, cutter: cutter, summary: summary, languageFor: languageFor, logger: logger, queue: make(chan task, 256), maxBytes: MaxPieceBytes}
 }
 
 // Enqueue is meeting.Service's OnTranscribe hook.
@@ -125,7 +132,11 @@ func (j *Job) Process(ctx context.Context, id uuid.UUID) error {
 		_, err = j.meetings.TranscriptFailed(ctx, m, "OPENAI_API_KEY is not configured")
 		return err
 	}
-	t, err := j.transcribe(ctx, path, time.Duration(m.DurationMs)*time.Millisecond, info.Size())
+	language := ""
+	if j.languageFor != nil {
+		language = j.languageFor(ctx, m.DeviceID)
+	}
+	t, err := j.transcribe(ctx, path, time.Duration(m.DurationMs)*time.Millisecond, info.Size(), language)
 	if err != nil {
 		j.logger.Warn("transcription failed", "meeting", id, "error", err)
 		_, err = j.meetings.TranscriptFailed(ctx, m, strings.TrimPrefix(err.Error(), ErrRejected.Error()+": "))
@@ -142,14 +153,14 @@ func (j *Job) Process(ctx context.Context, id uuid.UUID) error {
 	return j.summarize(ctx, m)
 }
 
-func (j *Job) transcribe(ctx context.Context, path string, duration time.Duration, size int64) (meeting.Transcript, error) {
+func (j *Job) transcribe(ctx context.Context, path string, duration time.Duration, size int64, language string) (meeting.Transcript, error) {
 	if duration <= 0 {
 		duration = time.Second
 	}
 	pieces := Pieces(duration, size, j.maxBytes)
 	var results []PieceResult
 	var known []Reference
-	var language, model string
+	var detected, model string
 	for _, p := range pieces {
 		var audio []byte
 		var err error
@@ -161,13 +172,13 @@ func (j *Job) transcribe(ctx context.Context, path string, duration time.Duratio
 		if err != nil {
 			return meeting.Transcript{}, fmt.Errorf("cut piece %d: %w", p.Index, err)
 		}
-		res, err := j.provider.Transcribe(ctx, audio, known)
+		res, err := j.provider.Transcribe(ctx, audio, known, language)
 		if err != nil {
 			return meeting.Transcript{}, err
 		}
 		results = append(results, PieceResult{Piece: p, Segments: res.Segments, Diarized: res.Diarized})
 		if res.Language != "" {
-			language = res.Language
+			detected = res.Language
 		}
 		model = res.Model
 		if p.Index < len(pieces)-1 && res.Diarized {
@@ -175,7 +186,7 @@ func (j *Job) transcribe(ctx context.Context, path string, duration time.Duratio
 		}
 	}
 	t := Merge(results)
-	t.Language, t.Model = language, model
+	t.Language, t.Model = detected, model
 	return t, nil
 }
 

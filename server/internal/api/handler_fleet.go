@@ -51,7 +51,7 @@ func (h *Server) GetDevice(ctx context.Context, request GetDeviceRequestObject) 
 	}
 	base := deviceResponse(detail.Device)
 	response := DeviceDetail{
-		Id: base.Id, DisplayName: base.DisplayName, Enabled: base.Enabled, State: base.State, MeetingSilenceMin: base.MeetingSilenceMin, MeetingMaxHours: base.MeetingMaxHours,
+		Id: base.Id, DisplayName: base.DisplayName, Enabled: base.Enabled, State: base.State, MeetingSilenceMin: base.MeetingSilenceMin, MeetingMaxHours: base.MeetingMaxHours, MeetingLanguage: base.MeetingLanguage,
 		AdoptedAt: base.AdoptedAt, DesiredProfile: base.DesiredProfile, ReportedProfile: base.ReportedProfile,
 		ProfileReportedAt: base.ProfileReportedAt, Firmware: base.Firmware, Ip: base.Ip, ControlRoom: base.ControlRoom,
 		LastError: base.LastError, LastEvent: base.LastEvent, LastEventAt: base.LastEventAt,
@@ -84,23 +84,34 @@ func (h *Server) UpdateDevice(ctx context.Context, request UpdateDeviceRequestOb
 	if request.Body.DisplayName != nil && strings.TrimSpace(*request.Body.DisplayName) != "" {
 		err = h.devices.Rename(ctx, request.DeviceId, strings.TrimSpace(*request.Body.DisplayName))
 	}
-	if err == nil && (request.Body.MeetingSilenceMin != nil || request.Body.MeetingMaxHours != nil) {
+	if err == nil && (request.Body.MeetingSilenceMin != nil || request.Body.MeetingMaxHours != nil || request.Body.MeetingLanguage != nil) {
 		current, getErr := h.devices.Get(ctx, request.DeviceId)
 		if getErr != nil {
 			err = getErr
 		} else {
-			silence, hours := current.MeetingSilenceMin, current.MeetingMaxHours
+			silence, hours, language := current.MeetingSilenceMin, current.MeetingMaxHours, current.MeetingLanguage
 			if request.Body.MeetingSilenceMin != nil {
 				silence = *request.Body.MeetingSilenceMin
 			}
 			if request.Body.MeetingMaxHours != nil {
 				hours = *request.Body.MeetingMaxHours
 			}
-			err = h.devices.SetMeetingLimits(ctx, request.DeviceId, silence, hours)
+			if request.Body.MeetingLanguage != nil {
+				language = *request.Body.MeetingLanguage
+			}
+			err = h.devices.SetMeetingSettings(ctx, request.DeviceId, silence, hours, language)
 		}
 	}
 	if errors.Is(err, device.ErrNotFound) {
 		return UpdateDevice404ApplicationProblemPlusJSONResponse{DeviceNotFoundApplicationProblemPlusJSONResponse: notFound()}, nil
+	}
+	// A value the caller got wrong is not a 503: retrying sends the same bad
+	// value and gets the same answer.
+	if errors.Is(err, device.ErrMeetingLimits) {
+		return UpdateDevice400ApplicationProblemPlusJSONResponse(problem(400, "Meeting limits out of range", "Silence is 5-60 minutes and the maximum is 1-8 hours (RM-23/24).")), nil
+	}
+	if errors.Is(err, device.ErrMeetingLanguage) {
+		return UpdateDevice400ApplicationProblemPlusJSONResponse(problem(400, "Unknown meeting language", "Use an ISO-639-1 code such as es or eu, or auto to let the provider guess.")), nil
 	}
 	if err != nil {
 		return UpdateDevice503ApplicationProblemPlusJSONResponse{UnavailableApplicationProblemPlusJSONResponse: h.unavailable(ctx, "update device failed", err, "device_id", request.DeviceId)}, nil
