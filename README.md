@@ -83,3 +83,7 @@ aprovisionamiento y la verificación. No se guardan credenciales reales en Git.
 | [Flota](docs/implementation/12-fleet-adoption-functional-spec.md) | Requisitos de adopción y administración. |
 | [Reuniones](docs/implementation/13-meeting-recordings-functional-spec.md) / [diseño](docs/implementation/14-meeting-recordings-technical-design.md) | Requisitos y diseño de reuniones; consultar STATUS para su ejecución real. |
 | [SESSION.md](SESSION.md) | Registro cronológico de pruebas e incidencias, con su contexto de fecha. |
+
+## Licencia
+
+MIT. Ver [LICENSE](LICENSE).
