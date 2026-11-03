@@ -21,6 +21,9 @@ spec:
       labels:
         {{- include "sebastian.labels" . | nindent 8 }}
         {{- include "sebastian.selectorLabels" (dict "ctx" . "component" "server") | nindent 8 }}
+      annotations:
+        # The server reads the profiles file at boot only: a change rolls it.
+        checksum/agent-profiles: {{ include (print $.Template.BasePath "/server/agent-profiles.yaml") . | sha256sum }}
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
@@ -99,6 +102,16 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.server.existingSecret }}
                   key: SEBASTIAN_ADMIN_SECRET
+            - name: SEBASTIAN_SECRETS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.server.existingSecret }}
+                  key: SEBASTIAN_SECRETS_KEY
+                  optional: true
+            # Always set, even with no profiles: an empty list retires the
+            # Kubernetes-owned ones instead of leaving them read-only forever.
+            - name: SEBASTIAN_AGENT_PROFILES_FILE
+              value: /etc/sebastian/agent-profiles.json
           ports:
             - name: http
               containerPort: {{ .Values.server.service.targetPort }}
@@ -121,6 +134,9 @@ spec:
           volumeMounts:
             - name: meetings
               mountPath: {{ .Values.server.meetings.dir }}
+            - name: agent-profiles
+              mountPath: /etc/sebastian
+              readOnly: true
           resources:
             {{- toYaml .Values.server.resources | nindent 12 }}
         {{- if .Values.server.outbox.enabled }}
@@ -162,6 +178,9 @@ spec:
         {{- end }}
 {{- end }}
       volumes:
+        - name: agent-profiles
+          configMap:
+            name: {{ include "sebastian.fullname" . }}-agent-profiles
         - name: meetings
           {{- if .Values.server.meetings.persistence.enabled }}
           persistentVolumeClaim:
