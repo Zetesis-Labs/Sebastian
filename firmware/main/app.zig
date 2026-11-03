@@ -289,6 +289,7 @@ fn openSession(audio: AudioPipeline, conn: token.Connection) AppError!void {
     opts.on_participant_info = onParticipantInfo;
     opts.on_data_received = onDataReceived;
 
+    logHeap("pre-room");
     try requireLiveKitOk(c.livekit_room_create(&room, &opts), error.RoomCreateFailed);
     // If connect fails, destroy the room we just created. Without this the
     // half-open room leaks with its tasks alive (websocket, peer, SCTP retry
@@ -319,14 +320,8 @@ fn closeSession() void {
 // what starved during the WSS handshake (the 15KB-probe-buffer regression). Log
 // it at boot and around room_connect so the real headroom is a measured number,
 // not a guess. See ROADMAP Pending #4.
-fn logHeap(label: []const u8) void {
-    const int_free = c.heap_caps_get_free_size(c.MALLOC_CAP_INTERNAL);
-    const int_big = c.heap_caps_get_largest_free_block(c.MALLOC_CAP_INTERNAL);
-    const dma_free = c.heap_caps_get_free_size(c.MALLOC_CAP_INTERNAL | c.MALLOC_CAP_DMA);
-    const dma_big = c.heap_caps_get_largest_free_block(c.MALLOC_CAP_INTERNAL | c.MALLOC_CAP_DMA);
-    log.info("heap[{s}] internal free={d} largest={d} | dma free={d} largest={d}", .{
-        label, int_free, int_big, dma_free, dma_big,
-    });
+fn logHeap(label: [*:0]const u8) void {
+    c.sebastian_heap_log(label);
 }
 
 // ── Session watchdog ──────────────────────────────────────────────────────────
@@ -442,6 +437,7 @@ fn startWakeDetection() void {
     xvf_ui.setState(.idle); // ring: dim breath — armed, not listening
     log.info("waiting for wake word…", .{});
     wakeword.start();
+    logHeap("wake-armed");
 }
 
 fn grantUsbFromIdle() void {
@@ -688,6 +684,7 @@ fn teardownActiveSession() void {
     // Let the speaker's render FIFO drain before re-arming detection — the agent
     // says its own name and a tail leaking into the mic would immediately re-trigger.
     c.vTaskDelay(1500);
+    logHeap("post-drain");
 }
 
 fn runWakeCycle(audio: AudioPipeline) void {
@@ -823,6 +820,7 @@ fn runMeetingCycle(audio: AudioPipeline) void {
 const USB_PROVISION_WINDOW_MS: u32 = 5000;
 
 export fn app_main() callconv(.c) void {
+    c.sebastian_heap_diag_start();
     // Boot-failure guard: incremented now, cleared once the selected mode is
     // up. Three straight failures ⇒ fall back to an agent profile below (the
     // mode that is always administrable) instead of boot-looping.
