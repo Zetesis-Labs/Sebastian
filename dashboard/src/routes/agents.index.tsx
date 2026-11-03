@@ -14,7 +14,7 @@ import {
   type AgentProfileInput,
   type AgentProvider,
 } from '../lib/agents'
-import { formatDate } from '../lib/format'
+import { errorMessage, formatDate } from '../lib/format'
 
 export const Route = createFileRoute('/agents/')({
   loader: () => getAgents(),
@@ -23,7 +23,7 @@ export const Route = createFileRoute('/agents/')({
     <main className="page-shell empty-page">
       <p className="eyebrow">Agentes · Error</p>
       <h1>Los agentes no responden.</h1>
-      <p className="hero-copy">{error.message}</p>
+      <p className="hero-copy">{errorMessage(error)}</p>
     </main>
   ),
 })

@@ -14,8 +14,8 @@
     "build:installer": "npm --prefix ../web-installer run build:embedded"
   },
   "dependencies": {
-    "@tanstack/react-router": "1.170.18",
-    "@tanstack/react-start": "1.168.28",
+    "@tanstack/react-router": "1.170.46",
+    "@tanstack/react-start": "1.169.4",
     "nitro": "3.0.260610-beta",
     "react": "19.2.7",
     "react-dom": "19.2.7",
@@ -28,8 +28,8 @@
     "@vitejs/plugin-react": "6.0.3",
     "openapi-typescript": "7.13.0",
     "typescript": "5.9.3",
-    "vite": "8.1.4",
-    "vitest": "4.1.10",
+    "vite": "8.3.5",
+    "vitest": "4.1.12",
     "@types/qrcode": "1.5.5"
   },
   "engines": {

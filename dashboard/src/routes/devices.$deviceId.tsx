@@ -17,7 +17,7 @@ import {
   type Json,
   type Meeting,
 } from '../lib/api'
-import { formatDate, formatDuration } from '../lib/format'
+import { errorMessage, formatDate, formatDuration } from '../lib/format'
 import { agentSummary, type AgentProfile } from '../lib/agents'
 import { MEETING_STATE_LABEL, MEETING_STATE_TONE, activeMeeting, canRecord, meetingLabel, recordingSince } from '../lib/meetings'
 import { GOVERNABLE_PATHS, STATE_HINT, STATE_LABEL, STATE_TONE, canForget, configSync, desiredDocument, differsFromRunning, eventMessage, fichaIssues, formGroups, runningValue, seedFromRoom, shortRoom, timeAgo, timeline } from '../lib/fleet'
@@ -33,7 +33,7 @@ export const Route = createFileRoute('/devices/$deviceId')({
     <main className="page-shell empty-page">
       <p className="eyebrow">Dispositivo · Error</p>
       <h1>No se pudo cargar la ficha.</h1>
-      <p className="hero-copy">{error.message}</p>
+      <p className="hero-copy">{errorMessage(error)}</p>
       <Link to="/devices" className="button-link">Volver a la flota</Link>
     </main>
   ),

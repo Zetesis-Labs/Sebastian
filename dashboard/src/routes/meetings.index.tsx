@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
 import { getMeetings, stopMeeting, type Meeting } from '../lib/api'
-import { formatDate, formatDuration } from '../lib/format'
+import { errorMessage, formatDate, formatDuration } from '../lib/format'
 import { MEETING_STATE_LABEL, MEETING_STATE_TONE, inProgress, isBusy, liveDuration, meetingLabel, type MeetingState } from '../lib/meetings'
 
 type Search = { state?: MeetingState; q?: string; deviceId?: string }
@@ -21,7 +21,7 @@ export const Route = createFileRoute('/meetings/')({
     <main className="page-shell empty-page">
       <p className="eyebrow">Reuniones · Error</p>
       <h1>No se pueden leer las reuniones.</h1>
-      <p className="hero-copy">{error.message}</p>
+      <p className="hero-copy">{errorMessage(error)}</p>
     </main>
   ),
 })
