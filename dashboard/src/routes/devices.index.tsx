@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import { adoptDevice, forgetDevice, getAdoptionJob, getDevices, type AdoptionJob, type Device } from '../lib/api'
 import { SecretDialog } from '../components/SecretDialog'
-import { formatDate } from '../lib/format'
+import { errorMessage, formatDate } from '../lib/format'
 import {
   canAdopt,
   canForget,
@@ -27,7 +27,7 @@ export const Route = createFileRoute('/devices/')({
     <main className="page-shell empty-page">
       <p className="eyebrow">Dispositivos · Error</p>
       <h1>El inventario no responde.</h1>
-      <p className="hero-copy">{error.message}</p>
+      <p className="hero-copy">{errorMessage(error)}</p>
     </main>
   ),
 })

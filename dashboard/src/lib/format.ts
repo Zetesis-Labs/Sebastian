@@ -24,3 +24,7 @@ export function formatDate(value: string): string {
 export function kindLabel(kind: string): string {
   return ({ model: 'Entrada al modelo', microphone: 'Micrófono', agent: 'Voz de Sebastian', composite: 'Conversación' } as Record<string, string>)[kind] ?? kind
 }
+
+export function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}

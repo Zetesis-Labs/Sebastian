@@ -1,12 +1,12 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { getDashboard } from '../lib/api'
-import { formatBytes, formatDate, formatDuration, kindLabel } from '../lib/format'
+import { errorMessage, formatBytes, formatDate, formatDuration, kindLabel } from '../lib/format'
 import { MEETING_STATE_LABEL, MEETING_STATE_TONE, meetingLabel } from '../lib/meetings'
 
 export const Route = createFileRoute('/')({
   loader: () => getDashboard(),
   component: Dashboard,
-  errorComponent: ({ error }) => <DashboardError message={error.message} />,
+  errorComponent: ({ error }) => <DashboardError message={errorMessage(error)} />,
 })
 
 function Dashboard() {

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
 import { deleteMeeting, getMeeting, resummarizeMeeting, retranscribeMeeting, stopMeeting, updateMeeting } from '../lib/api'
-import { formatBytes, formatDate, formatDuration } from '../lib/format'
+import { errorMessage, formatBytes, formatDate, formatDuration } from '../lib/format'
 import { MEETING_STATE_LABEL, MEETING_STATE_TONE, activeSegment, clock, inProgress, isBusy, liveDuration, meetingLabel, speakerName, speakersOf, type MeetingTranscript } from '../lib/meetings'
 
 export const Route = createFileRoute('/meetings/$meetingId')({
@@ -11,7 +11,7 @@ export const Route = createFileRoute('/meetings/$meetingId')({
     <main className="page-shell empty-page">
       <p className="eyebrow">Reunión · Error</p>
       <h1>No se pudo cargar la reunión.</h1>
-      <p className="hero-copy">{error.message}</p>
+      <p className="hero-copy">{errorMessage(error)}</p>
       <Link to="/meetings" className="button-link">Volver a las reuniones</Link>
     </main>
   ),
