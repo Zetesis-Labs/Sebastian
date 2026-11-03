@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/zetesis-labs/sebastian/server/internal/adoption"
 	"github.com/zetesis-labs/sebastian/server/internal/discovery"
 )
@@ -185,6 +186,15 @@ func (f *fakeStore) Rename(_ context.Context, id, name string) error {
 
 func (f *fakeStore) SetMeetingLimits(_ context.Context, id string, silenceMin, maxHours int) error {
 	f.renamed[id+":limits"] = fmt.Sprintf("%d/%d", silenceMin, maxHours)
+	return nil
+}
+
+func (f *fakeStore) AssignAgentProfile(_ context.Context, id string, profileID uuid.UUID) error {
+	d, ok := f.devices[id]
+	if !ok {
+		return ErrNotFound
+	}
+	d.AgentProfileID = profileID
 	return nil
 }
 

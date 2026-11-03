@@ -23,7 +23,9 @@ type Config struct {
 	SyslogIP            string
 	SyslogPort          int
 	OrgSecret           string
-	AgentSecret         string        // shared with the agent for its server-side calls (meeting audio)
+	AgentSecret         string        // shared with the agent for its server-side calls (meeting audio, credentials)
+	AgentProfilesFile   string        // JSON with the Kubernetes-managed agent profiles; empty = none
+	SecretsKey          string        // encrypts provider API keys at rest; empty = keys only from the agent's env
 	MeetingsDir         string        // where meeting audio lives
 	MeetingMaxDuration  time.Duration // RM-24 default
 	MeetingRetention    int           // days (RM-45); 0 disables
@@ -63,6 +65,8 @@ func Load() (Config, error) {
 		SyslogPort:          514,
 		OrgSecret:           strings.TrimSpace(os.Getenv("SEBASTIAN_ORG_SECRET")),
 		AgentSecret:         strings.TrimSpace(os.Getenv("SEBASTIAN_AGENT_SECRET")),
+		AgentProfilesFile:   strings.TrimSpace(os.Getenv("SEBASTIAN_AGENT_PROFILES_FILE")),
+		SecretsKey:          strings.TrimSpace(os.Getenv("SEBASTIAN_SECRETS_KEY")),
 		MeetingsDir:         envOr("SEBASTIAN_MEETINGS_DIR", "meetings"),
 		MeetingMaxDuration:  3 * time.Hour,
 		MeetingRetention:    90,

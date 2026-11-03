@@ -29,11 +29,14 @@ type adminDeviceRow struct {
 	LastEventAt           *time.Time `bun:"last_event_at"`
 	MeetingSilenceMin     int        `bun:"meeting_silence_min"`
 	MeetingMaxHours       int        `bun:"meeting_max_hours"`
+	AgentProfileID        *uuid.UUID `bun:"agent_profile_id"`
+	AgentProfileName      *string    `bun:"agent_profile_name"`
 }
 
 const adminDeviceColumns = `id, display_name, enabled, desired_device_profile, reported_device_profile,
 	profile_reported_at, credential_digest IS NOT NULL AS adopted, adopted_at, reported_firmware,
-	reported_config_version, desired_config_version, last_event, last_event_at, meeting_silence_min, meeting_max_hours`
+	reported_config_version, desired_config_version, last_event, last_event_at, meeting_silence_min, meeting_max_hours,
+	agent_profile_id, (SELECT ap.name FROM agent_profiles AS ap WHERE ap.id = devices.agent_profile_id) AS agent_profile_name`
 
 func (r adminDeviceRow) toDomain() device.Device {
 	item := device.Device{ID: r.ID, DisplayName: r.DisplayName, Enabled: r.Enabled, Adopted: r.Adopted, MeetingSilenceMin: r.MeetingSilenceMin, MeetingMaxHours: r.MeetingMaxHours}
@@ -63,6 +66,12 @@ func (r adminDeviceRow) toDomain() device.Device {
 	}
 	if r.LastEventAt != nil {
 		item.LastEventAt = *r.LastEventAt
+	}
+	if r.AgentProfileID != nil {
+		item.AgentProfileID = *r.AgentProfileID
+	}
+	if r.AgentProfileName != nil {
+		item.AgentProfileName = *r.AgentProfileName
 	}
 	return item
 }
@@ -298,7 +307,7 @@ func (s *Store) MarkAdopted(ctx context.Context, id string, digest []byte) error
 		INSERT INTO devices (id, display_name, livekit_identity, enabled, created_at, updated_at,
 		                     credential_digest, adopted_at, agent_profile_id)
 		VALUES (?, ?, ?, TRUE, ?, ?, ?, ?,
-		        (SELECT id FROM agent_profiles ORDER BY created_at LIMIT 1))
+		        (SELECT id FROM agent_profiles WHERE deleted_at IS NULL ORDER BY created_at LIMIT 1))
 		ON CONFLICT (id) DO UPDATE SET
 			credential_digest = EXCLUDED.credential_digest,
 			pending_credential_digest = NULL,

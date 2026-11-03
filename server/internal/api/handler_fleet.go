@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/zetesis-labs/sebastian/server/internal/agentprofile"
 	"github.com/zetesis-labs/sebastian/server/internal/device"
 )
 
@@ -57,6 +58,7 @@ func (h *Server) GetDevice(ctx context.Context, request GetDeviceRequestObject) 
 		LastError: base.LastError, LastEvent: base.LastEvent, LastEventAt: base.LastEventAt,
 		ReportedConfigVersion: base.ReportedConfigVersion, DesiredConfigVersion: base.DesiredConfigVersion,
 		SeenOnLanAt: base.SeenOnLanAt, HasDeviceSecret: detail.HasDeviceSecret, Sessions: sessions,
+		AgentProfileId: base.AgentProfileId, AgentProfileName: base.AgentProfileName,
 	}
 	if detail.RunningConfig != nil {
 		var cfg DeviceConfig
@@ -75,7 +77,8 @@ func (h *Server) GetDevice(ctx context.Context, request GetDeviceRequestObject) 
 	return GetDevice200JSONResponse(response), nil
 }
 
-// UpdateDevice renames the unit and/or sets its meeting limits (RM-23/24).
+// UpdateDevice renames the unit, sets its meeting limits (RM-23/24) and/or
+// the agent it talks through.
 func (h *Server) UpdateDevice(ctx context.Context, request UpdateDeviceRequestObject) (UpdateDeviceResponseObject, error) {
 	if request.Body == nil {
 		return UpdateDevice404ApplicationProblemPlusJSONResponse{DeviceNotFoundApplicationProblemPlusJSONResponse: notFound()}, nil
@@ -98,6 +101,12 @@ func (h *Server) UpdateDevice(ctx context.Context, request UpdateDeviceRequestOb
 			}
 			err = h.devices.SetMeetingLimits(ctx, request.DeviceId, silence, hours)
 		}
+	}
+	if err == nil && request.Body.AgentProfileId != nil {
+		err = h.devices.AssignAgentProfile(ctx, request.DeviceId, *request.Body.AgentProfileId)
+	}
+	if errors.Is(err, agentprofile.ErrNotFound) {
+		return UpdateDevice422ApplicationProblemPlusJSONResponse{AgentProfileNotFoundApplicationProblemPlusJSONResponse: agentNotFound()}, nil
 	}
 	if errors.Is(err, device.ErrNotFound) {
 		return UpdateDevice404ApplicationProblemPlusJSONResponse{DeviceNotFoundApplicationProblemPlusJSONResponse: notFound()}, nil

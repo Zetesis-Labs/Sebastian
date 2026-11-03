@@ -2,12 +2,22 @@ CREATE TABLE agent_profiles (
   id uuid PRIMARY KEY,
   name varchar NOT NULL,
   agent_name varchar NOT NULL,
+  -- {"provider","model","voice","language"}, handed to the agent at dispatch.
   config jsonb NOT NULL,
   created_at timestamptz NOT NULL,
-  updated_at timestamptz NOT NULL
+  updated_at timestamptz NOT NULL,
+  -- kubernetes = declared in the agent profiles file, read-only in the panel.
+  source varchar NOT NULL DEFAULT 'panel',
+  -- Provider API key sealed with SEBASTIAN_SECRETS_KEY (AES-256-GCM, the
+  -- profile id as associated data); NULL = the agent's environment key.
+  api_key_ciphertext bytea,
+  api_key_updated_at timestamptz,
+  -- Soft delete: sessions keep pointing at the profile they used.
+  deleted_at timestamptz,
+  CONSTRAINT agent_profiles_source_check CHECK (source IN ('kubernetes', 'panel'))
 );
 
-CREATE UNIQUE INDEX agent_profiles_name_key ON agent_profiles (name);
+CREATE UNIQUE INDEX agent_profiles_name_key ON agent_profiles (name) WHERE deleted_at IS NULL;
 
 CREATE TABLE devices (
   id varchar PRIMARY KEY,

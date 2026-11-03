@@ -357,7 +357,7 @@ paths:
           $ref: "#/components/responses/Unavailable"
     patch:
       operationId: updateDevice
-      summary: Rename a device
+      summary: Rename a device or change the agent it talks through
       tags: [administration, devices]
       security:
         - AdminSecret: []
@@ -376,6 +376,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/DeviceNotFound"
+        "422":
+          $ref: "#/components/responses/AgentProfileNotFound"
         "503":
           $ref: "#/components/responses/Unavailable"
   /v1/admin/devices/{deviceId}/adopt:
@@ -586,6 +588,141 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/Problem"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/admin/agent-profiles:
+    get:
+      operationId: listAgentProfiles
+      summary: The agents a speaker can talk through, from Kubernetes and from the panel
+      tags: [administration, agents]
+      security:
+        - AdminSecret: []
+      responses:
+        "200":
+          description: Agent profiles, Kubernetes-managed first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentProfileList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    post:
+      operationId: createAgentProfile
+      summary: Create an agent profile owned by the panel
+      tags: [administration, agents]
+      security:
+        - AdminSecret: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentProfileInput"
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentProfile"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/AgentProfileConflict"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/admin/agent-profiles/{profileId}:
+    patch:
+      operationId: updateAgentProfile
+      summary: Change a panel-owned agent profile
+      tags: [administration, agents]
+      security:
+        - AdminSecret: []
+      parameters:
+        - $ref: "#/components/parameters/AgentProfileId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentProfileInput"
+      responses:
+        "200":
+          description: Updated; speakers use it from their next session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentProfile"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/AgentProfileNotFound"
+        "409":
+          $ref: "#/components/responses/AgentProfileConflict"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    delete:
+      operationId: deleteAgentProfile
+      summary: Delete a panel-owned agent profile no speaker uses
+      tags: [administration, agents]
+      security:
+        - AdminSecret: []
+      parameters:
+        - $ref: "#/components/parameters/AgentProfileId"
+      responses:
+        "204":
+          description: Deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/AgentProfileNotFound"
+        "409":
+          $ref: "#/components/responses/AgentProfileConflict"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/admin/agent-profiles/{profileId}/api-key:
+    put:
+      operationId: setAgentProfileApiKey
+      summary: Store the provider API key of an agent profile (write-only, encrypted at rest)
+      tags: [administration, agents]
+      security:
+        - AdminSecret: []
+      parameters:
+        - $ref: "#/components/parameters/AgentProfileId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentProfileApiKey"
+      responses:
+        "204":
+          description: Stored; it replaces the agent's environment key from the next session.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/AgentProfileNotFound"
+        "409":
+          $ref: "#/components/responses/AgentProfileConflict"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    delete:
+      operationId: clearAgentProfileApiKey
+      summary: Forget the stored API key; the agent falls back to its environment
+      tags: [administration, agents]
+      security:
+        - AdminSecret: []
+      parameters:
+        - $ref: "#/components/parameters/AgentProfileId"
+      responses:
+        "204":
+          description: Cleared.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/AgentProfileNotFound"
         "503":
           $ref: "#/components/responses/Unavailable"
   /v1/admin/devices/{deviceId}/meetings:
@@ -1071,7 +1208,26 @@ components:
       schema:
         type: string
         format: uuid
+    AgentProfileId:
+      name: profileId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
   responses:
+    AgentProfileNotFound:
+      description: The agent profile does not exist.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    AgentProfileConflict:
+      description: The name is taken, the profile is managed by Kubernetes, or speakers still use it.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
     MeetingNotFound:
       description: The meeting does not exist.
       content:
@@ -1291,6 +1447,12 @@ components:
         meetingMaxHours:
           type: integer
           description: Maximum length of a meeting recording (RM-24).
+        agentProfileId:
+          type: string
+          format: uuid
+          description: The agent the speaker talks through; absent = it cannot open sessions yet.
+        agentProfileName:
+          type: string
     DeviceDetail:
       allOf:
         - $ref: "#/components/schemas/Device"
@@ -1339,6 +1501,10 @@ components:
           type: string
           minLength: 1
           maxLength: 64
+        agentProfileId:
+          type: string
+          format: uuid
+          description: Talk through this agent from the next session.
         meetingSilenceMin:
           type: integer
           minimum: 5
@@ -1443,6 +1609,92 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Device"
+    AgentProvider:
+      type: string
+      enum: [gemini, openai, phonic]
+    AgentProfileSource:
+      type: string
+      enum: [kubernetes, panel]
+      description: kubernetes = declared in the server's agent profiles file and read-only here.
+    AgentProfileInput:
+      type: object
+      additionalProperties: false
+      required: [name, provider]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        provider:
+          $ref: "#/components/schemas/AgentProvider"
+        model:
+          type: string
+          maxLength: 128
+          description: Empty = the agent's default model for the provider.
+        voice:
+          type: string
+          maxLength: 64
+          description: Empty = the agent's default voice for the provider.
+        language:
+          type: string
+          maxLength: 16
+          description: ISO 639-1 code (es, en…); empty = the provider decides.
+    AgentProfile:
+      type: object
+      additionalProperties: false
+      required: [id, name, source, apiKeySet, deviceCount, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        source:
+          $ref: "#/components/schemas/AgentProfileSource"
+        provider:
+          $ref: "#/components/schemas/AgentProvider"
+          description: Absent on legacy profiles = the agent's environment provider; such a profile cannot hold a key.
+        model:
+          type: string
+        voice:
+          type: string
+        language:
+          type: string
+        apiKeySet:
+          type: boolean
+          description: A key is stored for this profile; otherwise the agent uses its environment key.
+        apiKeyUpdatedAt:
+          type: string
+          format: date-time
+        deviceCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    AgentProfileList:
+      type: object
+      additionalProperties: false
+      required: [items, secretsKeyConfigured]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentProfile"
+        secretsKeyConfigured:
+          type: boolean
+          description: False = the server has no SEBASTIAN_SECRETS_KEY and cannot store API keys.
+    AgentProfileApiKey:
+      type: object
+      additionalProperties: false
+      required: [apiKey]
+      properties:
+        apiKey:
+          type: string
+          minLength: 8
+          maxLength: 512
     EnrollmentChallenge:
       type: object
       additionalProperties: false

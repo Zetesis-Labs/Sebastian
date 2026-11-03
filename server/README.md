@@ -105,7 +105,9 @@ solo con `POST /v1/sessions` y requieren `X-Device-Id` y `X-Device-Secret`.
 | `SEBASTIAN_PUBLIC_API_URL` | para adoptar | — (la URL con la que los devices llegan a este control room) |
 | `SEBASTIAN_CONTROL_ROOM_NAME` | no | `SEBASTIAN_PUBLIC_API_URL` |
 | `SEBASTIAN_ORG_SECRET` | para adoptar | — (secreto de organización que autoriza la adopción) |
-| `SEBASTIAN_AGENT_SECRET` | para grabar reuniones | — (lo comparte con el agente, que sube el audio con `X-Agent-Secret`) |
+| `SEBASTIAN_AGENT_SECRET` | para grabar reuniones y dar las claves de los agentes | — (lo comparte con el agente, que sube el audio y pide la clave de su perfil con `X-Agent-Secret`) |
+| `SEBASTIAN_AGENT_PROFILES_FILE` | no | — (JSON `{"profiles":[{name, provider, model?, voice?, language?}]}`; esos perfiles son de Kubernetes y el panel no los edita) |
+| `SEBASTIAN_SECRETS_KEY` | para guardar claves desde el panel | — (32 bytes en hex o base64; cifra con AES-256-GCM la clave de cada perfil) |
 | `SEBASTIAN_MEETINGS_DIR` | no | `meetings` (directorio del audio de reuniones) |
 | `SEBASTIAN_MEETING_MAX_DURATION` | no | `3h` (RM-24) |
 | `SEBASTIAN_MEETING_RETENTION_DAYS` | no | `90`; `0` desactiva limpieza |
