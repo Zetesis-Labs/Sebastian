@@ -193,7 +193,7 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Rename a device */
+        /** Rename a device or change the agent it talks through */
         patch: operations["updateDevice"];
         trace?: never;
     };
@@ -304,6 +304,60 @@ export interface paths {
         put: operations["setDesiredProfile"];
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/agent-profiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The agents a speaker can talk through, from Kubernetes and from the panel */
+        get: operations["listAgentProfiles"];
+        put?: never;
+        /** Create an agent profile owned by the panel */
+        post: operations["createAgentProfile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/agent-profiles/{profileId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a panel-owned agent profile no speaker uses */
+        delete: operations["deleteAgentProfile"];
+        options?: never;
+        head?: never;
+        /** Change a panel-owned agent profile */
+        patch: operations["updateAgentProfile"];
+        trace?: never;
+    };
+    "/v1/admin/agent-profiles/{profileId}/api-key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Store the provider API key of an agent profile (write-only, encrypted at rest) */
+        put: operations["setAgentProfileApiKey"];
+        post?: never;
+        /** Forget the stored API key; the agent falls back to its environment */
+        delete: operations["clearAgentProfileApiKey"];
         options?: never;
         head?: never;
         patch?: never;
@@ -624,6 +678,12 @@ export interface components {
             meetingSilenceMin?: number;
             /** @description Maximum length of a meeting recording (RM-24). */
             meetingMaxHours?: number;
+            /**
+             * Format: uuid
+             * @description The agent the speaker talks through; absent = it cannot open sessions yet.
+             */
+            agentProfileId?: string;
+            agentProfileName?: string;
         };
         DeviceDetail: components["schemas"]["Device"] & {
             hasDeviceSecret: boolean;
@@ -646,6 +706,11 @@ export interface components {
         };
         DeviceUpdate: {
             displayName?: string;
+            /**
+             * Format: uuid
+             * @description Talk through this agent from the next session.
+             */
+            agentProfileId?: string;
             /** @description Minutes without voice that end a meeting recording (RM-23). */
             meetingSilenceMin?: number;
             /** @description A recording never exceeds this (RM-24). */
@@ -701,6 +766,51 @@ export interface components {
         };
         DeviceList: {
             items: components["schemas"]["Device"][];
+        };
+        /** @enum {string} */
+        AgentProvider: "gemini" | "openai" | "phonic";
+        /**
+         * @description kubernetes = declared in the server's agent profiles file and read-only here.
+         * @enum {string}
+         */
+        AgentProfileSource: "kubernetes" | "panel";
+        AgentProfileInput: {
+            name: string;
+            provider: components["schemas"]["AgentProvider"];
+            /** @description Empty = the agent's default model for the provider. */
+            model?: string;
+            /** @description Empty = the agent's default voice for the provider. */
+            voice?: string;
+            /** @description ISO 639-1 code (es, en…); empty = the provider decides. */
+            language?: string;
+        };
+        AgentProfile: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            source: components["schemas"]["AgentProfileSource"];
+            /** @description Absent on legacy profiles = the agent's environment provider; such a profile cannot hold a key. */
+            provider?: components["schemas"]["AgentProvider"];
+            model?: string;
+            voice?: string;
+            language?: string;
+            /** @description A key is stored for this profile; otherwise the agent uses its environment key. */
+            apiKeySet: boolean;
+            /** Format: date-time */
+            apiKeyUpdatedAt?: string;
+            deviceCount: number;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        AgentProfileList: {
+            items: components["schemas"]["AgentProfile"][];
+            /** @description False = the server has no SEBASTIAN_SECRETS_KEY and cannot store API keys. */
+            secretsKeyConfigured: boolean;
+        };
+        AgentProfileApiKey: {
+            apiKey: string;
         };
         EnrollmentChallenge: {
             nonce: string;
@@ -850,6 +960,24 @@ export interface components {
         };
     };
     responses: {
+        /** @description The agent profile does not exist. */
+        AgentProfileNotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description The name is taken, the profile is managed by Kubernetes, or speakers still use it. */
+        AgentProfileConflict: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
         /** @description The meeting does not exist. */
         MeetingNotFound: {
             headers: {
@@ -890,6 +1018,7 @@ export interface components {
     parameters: {
         DeviceId: string;
         MeetingId: string;
+        AgentProfileId: string;
     };
     requestBodies: never;
     headers: never;
@@ -1281,6 +1410,7 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["DeviceNotFound"];
+            422: components["responses"]["AgentProfileNotFound"];
             503: components["responses"]["Unavailable"];
         };
     };
@@ -1500,6 +1630,160 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    listAgentProfiles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Agent profiles, Kubernetes-managed first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentProfileList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    createAgentProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentProfileInput"];
+            };
+        };
+        responses: {
+            /** @description Created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentProfile"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            409: components["responses"]["AgentProfileConflict"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    deleteAgentProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profileId: components["parameters"]["AgentProfileId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["AgentProfileNotFound"];
+            409: components["responses"]["AgentProfileConflict"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    updateAgentProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profileId: components["parameters"]["AgentProfileId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentProfileInput"];
+            };
+        };
+        responses: {
+            /** @description Updated; speakers use it from their next session. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentProfile"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["AgentProfileNotFound"];
+            409: components["responses"]["AgentProfileConflict"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    setAgentProfileApiKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profileId: components["parameters"]["AgentProfileId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentProfileApiKey"];
+            };
+        };
+        responses: {
+            /** @description Stored; it replaces the agent's environment key from the next session. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["AgentProfileNotFound"];
+            409: components["responses"]["AgentProfileConflict"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    clearAgentProfileApiKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profileId: components["parameters"]["AgentProfileId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cleared. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["AgentProfileNotFound"];
             503: components["responses"]["Unavailable"];
         };
     };

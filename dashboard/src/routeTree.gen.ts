@@ -13,6 +13,7 @@ import { Route as InstallerRouteImport } from './routes/installer'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as MeetingsIndexRouteImport } from './routes/meetings.index'
 import { Route as DevicesIndexRouteImport } from './routes/devices.index'
+import { Route as AgentsIndexRouteImport } from './routes/agents.index'
 import { Route as RecordingsRecordingIdRouteImport } from './routes/recordings.$recordingId'
 import { Route as MeetingsMeetingIdRouteImport } from './routes/meetings.$meetingId'
 import { Route as InstallerControlRoomDotjsonRouteImport } from './routes/installer.control-room[.]json'
@@ -38,6 +39,11 @@ const MeetingsIndexRoute = MeetingsIndexRouteImport.update({
 const DevicesIndexRoute = DevicesIndexRouteImport.update({
   id: '/devices/',
   path: '/devices/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AgentsIndexRoute = AgentsIndexRouteImport.update({
+  id: '/agents/',
+  path: '/agents/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const RecordingsRecordingIdRoute = RecordingsRecordingIdRouteImport.update({
@@ -80,6 +86,7 @@ export interface FileRoutesByFullPath {
   '/installer/control-room.json': typeof InstallerControlRoomDotjsonRoute
   '/meetings/$meetingId': typeof MeetingsMeetingIdRouteWithChildren
   '/recordings/$recordingId': typeof RecordingsRecordingIdRoute
+  '/agents/': typeof AgentsIndexRoute
   '/devices/': typeof DevicesIndexRoute
   '/meetings/': typeof MeetingsIndexRoute
   '/meetings/$meetingId/audio': typeof MeetingsMeetingIdAudioRoute
@@ -92,6 +99,7 @@ export interface FileRoutesByTo {
   '/installer/control-room.json': typeof InstallerControlRoomDotjsonRoute
   '/meetings/$meetingId': typeof MeetingsMeetingIdRouteWithChildren
   '/recordings/$recordingId': typeof RecordingsRecordingIdRoute
+  '/agents': typeof AgentsIndexRoute
   '/devices': typeof DevicesIndexRoute
   '/meetings': typeof MeetingsIndexRoute
   '/meetings/$meetingId/audio': typeof MeetingsMeetingIdAudioRoute
@@ -105,6 +113,7 @@ export interface FileRoutesById {
   '/installer/control-room.json': typeof InstallerControlRoomDotjsonRoute
   '/meetings/$meetingId': typeof MeetingsMeetingIdRouteWithChildren
   '/recordings/$recordingId': typeof RecordingsRecordingIdRoute
+  '/agents/': typeof AgentsIndexRoute
   '/devices/': typeof DevicesIndexRoute
   '/meetings/': typeof MeetingsIndexRoute
   '/meetings/$meetingId/audio': typeof MeetingsMeetingIdAudioRoute
@@ -119,6 +128,7 @@ export interface FileRouteTypes {
     | '/installer/control-room.json'
     | '/meetings/$meetingId'
     | '/recordings/$recordingId'
+    | '/agents/'
     | '/devices/'
     | '/meetings/'
     | '/meetings/$meetingId/audio'
@@ -131,6 +141,7 @@ export interface FileRouteTypes {
     | '/installer/control-room.json'
     | '/meetings/$meetingId'
     | '/recordings/$recordingId'
+    | '/agents'
     | '/devices'
     | '/meetings'
     | '/meetings/$meetingId/audio'
@@ -143,6 +154,7 @@ export interface FileRouteTypes {
     | '/installer/control-room.json'
     | '/meetings/$meetingId'
     | '/recordings/$recordingId'
+    | '/agents/'
     | '/devices/'
     | '/meetings/'
     | '/meetings/$meetingId/audio'
@@ -155,6 +167,7 @@ export interface RootRouteChildren {
   DevicesDeviceIdRoute: typeof DevicesDeviceIdRoute
   MeetingsMeetingIdRoute: typeof MeetingsMeetingIdRouteWithChildren
   RecordingsRecordingIdRoute: typeof RecordingsRecordingIdRoute
+  AgentsIndexRoute: typeof AgentsIndexRoute
   DevicesIndexRoute: typeof DevicesIndexRoute
   MeetingsIndexRoute: typeof MeetingsIndexRoute
 }
@@ -187,6 +200,13 @@ declare module '@tanstack/react-router' {
       path: '/devices'
       fullPath: '/devices/'
       preLoaderRoute: typeof DevicesIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/agents/': {
+      id: '/agents/'
+      path: '/agents'
+      fullPath: '/agents/'
+      preLoaderRoute: typeof AgentsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/recordings/$recordingId': {
@@ -265,6 +285,7 @@ const rootRouteChildren: RootRouteChildren = {
   DevicesDeviceIdRoute: DevicesDeviceIdRoute,
   MeetingsMeetingIdRoute: MeetingsMeetingIdRouteWithChildren,
   RecordingsRecordingIdRoute: RecordingsRecordingIdRoute,
+  AgentsIndexRoute: AgentsIndexRoute,
   DevicesIndexRoute: DevicesIndexRoute,
   MeetingsIndexRoute: MeetingsIndexRoute,
 }
