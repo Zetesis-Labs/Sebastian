@@ -1,0 +1,11 @@
+{{- if .Values.server.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "sebastian.fullname" . }}-agent-profiles
+  labels:
+    {{- include "sebastian.labels" . | nindent 4 }}
+    {{- include "sebastian.selectorLabels" (dict "ctx" . "component" "server") | nindent 4 }}
+data:
+  agent-profiles.json: {{ dict "profiles" (.Values.server.agentProfiles | default list) | toJson | quote }}
+{{- end }}

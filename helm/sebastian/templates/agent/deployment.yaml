@@ -1,5 +1,5 @@
 {{- if .Values.agent.enabled }}
-{{- $secret := required "agent.existingSecret must be set (keys: LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET, GOOGLE_API_KEY and/or OPENAI_API_KEY, SEBASTIAN_HA_MCP_URL, SEBASTIAN_HA_TOKEN, SEBASTIAN_AGENT_SECRET)" .Values.agent.existingSecret }}
+{{- $secret := required "agent.existingSecret must be set (keys: LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET, GOOGLE_API_KEY, OPENAI_API_KEY and/or PHONIC_API_KEY, SEBASTIAN_HA_MCP_URL, SEBASTIAN_HA_TOKEN, SEBASTIAN_AGENT_SECRET)" .Values.agent.existingSecret }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:

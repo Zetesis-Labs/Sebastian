@@ -94,8 +94,18 @@ server:
     tag: "latest"
     pullPolicy: IfNotPresent
   # existingSecret keys: DATABASE_URL, LIVEKIT_URL, LIVEKIT_API_KEY,
-  # LIVEKIT_API_SECRET, SEBASTIAN_ADMIN_SECRET.
+  # LIVEKIT_API_SECRET, SEBASTIAN_ADMIN_SECRET; optional SEBASTIAN_SECRETS_KEY
+  # (32 bytes, hex or base64) to store provider API keys from the panel.
   existingSecret: ""
+  # Agent profiles owned by Kubernetes: which realtime provider, model, voice
+  # and language a speaker talks through. Read-only in the panel, which can add
+  # its own. Synced at boot; a change rolls the server. Emptying the list
+  # retires them (deleted, or handed to the panel while speakers use them).
+  #   - name: phonic
+  #     provider: phonic        # gemini | openai | phonic
+  #     voice: eduardo          # optional, as model and language
+  #     language: es
+  agentProfiles: []
   # Fleet adoption (docs/implementation/11-fleet-adoption-control-room.md).
   fleet:
     # Name shown to operators; defaults to publicApiURL.
@@ -207,7 +217,9 @@ agent:
   # reaches its media/data over host loopback instead of the flaky pod→node path).
   hostNetwork: false
   # existingSecret keys: LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET,
-  #   GOOGLE_API_KEY (Gemini) and/or OPENAI_API_KEY, SEBASTIAN_HA_MCP_URL,
+  #   GOOGLE_API_KEY (Gemini), OPENAI_API_KEY and/or PHONIC_API_KEY — the
+  #   providers' keys when an agent profile has none stored in the panel —,
+  #   SEBASTIAN_HA_MCP_URL,
   #   SEBASTIAN_HA_TOKEN, MEM0_API_KEY (optional), SEBASTIAN_AGENT_SECRET
   #   (same value as the server's: meeting audio, docs/implementation/14).
   existingSecret: ""
