@@ -2,6 +2,18 @@
 
 All notable changes to Sebastian Server will be documented in this file.
 
+## [1.2.0](https://github.com/Zetesis-Labs/Sebastian/compare/server-v1.1.1...server-v1.2.0) (2026-11-03)
+
+
+### Features
+
+* **server:** agent profiles from a Kubernetes file and the panel, with per-profile API keys ([3e147a3](https://github.com/Zetesis-Labs/Sebastian/commit/3e147a3d3abd7376d9a9f9531487d604e99362ce))
+
+
+### Bug Fixes
+
+* **server:** bump golang.org/x/text to v0.41.0 (GO-2026-6629) ([35c94dc](https://github.com/Zetesis-Labs/Sebastian/commit/35c94dcaa63199523cf726e4e806b6c6aa0635ff))
+
 ## [1.1.1](https://github.com/Zetesis-Labs/Sebastian/compare/server-v1.1.0...server-v1.1.1) (2026-09-25)
 
 
