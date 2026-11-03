@@ -36,7 +36,7 @@ from livekit.agents import (
 from livekit.agents.voice.agent_session import TurnHandlingOptions
 from livekit.agents.voice.room_io import RoomOptions
 from google.genai import types as genai_types
-from livekit.plugins import google, openai, silero
+from livekit.plugins import google, openai, phonic, silero
 from openai.types.beta.realtime.session import TurnDetection
 
 import talk_over
@@ -95,6 +95,10 @@ OPENAI_REALTIME_MODEL = os.getenv(
 OPENAI_VOICE = os.getenv(
     "SEBASTIAN_OPENAI_VOICE", os.getenv("SEBASTIAN_VOICE", "alloy")
 )
+# Empty = Phonic's current default model; the API names them "phonic-1", "phonic-0.5".
+PHONIC_MODEL = os.getenv("SEBASTIAN_PHONIC_MODEL", "").strip()
+PHONIC_VOICE = os.getenv("SEBASTIAN_PHONIC_VOICE", os.getenv("SEBASTIAN_VOICE", "eduardo"))
+PHONIC_LANGUAGE = os.getenv("SEBASTIAN_PHONIC_LANGUAGE", "es").strip()
 
 HA_MCP_URL = os.getenv("SEBASTIAN_HA_MCP_URL", "").strip()
 HA_TOKEN = os.getenv("SEBASTIAN_HA_TOKEN")
@@ -268,13 +272,28 @@ def _build_openai_realtime_model() -> openai.realtime.RealtimeModel:
     )
 
 
+def _build_phonic_realtime_model() -> phonic.realtime.RealtimeModel:
+    log.info(
+        "[model] provider=phonic model=%s voice=%s language=%s",
+        PHONIC_MODEL or "<default>",
+        PHONIC_VOICE,
+        PHONIC_LANGUAGE,
+    )
+    kwargs: dict[str, Any] = dict(voice=PHONIC_VOICE, default_language=PHONIC_LANGUAGE)
+    if PHONIC_MODEL:
+        kwargs["phonic_model"] = PHONIC_MODEL
+    return phonic.realtime.RealtimeModel(**kwargs)
+
+
 def _build_realtime_model() -> Any:
     if MODEL_PROVIDER == "gemini":
         return _build_gemini_realtime_model()
     if MODEL_PROVIDER == "openai":
         return _build_openai_realtime_model()
+    if MODEL_PROVIDER == "phonic":
+        return _build_phonic_realtime_model()
     raise ValueError(
-        "SEBASTIAN_MODEL_PROVIDER must be 'gemini' or 'openai' "
+        "SEBASTIAN_MODEL_PROVIDER must be 'gemini', 'openai' or 'phonic' "
         f"(got {MODEL_PROVIDER!r})"
     )
 
