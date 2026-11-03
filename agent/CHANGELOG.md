@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.12](https://github.com/Zetesis-Labs/Sebastian/compare/agent-v0.1.11...agent-v0.1.12) (2026-11-03)
+
+
+### Features
+
+* **agent:** add Phonic as a realtime provider ([a66a06b](https://github.com/Zetesis-Labs/Sebastian/commit/a66a06b657270efadb6742cdeb49ba8928faf90a))
+* **agent:** talk through the speaker's agent profile ([2e21371](https://github.com/Zetesis-Labs/Sebastian/commit/2e21371f9917c89ae57608c991a4af0d58790855))
+
+
+### Bug Fixes
+
+* **agent:** keep the audio Phonic's plugin drops before it is ready ([fe979e1](https://github.com/Zetesis-Labs/Sebastian/commit/fe979e17c7008786588bae738ceeddf9321c2692))
+* **agent:** treat consecutive user transcripts as one turn ([12ff179](https://github.com/Zetesis-Labs/Sebastian/commit/12ff179a0b0a5b10a471ceea9e82049048c3d55f))
+
 ## [0.1.11](https://github.com/Zetesis-Labs/Sebastian/compare/agent-v0.1.10...agent-v0.1.11) (2026-09-25)
 
 

@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.2.0](https://github.com/Zetesis-Labs/Sebastian/compare/dashboard-v1.1.1...dashboard-v1.2.0) (2026-11-03)
+
+
+### Features
+
+* **dashboard:** manage agents and choose each speaker's agent ([729dcfc](https://github.com/Zetesis-Labs/Sebastian/commit/729dcfca6d3cff8062a9341be3185b581634ad69))
+
+
+### Bug Fixes
+
+* **dashboard:** bump TanStack Start, Vite and Vitest for security advisories ([206a8f2](https://github.com/Zetesis-Labs/Sebastian/commit/206a8f28c4fc97262f00057a6676e94777457d00))
+
 ## [1.1.1](https://github.com/Zetesis-Labs/Sebastian/compare/dashboard-v1.1.0...dashboard-v1.1.1) (2026-09-24)
 
 

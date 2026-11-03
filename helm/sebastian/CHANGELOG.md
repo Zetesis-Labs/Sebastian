@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.8](https://github.com/Zetesis-Labs/Sebastian/compare/helm-v0.1.7...helm-v0.1.8) (2026-11-03)
+
+
+### Features
+
+* **helm:** agent profiles file and secrets key for the server ([e020b34](https://github.com/Zetesis-Labs/Sebastian/commit/e020b349c1b246302130a0e9ef21c5ebd7972435))
+
 ## [0.1.7](https://github.com/Zetesis-Labs/Sebastian/compare/helm-v0.1.6...helm-v0.1.7) (2026-09-22)
 
 
