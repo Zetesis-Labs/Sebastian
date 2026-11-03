@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
 import {
+  assignAgent,
   clearDesiredConfig,
   forgetDevice,
   getDevice,
@@ -17,6 +18,7 @@ import {
   type Meeting,
 } from '../lib/api'
 import { formatDate, formatDuration } from '../lib/format'
+import { agentSummary, type AgentProfile } from '../lib/agents'
 import { MEETING_STATE_LABEL, MEETING_STATE_TONE, activeMeeting, canRecord, meetingLabel, recordingSince } from '../lib/meetings'
 import { GOVERNABLE_PATHS, STATE_HINT, STATE_LABEL, STATE_TONE, canForget, configSync, desiredDocument, differsFromRunning, eventMessage, fichaIssues, formGroups, runningValue, seedFromRoom, shortRoom, timeAgo, timeline } from '../lib/fleet'
 import { applyMode, defaultConfig, mergeConfig, type DeviceConfig, type OperatingMode } from '@installer/config'
@@ -53,7 +55,7 @@ const FIELD_BY_PATH = new Map<string, FieldMeta>(
 )
 
 function DevicePage() {
-  const { detail: loaded, room, meetings } = Route.useLoaderData() as { detail: DeviceDetail; room: ControlRoomPublic; meetings: Meeting[] }
+  const { detail: loaded, room, meetings, agents } = Route.useLoaderData() as { detail: DeviceDetail; room: ControlRoomPublic; meetings: Meeting[]; agents: AgentProfile[] }
   const detail = loaded
   const router = useRouter()
   const navigate = useNavigate()
@@ -184,6 +186,8 @@ function DevicePage() {
         </div>
       </section>
 
+      <AgentPanel detail={detail} agents={agents} busy={busy} act={act} />
+
       <MeetingsPanel detail={detail} meetings={meetings} busy={busy} now={now} act={act} />
 
       <section className="device-panel">
@@ -306,6 +310,47 @@ function DevicePage() {
         )}
       </section>
     </main>
+  )
+}
+
+function AgentPanel({ detail, agents, busy, act }: Readonly<{ detail: DeviceDetail; agents: AgentProfile[]; busy: boolean; act: (label: string, fn: () => Promise<unknown>, done: string) => Promise<void> }>) {
+  const [chosen, setChosen] = useState(detail.agentProfileId ?? '')
+  const current = agents.find((a) => a.id === detail.agentProfileId)
+  const picked = agents.find((a) => a.id === chosen)
+  return (
+    <section className="device-panel">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">Agente</p>
+          <h2>Con qué modelo habla</h2>
+        </div>
+      </div>
+      <p className="device-meta">
+        {current
+          ? <>Habla a través de <strong>{current.name}</strong>: {agentSummary(current)}.</>
+          : 'No tiene agente: no puede abrir conversaciones hasta que le asignes uno.'}
+      </p>
+      <form
+        className="device-agent"
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (!picked) return
+          void act(`Asignando ${picked.name}…`, () => assignAgent({ data: { deviceId: detail.id, agentProfileId: picked.id } }), `Agente ${picked.name} asignado; vale desde la siguiente conversación.`)
+        }}
+      >
+        <label className="config-field">
+          <span>Agente</span>
+          <select value={chosen} onChange={(e) => setChosen(e.target.value)}>
+            {!current && <option value="">— elige uno —</option>}
+            {agents.map((a) => (
+              <option key={a.id} value={a.id}>{a.name} · {agentSummary(a)}</option>
+            ))}
+          </select>
+        </label>
+        <button type="submit" className="chip-button primary" disabled={busy || !picked || chosen === detail.agentProfileId}>Asignar</button>
+        <Link to="/agents" className="chip-button">Gestionar agentes</Link>
+      </form>
+    </section>
   )
 }
 

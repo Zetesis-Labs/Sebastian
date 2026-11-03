@@ -1,5 +1,6 @@
 import { createServerFn } from '@tanstack/react-start'
 import type { components } from './api-schema'
+import type { AgentProfile, AgentProfileInput } from './agents'
 
 export type Recording = components['schemas']['Recording']
 export type RecordingSummary = components['schemas']['RecordingSummary']
@@ -106,13 +107,14 @@ export type ControlRoomPublic = Omit<ControlRoomInfo, 'orgSecret'>
 export const getDevice = createServerFn({ method: 'GET' })
   .validator((deviceId: string) => deviceId)
   .handler(async ({ data }) => {
-    const [detail, room, meetings] = await Promise.all([
+    const [detail, room, meetings, agents] = await Promise.all([
       apiGet<DeviceDetailWire>(`/v1/admin/devices/${id(data)}`),
       apiGet<ControlRoomInfo>('/v1/admin/control-room'),
       apiGet<MeetingList>(`/v1/admin/meetings?deviceId=${id(data)}&limit=8`),
+      apiGet<AgentProfileList>('/v1/admin/agent-profiles'),
     ])
     const { orgSecret: _omit, ...publicRoom } = room
-    return { detail, room: publicRoom as ControlRoomPublic, meetings: meetings.items }
+    return { detail, room: publicRoom as ControlRoomPublic, meetings: meetings.items, agents: agents.items }
   })
 
 // Desired-state: the device reconciles on its next poll (~30 s) and reboots
@@ -161,6 +163,39 @@ export const regenerateSecret = createServerFn({ method: 'POST' })
   .handler(async ({ data }) =>
     apiSend<{ deviceSecret: string }>(`/v1/admin/devices/${id(data.deviceId)}/secret`, 'POST'),
   )
+
+// ── agents: which realtime model a speaker talks through ────────────────────
+
+type AgentProfileList = components['schemas']['AgentProfileList']
+
+export const getAgents = createServerFn({ method: 'GET' }).handler(async () =>
+  apiGet<AgentProfileList>('/v1/admin/agent-profiles'),
+)
+
+export const createAgent = createServerFn({ method: 'POST' })
+  .validator((input: AgentProfileInput) => input)
+  .handler(async ({ data }) => apiSend<AgentProfile>('/v1/admin/agent-profiles', 'POST', data))
+
+export const updateAgent = createServerFn({ method: 'POST' })
+  .validator((input: { profileId: string; agent: AgentProfileInput }) => input)
+  .handler(async ({ data }) => apiSend<AgentProfile>(`/v1/admin/agent-profiles/${id(data.profileId)}`, 'PATCH', data.agent))
+
+export const deleteAgent = createServerFn({ method: 'POST' })
+  .validator((input: { profileId: string }) => input)
+  .handler(async ({ data }) => apiSend(`/v1/admin/agent-profiles/${id(data.profileId)}`, 'DELETE'))
+
+// The key goes browser → dashboard server → API once and is never read back.
+export const setAgentKey = createServerFn({ method: 'POST' })
+  .validator((input: { profileId: string; apiKey: string }) => input)
+  .handler(async ({ data }) => apiSend(`/v1/admin/agent-profiles/${id(data.profileId)}/api-key`, 'PUT', { apiKey: data.apiKey }))
+
+export const clearAgentKey = createServerFn({ method: 'POST' })
+  .validator((input: { profileId: string }) => input)
+  .handler(async ({ data }) => apiSend(`/v1/admin/agent-profiles/${id(data.profileId)}/api-key`, 'DELETE'))
+
+export const assignAgent = createServerFn({ method: 'POST' })
+  .validator((input: { deviceId: string; agentProfileId: string }) => input)
+  .handler(async ({ data }) => apiSend(`/v1/admin/devices/${id(data.deviceId)}`, 'PATCH', { agentProfileId: data.agentProfileId }))
 
 // Server-only: the embedded installer's pre-fill (includes the organization
 // secret; served by the /installer/control-room.json route, never bundled).

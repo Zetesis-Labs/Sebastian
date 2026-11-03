@@ -222,3 +222,11 @@ a.device-name:hover { color: var(--orange); }
   .segments li { grid-template-columns: 56px 1fr; }
   .segment-text { grid-column: 1 / -1; }
 }
+
+/* ── agents: which realtime model a speaker talks through ── */
+.agent-row { align-items: flex-start; }
+.agent-key { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin-top: 14px; }
+.agent-key .config-field input { min-width: 260px; }
+.agent-form { margin-top: 14px; }
+.agent-form-actions { justify-content: flex-start; margin-top: 14px; }
+.device-agent { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }

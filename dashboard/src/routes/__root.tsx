@@ -45,6 +45,9 @@ function RootComponent() {
           <Link to="/devices" activeProps={{ className: 'active' }}>
             Dispositivos
           </Link>
+          <Link to="/agents" activeProps={{ className: 'active' }}>
+            Agentes
+          </Link>
         </nav>
         <div className="system-state"><span /> Sistema enlazado</div>
       </header>
