@@ -447,6 +447,8 @@ pub extern fn esp_reset_reason() c_int;
 // Logs (and erases) the core dump left in flash by a previous panic. See
 // main/coredump_report.c.
 pub extern fn sebastian_coredump_report() void;
+pub extern fn sebastian_heap_diag_start() void;
+pub extern fn sebastian_heap_log(label: [*:0]const u8) void;
 
 // Heap tracing around one session (heap_trace_report.c): start before the
 // connect, report after the teardown; what survives is what leaked.
