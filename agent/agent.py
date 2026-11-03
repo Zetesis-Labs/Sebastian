@@ -56,6 +56,7 @@ from meeting_mode import (
     voice_start_asked,
 )
 from wake_verify import setup_wake_verify
+from phonic_buffered import BufferedPhonicRealtimeModel
 from model_choice import (
     ENV_KEYS,
     CredentialsUnavailable,
@@ -305,7 +306,7 @@ def _build_phonic_realtime_model(choice: ModelChoice, api_key: str) -> phonic.re
     kwargs: dict[str, Any] = dict(api_key=api_key, voice=voice, default_language=language)
     if model:
         kwargs["phonic_model"] = model
-    return phonic.realtime.RealtimeModel(**kwargs)
+    return BufferedPhonicRealtimeModel(**kwargs)
 
 
 _BUILDERS = {
