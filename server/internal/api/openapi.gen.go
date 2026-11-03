@@ -78,6 +78,45 @@ func (e AdoptionPhase) Valid() bool {
 	}
 }
 
+// Defines values for AgentProfileSource.
+const (
+	Kubernetes AgentProfileSource = "kubernetes"
+	Panel      AgentProfileSource = "panel"
+)
+
+// Valid indicates whether the value is a known member of the AgentProfileSource enum.
+func (e AgentProfileSource) Valid() bool {
+	switch e {
+	case Kubernetes:
+		return true
+	case Panel:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AgentProvider.
+const (
+	Gemini AgentProvider = "gemini"
+	Openai AgentProvider = "openai"
+	Phonic AgentProvider = "phonic"
+)
+
+// Valid indicates whether the value is a known member of the AgentProvider enum.
+func (e AgentProvider) Valid() bool {
+	switch e {
+	case Gemini:
+		return true
+	case Openai:
+		return true
+	case Phonic:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DeviceState.
 const (
 	DeviceStateAbsent           DeviceState = "absent"
@@ -392,6 +431,58 @@ type AdoptionRequest struct {
 	Ip *string `json:"ip,omitempty"`
 }
 
+// AgentProfile defines model for AgentProfile.
+type AgentProfile struct {
+	// ApiKeySet A key is stored for this profile; otherwise the agent uses its environment key.
+	ApiKeySet       bool               `json:"apiKeySet"`
+	ApiKeyUpdatedAt *time.Time         `json:"apiKeyUpdatedAt,omitempty"`
+	CreatedAt       time.Time          `json:"createdAt"`
+	DeviceCount     int                `json:"deviceCount"`
+	Id              openapi_types.UUID `json:"id"`
+	Language        *string            `json:"language,omitempty"`
+	Model           *string            `json:"model,omitempty"`
+	Name            string             `json:"name"`
+	Provider        *AgentProvider     `json:"provider,omitempty"`
+
+	// Source kubernetes = declared in the server's agent profiles file and read-only here.
+	Source    AgentProfileSource `json:"source"`
+	UpdatedAt time.Time          `json:"updatedAt"`
+	Voice     *string            `json:"voice,omitempty"`
+}
+
+// AgentProfileApiKey defines model for AgentProfileApiKey.
+type AgentProfileApiKey struct {
+	ApiKey string `json:"apiKey"`
+}
+
+// AgentProfileInput defines model for AgentProfileInput.
+type AgentProfileInput struct {
+	// Language ISO 639-1 code (es, en…); empty = the provider decides.
+	Language *string `json:"language,omitempty"`
+
+	// Model Empty = the agent's default model for the provider.
+	Model    *string       `json:"model,omitempty"`
+	Name     string        `json:"name"`
+	Provider AgentProvider `json:"provider"`
+
+	// Voice Empty = the agent's default voice for the provider.
+	Voice *string `json:"voice,omitempty"`
+}
+
+// AgentProfileList defines model for AgentProfileList.
+type AgentProfileList struct {
+	Items []AgentProfile `json:"items"`
+
+	// SecretsKeyConfigured False = the server has no SEBASTIAN_SECRETS_KEY and cannot store API keys.
+	SecretsKeyConfigured bool `json:"secretsKeyConfigured"`
+}
+
+// AgentProfileSource kubernetes = declared in the server's agent profiles file and read-only here.
+type AgentProfileSource string
+
+// AgentProvider defines model for AgentProvider.
+type AgentProvider string
+
 // ControlRoom defines model for ControlRoom.
 type ControlRoom struct {
 	AdoptPort int `json:"adoptPort"`
@@ -422,6 +513,10 @@ type DesiredProfile struct {
 // Device defines model for Device.
 type Device struct {
 	AdoptedAt *time.Time `json:"adoptedAt,omitempty"`
+
+	// AgentProfileId The agent the speaker talks through; absent = it cannot open sessions yet.
+	AgentProfileId   *openapi_types.UUID `json:"agentProfileId,omitempty"`
+	AgentProfileName *string             `json:"agentProfileName,omitempty"`
 
 	// ControlRoom Origin the device announces it is bound to (may be another control room).
 	ControlRoom          *string `json:"controlRoom,omitempty"`
@@ -462,6 +557,10 @@ type DeviceConfig map[string]interface{}
 // DeviceDetail defines model for DeviceDetail.
 type DeviceDetail struct {
 	AdoptedAt *time.Time `json:"adoptedAt,omitempty"`
+
+	// AgentProfileId The agent the speaker talks through; absent = it cannot open sessions yet.
+	AgentProfileId   *openapi_types.UUID `json:"agentProfileId,omitempty"`
+	AgentProfileName *string             `json:"agentProfileName,omitempty"`
 
 	// ControlRoom Origin the device announces it is bound to (may be another control room).
 	ControlRoom *string `json:"controlRoom,omitempty"`
@@ -529,7 +628,9 @@ type DeviceState string
 
 // DeviceUpdate defines model for DeviceUpdate.
 type DeviceUpdate struct {
-	DisplayName *string `json:"displayName,omitempty"`
+	// AgentProfileId Talk through this agent from the next session.
+	AgentProfileId *openapi_types.UUID `json:"agentProfileId,omitempty"`
+	DisplayName    *string             `json:"displayName,omitempty"`
 
 	// MeetingMaxHours A recording never exceeds this (RM-24).
 	MeetingMaxHours *int `json:"meetingMaxHours,omitempty"`
@@ -762,11 +863,20 @@ type SessionRequest struct {
 // SessionRequestKind defines model for SessionRequest.Kind.
 type SessionRequestKind string
 
+// AgentProfileId defines model for AgentProfileId.
+type AgentProfileId = openapi_types.UUID
+
 // DeviceId defines model for DeviceId.
 type DeviceId = string
 
 // MeetingId defines model for MeetingId.
 type MeetingId = openapi_types.UUID
+
+// AgentProfileConflict defines model for AgentProfileConflict.
+type AgentProfileConflict = Problem
+
+// AgentProfileNotFound defines model for AgentProfileNotFound.
+type AgentProfileNotFound = Problem
 
 // DeviceNotFound defines model for DeviceNotFound.
 type DeviceNotFound = Problem
@@ -849,6 +959,15 @@ type CreateSessionParams struct {
 	XDeviceSecret string `json:"X-Device-Secret"`
 }
 
+// CreateAgentProfileJSONRequestBody defines body for CreateAgentProfile for application/json ContentType.
+type CreateAgentProfileJSONRequestBody = AgentProfileInput
+
+// UpdateAgentProfileJSONRequestBody defines body for UpdateAgentProfile for application/json ContentType.
+type UpdateAgentProfileJSONRequestBody = AgentProfileInput
+
+// SetAgentProfileApiKeyJSONRequestBody defines body for SetAgentProfileApiKey for application/json ContentType.
+type SetAgentProfileApiKeyJSONRequestBody = AgentProfileApiKey
+
 // UpdateDeviceJSONRequestBody defines body for UpdateDevice for application/json ContentType.
 type UpdateDeviceJSONRequestBody = DeviceUpdate
 
@@ -899,6 +1018,24 @@ type ServerInterface interface {
 	// Progress of an adoption or forget job
 	// (GET /v1/admin/adoptions/{jobId})
 	GetAdoptionJob(w http.ResponseWriter, r *http.Request, jobId openapi_types.UUID)
+	// The agents a speaker can talk through, from Kubernetes and from the panel
+	// (GET /v1/admin/agent-profiles)
+	ListAgentProfiles(w http.ResponseWriter, r *http.Request)
+	// Create an agent profile owned by the panel
+	// (POST /v1/admin/agent-profiles)
+	CreateAgentProfile(w http.ResponseWriter, r *http.Request)
+	// Delete a panel-owned agent profile no speaker uses
+	// (DELETE /v1/admin/agent-profiles/{profileId})
+	DeleteAgentProfile(w http.ResponseWriter, r *http.Request, profileId AgentProfileId)
+	// Change a panel-owned agent profile
+	// (PATCH /v1/admin/agent-profiles/{profileId})
+	UpdateAgentProfile(w http.ResponseWriter, r *http.Request, profileId AgentProfileId)
+	// Forget the stored API key; the agent falls back to its environment
+	// (DELETE /v1/admin/agent-profiles/{profileId}/api-key)
+	ClearAgentProfileApiKey(w http.ResponseWriter, r *http.Request, profileId AgentProfileId)
+	// Store the provider API key of an agent profile (write-only, encrypted at rest)
+	// (PUT /v1/admin/agent-profiles/{profileId}/api-key)
+	SetAgentProfileApiKey(w http.ResponseWriter, r *http.Request, profileId AgentProfileId)
 	// This control room's identity and provisioning defaults
 	// (GET /v1/admin/control-room)
 	GetControlRoom(w http.ResponseWriter, r *http.Request)
@@ -908,7 +1045,7 @@ type ServerInterface interface {
 	// One device with its desired config and recent sessions
 	// (GET /v1/admin/devices/{deviceId})
 	GetDevice(w http.ResponseWriter, r *http.Request, deviceId DeviceId)
-	// Rename a device
+	// Rename a device or change the agent it talks through
 	// (PATCH /v1/admin/devices/{deviceId})
 	UpdateDevice(w http.ResponseWriter, r *http.Request, deviceId DeviceId)
 	// Adopt a device over the network (discovered, or by IP)
@@ -1054,6 +1191,174 @@ func (siw *ServerInterfaceWrapper) GetAdoptionJob(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetAdoptionJob(w, r, jobId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListAgentProfiles operation middleware
+func (siw *ServerInterfaceWrapper) ListAgentProfiles(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, AdminSecretScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAgentProfiles(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateAgentProfile operation middleware
+func (siw *ServerInterfaceWrapper) CreateAgentProfile(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, AdminSecretScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateAgentProfile(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteAgentProfile operation middleware
+func (siw *ServerInterfaceWrapper) DeleteAgentProfile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "profileId" -------------
+	var profileId AgentProfileId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "profileId", r.PathValue("profileId"), &profileId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "profileId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, AdminSecretScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteAgentProfile(w, r, profileId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateAgentProfile operation middleware
+func (siw *ServerInterfaceWrapper) UpdateAgentProfile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "profileId" -------------
+	var profileId AgentProfileId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "profileId", r.PathValue("profileId"), &profileId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "profileId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, AdminSecretScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateAgentProfile(w, r, profileId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ClearAgentProfileApiKey operation middleware
+func (siw *ServerInterfaceWrapper) ClearAgentProfileApiKey(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "profileId" -------------
+	var profileId AgentProfileId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "profileId", r.PathValue("profileId"), &profileId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "profileId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, AdminSecretScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ClearAgentProfileApiKey(w, r, profileId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetAgentProfileApiKey operation middleware
+func (siw *ServerInterfaceWrapper) SetAgentProfileApiKey(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "profileId" -------------
+	var profileId AgentProfileId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "profileId", r.PathValue("profileId"), &profileId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "profileId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, AdminSecretScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetAgentProfileApiKey(w, r, profileId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2390,6 +2695,12 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/healthz", wrapper.GetLiveness)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/readyz", wrapper.GetReadiness)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/admin/adoptions/{jobId}", wrapper.GetAdoptionJob)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/admin/agent-profiles", wrapper.ListAgentProfiles)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/admin/agent-profiles", wrapper.CreateAgentProfile)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/admin/agent-profiles/{profileId}", wrapper.DeleteAgentProfile)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/v1/admin/agent-profiles/{profileId}", wrapper.UpdateAgentProfile)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/admin/agent-profiles/{profileId}/api-key", wrapper.ClearAgentProfileApiKey)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/admin/agent-profiles/{profileId}/api-key", wrapper.SetAgentProfileApiKey)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/admin/control-room", wrapper.GetControlRoom)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/admin/devices", wrapper.ListDevices)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/admin/devices/{deviceId}", wrapper.GetDevice)
@@ -2424,6 +2735,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 
 	return m
 }
+
+type AgentProfileConflictApplicationProblemPlusJSONResponse Problem
+
+type AgentProfileNotFoundApplicationProblemPlusJSONResponse Problem
 
 type DeviceNotFoundApplicationProblemPlusJSONResponse Problem
 
@@ -2537,6 +2852,441 @@ func (response GetAdoptionJob404ApplicationProblemPlusJSONResponse) VisitGetAdop
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAgentProfilesRequestObject struct {
+}
+
+type ListAgentProfilesResponseObject interface {
+	VisitListAgentProfilesResponse(w http.ResponseWriter) error
+}
+
+type ListAgentProfiles200JSONResponse AgentProfileList
+
+func (response ListAgentProfiles200JSONResponse) VisitListAgentProfilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAgentProfiles401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ListAgentProfiles401ApplicationProblemPlusJSONResponse) VisitListAgentProfilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAgentProfiles503ApplicationProblemPlusJSONResponse struct {
+	UnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response ListAgentProfiles503ApplicationProblemPlusJSONResponse) VisitListAgentProfilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAgentProfileRequestObject struct {
+	Body *CreateAgentProfileJSONRequestBody
+}
+
+type CreateAgentProfileResponseObject interface {
+	VisitCreateAgentProfileResponse(w http.ResponseWriter) error
+}
+
+type CreateAgentProfile201JSONResponse AgentProfile
+
+func (response CreateAgentProfile201JSONResponse) VisitCreateAgentProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAgentProfile401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateAgentProfile401ApplicationProblemPlusJSONResponse) VisitCreateAgentProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAgentProfile409ApplicationProblemPlusJSONResponse struct {
+	AgentProfileConflictApplicationProblemPlusJSONResponse
+}
+
+func (response CreateAgentProfile409ApplicationProblemPlusJSONResponse) VisitCreateAgentProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAgentProfile503ApplicationProblemPlusJSONResponse struct {
+	UnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response CreateAgentProfile503ApplicationProblemPlusJSONResponse) VisitCreateAgentProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteAgentProfileRequestObject struct {
+	ProfileId AgentProfileId `json:"profileId"`
+}
+
+type DeleteAgentProfileResponseObject interface {
+	VisitDeleteAgentProfileResponse(w http.ResponseWriter) error
+}
+
+type DeleteAgentProfile204Response struct {
+}
+
+func (response DeleteAgentProfile204Response) VisitDeleteAgentProfileResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteAgentProfile401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteAgentProfile401ApplicationProblemPlusJSONResponse) VisitDeleteAgentProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteAgentProfile404ApplicationProblemPlusJSONResponse struct {
+	AgentProfileNotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteAgentProfile404ApplicationProblemPlusJSONResponse) VisitDeleteAgentProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteAgentProfile409ApplicationProblemPlusJSONResponse struct {
+	AgentProfileConflictApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteAgentProfile409ApplicationProblemPlusJSONResponse) VisitDeleteAgentProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteAgentProfile503ApplicationProblemPlusJSONResponse struct {
+	UnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteAgentProfile503ApplicationProblemPlusJSONResponse) VisitDeleteAgentProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAgentProfileRequestObject struct {
+	ProfileId AgentProfileId `json:"profileId"`
+	Body      *UpdateAgentProfileJSONRequestBody
+}
+
+type UpdateAgentProfileResponseObject interface {
+	VisitUpdateAgentProfileResponse(w http.ResponseWriter) error
+}
+
+type UpdateAgentProfile200JSONResponse AgentProfile
+
+func (response UpdateAgentProfile200JSONResponse) VisitUpdateAgentProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAgentProfile401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateAgentProfile401ApplicationProblemPlusJSONResponse) VisitUpdateAgentProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAgentProfile404ApplicationProblemPlusJSONResponse struct {
+	AgentProfileNotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateAgentProfile404ApplicationProblemPlusJSONResponse) VisitUpdateAgentProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAgentProfile409ApplicationProblemPlusJSONResponse struct {
+	AgentProfileConflictApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateAgentProfile409ApplicationProblemPlusJSONResponse) VisitUpdateAgentProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAgentProfile503ApplicationProblemPlusJSONResponse struct {
+	UnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateAgentProfile503ApplicationProblemPlusJSONResponse) VisitUpdateAgentProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClearAgentProfileApiKeyRequestObject struct {
+	ProfileId AgentProfileId `json:"profileId"`
+}
+
+type ClearAgentProfileApiKeyResponseObject interface {
+	VisitClearAgentProfileApiKeyResponse(w http.ResponseWriter) error
+}
+
+type ClearAgentProfileApiKey204Response struct {
+}
+
+func (response ClearAgentProfileApiKey204Response) VisitClearAgentProfileApiKeyResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type ClearAgentProfileApiKey401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ClearAgentProfileApiKey401ApplicationProblemPlusJSONResponse) VisitClearAgentProfileApiKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClearAgentProfileApiKey404ApplicationProblemPlusJSONResponse struct {
+	AgentProfileNotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ClearAgentProfileApiKey404ApplicationProblemPlusJSONResponse) VisitClearAgentProfileApiKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClearAgentProfileApiKey503ApplicationProblemPlusJSONResponse struct {
+	UnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response ClearAgentProfileApiKey503ApplicationProblemPlusJSONResponse) VisitClearAgentProfileApiKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetAgentProfileApiKeyRequestObject struct {
+	ProfileId AgentProfileId `json:"profileId"`
+	Body      *SetAgentProfileApiKeyJSONRequestBody
+}
+
+type SetAgentProfileApiKeyResponseObject interface {
+	VisitSetAgentProfileApiKeyResponse(w http.ResponseWriter) error
+}
+
+type SetAgentProfileApiKey204Response struct {
+}
+
+func (response SetAgentProfileApiKey204Response) VisitSetAgentProfileApiKeyResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type SetAgentProfileApiKey401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response SetAgentProfileApiKey401ApplicationProblemPlusJSONResponse) VisitSetAgentProfileApiKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetAgentProfileApiKey404ApplicationProblemPlusJSONResponse struct {
+	AgentProfileNotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response SetAgentProfileApiKey404ApplicationProblemPlusJSONResponse) VisitSetAgentProfileApiKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetAgentProfileApiKey409ApplicationProblemPlusJSONResponse struct {
+	AgentProfileConflictApplicationProblemPlusJSONResponse
+}
+
+func (response SetAgentProfileApiKey409ApplicationProblemPlusJSONResponse) VisitSetAgentProfileApiKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetAgentProfileApiKey503ApplicationProblemPlusJSONResponse struct {
+	UnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response SetAgentProfileApiKey503ApplicationProblemPlusJSONResponse) VisitSetAgentProfileApiKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -2746,6 +3496,22 @@ func (response UpdateDevice404ApplicationProblemPlusJSONResponse) VisitUpdateDev
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateDevice422ApplicationProblemPlusJSONResponse struct {
+	AgentProfileNotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateDevice422ApplicationProblemPlusJSONResponse) VisitUpdateDeviceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -4629,6 +5395,24 @@ type StrictServerInterface interface {
 	// Progress of an adoption or forget job
 	// (GET /v1/admin/adoptions/{jobId})
 	GetAdoptionJob(ctx context.Context, request GetAdoptionJobRequestObject) (GetAdoptionJobResponseObject, error)
+	// The agents a speaker can talk through, from Kubernetes and from the panel
+	// (GET /v1/admin/agent-profiles)
+	ListAgentProfiles(ctx context.Context, request ListAgentProfilesRequestObject) (ListAgentProfilesResponseObject, error)
+	// Create an agent profile owned by the panel
+	// (POST /v1/admin/agent-profiles)
+	CreateAgentProfile(ctx context.Context, request CreateAgentProfileRequestObject) (CreateAgentProfileResponseObject, error)
+	// Delete a panel-owned agent profile no speaker uses
+	// (DELETE /v1/admin/agent-profiles/{profileId})
+	DeleteAgentProfile(ctx context.Context, request DeleteAgentProfileRequestObject) (DeleteAgentProfileResponseObject, error)
+	// Change a panel-owned agent profile
+	// (PATCH /v1/admin/agent-profiles/{profileId})
+	UpdateAgentProfile(ctx context.Context, request UpdateAgentProfileRequestObject) (UpdateAgentProfileResponseObject, error)
+	// Forget the stored API key; the agent falls back to its environment
+	// (DELETE /v1/admin/agent-profiles/{profileId}/api-key)
+	ClearAgentProfileApiKey(ctx context.Context, request ClearAgentProfileApiKeyRequestObject) (ClearAgentProfileApiKeyResponseObject, error)
+	// Store the provider API key of an agent profile (write-only, encrypted at rest)
+	// (PUT /v1/admin/agent-profiles/{profileId}/api-key)
+	SetAgentProfileApiKey(ctx context.Context, request SetAgentProfileApiKeyRequestObject) (SetAgentProfileApiKeyResponseObject, error)
 	// This control room's identity and provisioning defaults
 	// (GET /v1/admin/control-room)
 	GetControlRoom(ctx context.Context, request GetControlRoomRequestObject) (GetControlRoomResponseObject, error)
@@ -4638,7 +5422,7 @@ type StrictServerInterface interface {
 	// One device with its desired config and recent sessions
 	// (GET /v1/admin/devices/{deviceId})
 	GetDevice(ctx context.Context, request GetDeviceRequestObject) (GetDeviceResponseObject, error)
-	// Rename a device
+	// Rename a device or change the agent it talks through
 	// (PATCH /v1/admin/devices/{deviceId})
 	UpdateDevice(ctx context.Context, request UpdateDeviceRequestObject) (UpdateDeviceResponseObject, error)
 	// Adopt a device over the network (discovered, or by IP)
@@ -4820,6 +5604,179 @@ func (sh *strictHandler) GetAdoptionJob(w http.ResponseWriter, r *http.Request, 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetAdoptionJobResponseObject); ok {
 		if err := validResponse.VisitGetAdoptionJobResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListAgentProfiles operation middleware
+func (sh *strictHandler) ListAgentProfiles(w http.ResponseWriter, r *http.Request) {
+	var request ListAgentProfilesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListAgentProfiles(ctx, request.(ListAgentProfilesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListAgentProfiles")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListAgentProfilesResponseObject); ok {
+		if err := validResponse.VisitListAgentProfilesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateAgentProfile operation middleware
+func (sh *strictHandler) CreateAgentProfile(w http.ResponseWriter, r *http.Request) {
+	var request CreateAgentProfileRequestObject
+
+	var body CreateAgentProfileJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateAgentProfile(ctx, request.(CreateAgentProfileRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateAgentProfile")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateAgentProfileResponseObject); ok {
+		if err := validResponse.VisitCreateAgentProfileResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteAgentProfile operation middleware
+func (sh *strictHandler) DeleteAgentProfile(w http.ResponseWriter, r *http.Request, profileId AgentProfileId) {
+	var request DeleteAgentProfileRequestObject
+
+	request.ProfileId = profileId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteAgentProfile(ctx, request.(DeleteAgentProfileRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteAgentProfile")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteAgentProfileResponseObject); ok {
+		if err := validResponse.VisitDeleteAgentProfileResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateAgentProfile operation middleware
+func (sh *strictHandler) UpdateAgentProfile(w http.ResponseWriter, r *http.Request, profileId AgentProfileId) {
+	var request UpdateAgentProfileRequestObject
+
+	request.ProfileId = profileId
+
+	var body UpdateAgentProfileJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateAgentProfile(ctx, request.(UpdateAgentProfileRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateAgentProfile")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateAgentProfileResponseObject); ok {
+		if err := validResponse.VisitUpdateAgentProfileResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ClearAgentProfileApiKey operation middleware
+func (sh *strictHandler) ClearAgentProfileApiKey(w http.ResponseWriter, r *http.Request, profileId AgentProfileId) {
+	var request ClearAgentProfileApiKeyRequestObject
+
+	request.ProfileId = profileId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ClearAgentProfileApiKey(ctx, request.(ClearAgentProfileApiKeyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ClearAgentProfileApiKey")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ClearAgentProfileApiKeyResponseObject); ok {
+		if err := validResponse.VisitClearAgentProfileApiKeyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetAgentProfileApiKey operation middleware
+func (sh *strictHandler) SetAgentProfileApiKey(w http.ResponseWriter, r *http.Request, profileId AgentProfileId) {
+	var request SetAgentProfileApiKeyRequestObject
+
+	request.ProfileId = profileId
+
+	var body SetAgentProfileApiKeyJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetAgentProfileApiKey(ctx, request.(SetAgentProfileApiKeyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetAgentProfileApiKey")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetAgentProfileApiKeyResponseObject); ok {
+		if err := validResponse.VisitSetAgentProfileApiKeyResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -5742,125 +6699,142 @@ func (sh *strictHandler) CreateSession(w http.ResponseWriter, r *http.Request, p
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"3l/9bwAAAP//",
+	"7H3rctu4tuaroDinqu1qSr4mtduu/PBO0rtz0rmMnd77THUyMUQuSYgpgA2AVrRTrjq/5gGm5hlm3mMe",
+	"ZT/JFBYAEpRAXRxbcff0L19IELd1x1ofviSZmJSCA9cqOfmSlFTSCWiQ+NfZCLh+K8WQFfAiN/9hPDlJ",
+	"SqrHSZpwOgHzV/08TST8VjEJeXKiZQVporIxTKhpOBRyQnVyklQVM2/qWWkaKy0ZHyU3N2nyDK5Z1t1N",
+	"7h8v62VCP/8MfKTHycnB4V/SZMJ4/Xesz1cAmvFRZ6eT+vnXzO3GNFal4AoWlvWp4MOCZdr8PxNcA8df",
+	"aVkWLKOaCb5XSjEoYPL9JyW4edZ0/G8ShslJ8l/2mk3cs0/V3lvbynafg8okK83nkpPk3RiImSBhimh6",
+	"BTwlegzEbaT574RyOoKcDGbkZTUAyUGDSomQRJVAr0AqojQrClIpIEz3k5u0NavXQv8oKp5ve1bUjKGe",
+	"SC5AES40gc9M2UFaIvsWw7M943CGpm8cjqO/b7VcjrxjC/ULp5UeC8n+CdvfxXzCOFNaYh9EQSZBG7Jk",
+	"/JoWLPcDvKasoIMCtjm+M+LlAMmhBJ4Dz2ZmbFUznj7KFvcxZPhcYPt/FwMcYJ4z8yct3kpRgtTMyIUh",
+	"LRSkRpzW//rSSL2TL/NiJXUPL3B57MvzK1mC7Nm3mlVUlWVsPWaKUDeyPrkYiykngmdwitLgkxgQ+Fwy",
+	"Caq/KNPSBKQUcrHXf4xnhGkypKyAnPzrP/8XMXSUEm6+bH58lFAWs5RkRhxy/VGzCYhKp2TKhiwlZqP+",
+	"9Z//O9Yjy9cQtmnCyuhiXTHLX8CrSXLya4IzT1LzvRHo5EPkS+WYKlhFK35v3+LLZt81lRryM90abU41",
+	"9MxcY0OuSvN4gyY3oTr6NcGFCBQkztWPPxxR2FUzYzH4BJlGGd6aTLBa+AnTdZpMKTO/fXQbmKTJbxVU",
+	"YDrENcXfzKoKrYGb35EWoivs+zuH3ypQekPmyAQfstGqDbKC96l9dyXXXLARJ1Omx5Y/5piHKw00J2KI",
+	"LCLkiHL2z5aU2hlTnotrkOYlShTjowJIxZne7XdT65yMyXMJSvlu3BimY+CGtabUyuqcqcx0BDnZwYU3",
+	"TP3ibaybm9hWB+p6w3WnJXsJs4vY8p2RK0BxqLQwIxsKaRfS6eRTIvQY5JQpwLlZhV0pUIRpRYBfMyn4",
+	"xPzzCmbBVAZCFEC5Gbnt/pdNeSZNMgmbNskd8VRWtbjnjGsYgdxAKBWUjyo6gqhomogciugTa4ZGHpRS",
+	"XLMc5Erp5HbZvmykk6hkBus2M1t2YVvcRkylybVgWWwGMQGGk61HmAZk1t6HcCNXCrRgImf4vVvR+pxv",
+	"8ejgsOVb/GWVgHZfWTXCF7ysNhWCIWW1efHFxRvy+OiH3gHJRA5kx1jwYJTr7imBSaln5Im3+5E8SA4Z",
+	"y626Dx2px+kSkm13+Tz4LLL2d0aEDmlVaIJNnEBoOp3v7PAvaTcbBC8+Pl7h3X0Fj9REu/7ksMmqyZkx",
+	"L6cTxwL1yFcRzM9sY6XJNEzav6wrCJJGjVAp6QzFCWo99RJmVsFW0roL7ZX70QzErZwCabTjGLUYuXj+",
+	"17OLdy/OXn+8eP70/Pm7i48vn/83QnlOMsqNlkM9Qs7evjD6QMUUwrwowWl1jGzVel7U0rE9gavaCSZP",
+	"DJsU1Cg3xoMZfafa3qci6IOaqUigeU/wYkbGIMHMwZtVzXfNrlMORdxMalFoYJaNwHhKSZqIEjhlaPMJ",
+	"zrLoV54KrqUozoWYbCoEjXnxVsgOHUhL9oss4h7IL+c/OwNGYbBAC7McmTOvMjskIoWYkB0troC75Yxb",
+	"S97mmT3nxtEK3aLAQOjUmkKOuuy+txKMNUtwmwwf22H0FMuBZLQoQKpTwsHQrhqz0kyEkoEUU2X5vLuz",
+	"NmcsDlfNVCFGL+Jui33YtfZx8eH2I7JcabCV8RHGOOQZKNODfevvIBWzzvQGFHTdtFouAf2LS8ZxO6PV",
+	"E8WcZGJyMqWyCX6Z1/rEinohCR0gVWQFUKmcNY6DIEpTDfMC/mgt09t6JLfhwc2ML7oQvu2KmKEYs5E9",
+	"omlxZaYqRTUan/oVeGJcDyeTjbAhCpTZKEVmoPvW41tuAoejed3FoVlbRrXH+0aykZO5zicy46l4ht6D",
+	"8ToGouK5Yc2dCZ2RgXkB/Y2WoOkQLR1E3vViQIUxMVUWdNY5S1gmvYaOJKMtWTwS1BHzKKjSz7viNFSH",
+	"KymhFFIrQgei0uiLmcZ+3XoooM0fNNNkx1uP4iq+ltjvtQvHLdKc8Ya/cx2AeY1MhTQeNxQF4yPrW085",
+	"SLJz/mPv6PHe8eHuiQ1V9XLgDPKT99X+/lHGSvwJKcmGo54Ew2D1w+l45p86swxDVsarNtMrJVwzURma",
+	"EbpPXkKpScU1K/BVM8RmTSwRLZ/qmY4tMvCIohsyqTRRdErq1i0OWsrULmb7in7+SVRSLXb6in5mk2pC",
+	"ChRKNgzhA70SMiFz89vO+ave4XG4fYFCd69fsAJ4Bq8Yj/TCeGXMoSnTY0Mx1gDWhqqA591dHnV06eTv",
+	"OS75ZmJOujarWde/uYx3FQB/w3+mfJMhoDJYLxB1ga/GI3iB2GiEhP/6h05N8rSOg8X1iT2vmg/UKBhQ",
+	"pRnlfRtH618fkFxkFQZfdhQAmcKgx7jSaP3sldWgYNne2/M3f39x8eLN6xev/9af5Lt98ndaMPTBbVQZ",
+	"iJdgwU7PD/kZaMrQZKRF8WaYnPy6ztolN+mG0fNApm8aJxxT9WwuVLgorGXFOeOj2/XQarwRuTndu7Yb",
+	"5yeCzRb9uDlinJ950OEiEX6o9/TendGaCJYP336rm12a/dz4IGaBFDqs2Nbby0aibmFL3yKM6Q5yNmmy",
+	"ZmCzFu91jLRuwrh+fJxgmMYopORkPyb4pTP11ggQ4qvt6F8zsYWhLFl2L63bItFZ2OSJMyONs47+eynQ",
+	"LjklnwQzDEueEP+ueScl7kgE/UZjW1gF780lxXjmot3uuIPsWHNVgjE+8NMVepRHZML4bmB0NyNJiTLq",
+	"WGMnEyFR2RrrQgLgCEkJkolc4ZDRTLem8s9nr0/JRFzjzMJxk0Gl/RttS7o2o2PmM6FDDbJtIppp4qFJ",
+	"pciOEhMQ3Lj64oowvXtKCqDXdt3qcyE3J9+9zSbIqJTMHQWIIq8HdeoTEj5CoWCKg39CjKYOJpkuH/Yp",
+	"qXizw91tueBwSoQszeou7aS9Ko17hPGNUyJhxJTG85knuEGQR2xBbz8NwCyQH+BOASOazcieDYkYa1Tt",
+	"hoGj5qTN0aRx7QfuPA43O0kTt+zoo84tX5Im9XJgJMBMF3nIDzoaQrL8Y49eNvVfVzmjtLjyXqc7m0bX",
+	"dCjFBFefw2ftvc61HM45L2yz4PFKM/sssGxtWAg+ZwC5soMP7OuJNcjxmKCWhQffxO6uh/J4PxjLozQW",
+	"WFoQns+5FEVhzMOnY2MS8tHGMRjBsxV7Yf4sqdYgzWz/+6/7vR9ob/jhy+Pjm39beQ5uv/9h6dhvd9S8",
+	"OtXCObVi6o+CUzIds2igc2pkHa30GLhmGdWAAq8OqJitnQssHT563Fqlo8MYydJscWhj+Ex+enX2tHfx",
+	"09nho8c7kTNrl5xBvifvk/77hHxPfCrB7uL5xdxWLR7VrLfF6+yjnVG62pgKN9em2W2eSNAddTLywx/F",
+	"t7YRmc5LbB806K8k0rCz2Gx+AlqYZdpoBsZFrFR4NCCuIhJ8biiuVWwULjMNc0LbcrzKmfjrTNu/Foy9",
+	"RaGWQwG3OnXvynqqbF7Yq4hQPkehBznxL50aJiygkYbW5CjYNdTvECXIkEqUkwdWZK8xLeD5OVCXVtac",
+	"xyhdoXbNqRoPBJVGM9nzxDRRVq5bpvrou68p/GMhlHZmrv09poKB55st5piqM7NncQd2TTP/CiCSqPL8",
+	"c1ZUZrlRSUvQRqAZ8/b8Ve/40W48fUNaAbxpjMc1+uts3fX+EI/TbBpdWiu047jFxXbSRFWTCZWzdZu5",
+	"t43SlZTbFV6z7bumQav58+70PMMAzYtmv1y2ntm2o6Pd1JryOHHCxcfm3f7GmWh29dr71yaBFkOnoXgJ",
+	"SNcR4BJB5YMPXxNf8DLv9gEG94W3VGfjxdEsZaKNeMhnYXdrifjBRZjo5o57WE7+9T/+J557nRLKXWYI",
+	"podLMJ6EPfaiBaPWqj062I0E9m66V8PGdBeXYxIm368RaPDCNk7RGLFXWpSloWQ8xkUyvnT/u2z5T43g",
+	"WC5ta+73DWtFgsSNX16tZ8Mygu5grpcGMJq4o5P2egFvr1QuqkERyCxeTQYuycvubSS7sdn0nffJT3RQ",
+	"UK6BHLxP6pwg71jkjEpnJ/aTLlEa6QEywXPVuG34nref6tVrn3d0TkTD5zWibXYoqBqTZvKu9bKV9lNo",
+	"r/OcrnEpPqgnGh1zOw10s3QwsaBUPRjyhFB1BXnaUPvYZYJi/F5OID9tFviUZIVQNuhi6NQ3xkNuG2ww",
+	"L5g2Xr4PsJkEms9O23Lf9G3kMGZHpEZIyRkdFHBKskq7vB4c0TXlTI1NP/b9KzxVw9AWWsulYPasq2En",
+	"N70wfpekiRt80qi0gf0Th5cYPyMYn2lQxRm4Xl1Rxna6kSnLNnmZMbfZJjd2wZxVnemFgP7CXOaTr+hI",
+	"Akx86db67UbAQW4aQl4vg7VNvH/zHRlvV0yo8XaLYlZXH9iUQFQqh/GT5PUEAL7VWo+0XlE/uPa0l0iF",
+	"dy0TbC4MgEKxO8Vtag98gQxpUQxoduWmWBMx5LWA9To8ruGXpnX2MK0ztd1dcTGNi+juvGJldczGppHX",
+	"TbFMwK83SYynba0N04hqIcmIXmPOmKoV1zIjpKGXxfjMdCyK0O5NieBA3nuVeEJM0/cJKRjHuhni1mi1",
+	"zeuor17TtCGTGJn54qJNA1D+wHTxpIYrTV3UpTGjJOtJGIJ0HmfUsrERgzoo+OiHH8II5X70vEYz3XFy",
+	"bv+x/hjml9E89d9Pl8UmzmtFsdkaDmYaLtg/4RanVBktjZrfrNzAlqS9c8tyJ+UIrdjHhnNYmni1bhzA",
+	"VVEtkxX19rw0L9+kbudcimhIHVE7P34eWJ9Br+kutB3pNZzW5vP1QaMro6rXLZxJe3vThrbm/NmAcMId",
+	"X0rWL+dK1bwCm7BMinIsOCZ5juxhD26AYjoe8Ki/ee+H8w1T3t59rr9xjsdQLj72e2LyFadKd8a/K/rZ",
+	"HpuuGMgmbHg/XLeUzgJ7fKPjgtulOhRU6ae3oDEtNC26Q+7LO8XGz25PdwunF7YEKxjTYh+xNb9drss9",
+	"Jq506xl5DXJNNsDz+c3SV5rv++ZhGsuSpQtOLufiio7bGyc2E/wapPLnC16RzP3bhaWiimOT4NxNLBqo",
+	"IKsk07MLI24c7kU+Ybw5Q2X2fJLmGKxxiBv/0cO3enXqmVcltoIuksTV8Rn7Wud3btBwHopFZ8GVyZCy",
+	"oNyWdF34TMm6koXynPzMruEl0y5NwZ/e9msT9iRp2p29fZGkTRFEst8/6O+jzC2B05IlJ8lRf79/hFVA",
+	"eoyrtTfGg8B/mt9HdqrWLXJGUPI30GYMHJRK5hBGDvf3l4AibAaG4M4jO7AaSikyUIowRWjBrj32gZer",
+	"xtvB50UzUk1HCsN2M6VhknwwDfYwrrN0rudAc/ZtJ2tYl2VAMsoJzTIotXEoh0OWISTFo/2jBwpFUW/H",
+	"s+ZFGaxndEuuD/YQiWPPp62pvS+fxOBFfrNsm0Ksi7SFJ/RrFGIHv/hV8Dof7pEewtlEtuDfxcAXAt2k",
+	"yfH+Qdf36gHutYBVsNHxNonmF47xIiKkQ/fIyScx6LdENm5VS1j/+sGscourRx6iwPCCz2sUklg8DfPR",
+	"gK7aiC6+DA3rvOZIzQjTni+h7KQz482EdZv3KhMWCm5jvNgq/UwD1KSex1LCpNDb04kTLisb1aA4m+1o",
+	"XQumCK2jbUbO6SAvL7XHOs3kUBHWRz22gHXZrmMHyYebNCmFiuzrU3SQW0XH9WnxX0U+u5c9tVX3N22b",
+	"zQihmwWiOriXAcQIyq5E/jVy5YfVjaJIZPdPbHZyKDlagF1iypsqkvWpaYkE2ftSw9PdWFOvAHvM1ia8",
+	"Z/j/OcKbU16x1Whe2ZsDy4uopeNFY9P2m3+1+lh/m2ussQdOI3ZlCLV00LOk0SYX3pwLVArUupLHJ2e0",
+	"KcAmNd89BTwY2bW/NdnloHlOG7BACxNYawom57K5/6T+eQk5pny0lPrvUjLu0ZL1rmC2TEI+LYDKCJzO",
+	"VsQkdv7NxOQ97/WP1mK2yTKImuXgTk4DiKwhLQpF8EhZi3msrHUlXxUxuS5A39eu3q/oOwsiOatkX4Sk",
+	"LnCpT4mt8y5o5hPdHLLPHBRZVx3Kn5JrjppxXdu4Uo6cvbPY0uE7U8k09GxiEfBMzjCdnppdUXp3cykX",
+	"IhYE/mMH+gFMBpDniOXj6pxJKaE3ZIbbjHMzrZP8jX+Lg1WEcaz/stHAPnnXgQWIiKU2Q/rEJrwAzzEF",
+	"CrEqYMx47uoCY4CnpvtJpRwmzcDB0OQhMk3fQv+0IzAhzs89WgFhNzEHJiyVUKA14yN1W37Z0JWdK7j5",
+	"ThGWA9dMz2w9pyFMw76IfWuD5kusxzkCczHgpbGJZ+6de1z+oOa6E21YESFzrEAczAjLH3TwYVgAaHLN",
+	"YIqosTZK5ePtnwTjLnXKcuTk2esLosDMsK7NXCYr/KbF93Lvi09ZXxradPXnm+rGGtj8XiOVLVyFbvxp",
+	"m0d0z3prDmX7/gnoDW9gUg2NGPvIAzVZdAsHxJaFZzXrEcwKj/FuiOLuTaVWqe5tjSTnyW2dXI4PDx+s",
+	"uX4OWBzh1T8RkmTWW2usdabbMFp3IprsOQwe/7rg6bxFSy1aUWOvfBKDEzKGohB7DoBb+wzVOQXpuESx",
+	"US1oOyGOHZxSGxtZVYZUG1TEgchnu9Y2+iQGNZZS6U8OdkLQBNPg1S/vnpNBpbXAgntKhjTTQs4wszwl",
+	"FmTaW01YfF+fZe8a7k4RvNwXZLorDRbwz41uUTXU+aL9hAc+D5Wn5+GybxbvljjcP9zW4Zd/TFxVnZMS",
+	"+9s8znotCHVo2cM2We4gemgbvcFBY5BLVl6SEbsGvvtgbSJc3UDKXIN07qeeCnlFdhr8bwQ4s+Df6wia",
+	"7tO3iMxxWrTXYK0vDRC1oCLv1FL6ZlGhrRszOK0W1mTml3M9c6XSXeEOK9gpcZkopyHDlCy7QvSXqjQs",
+	"Y0woDHWUoihSG5nCx9aQQp5XffIP9iNz+k8RKoFQpwbcKY4HalSEEi0ZLdwQfD0IkcJWSiyK4gtjcd8h",
+	"Od2XjeUBvbYbhI+CskYkpI9zSdCV5C7GpZyed3TwR+OgC9BtrNYI1J1RF1663o155kVl2aALdkVc55Bs",
+	"18mTuYf7r+6NK1qTu63v4T5TRwqVI+RQqqCsQak0L7F+Nwk50XuhtsAfxopHWOPdFqt4ZbD6kGl9xnBX",
+	"7ASOS5sh7AHIn0b3Oka3OyxyJjfZCbiBKaJFkS+Yis7ps9X8+e6DMtP/aJrnHLVsY7ZrUbuxOzXgGrqr",
+	"JJeiDA/FCePXwM2rd27Eu2Ru1R07sBk5KsAPY9whgFzWNdqXOG4FPFdNybeNEuQgG7pDnLw1Igmn9Ve+",
+	"CyR3gAJItBBY7rn/eLdP3vDmxroSpO0enz7aPbWHJC72gEGYBtMdoTQssM+cJjZc5FE/HpzgaaEU3LPU",
+	"qaFPFnn3VQ0o58hg+9FAe9y5vbzqmgcUoQVmphvKqkNXwoF6hwTYD8KW27wrEcdQA09mQuY28tEGKBUS",
+	"DYwoe+xuw+I4U1eByBB+qI24wWU8Whq/qKXYaoGn6uqQuLjDG1Bh6oOCiNgJKjQtGcebP2qbsu2KW8mF",
+	"ypYDuQIoFTGq1sykAZF3n7JosCHen2rEohmF4JFA5Dl4vII5LOaHe/jkhth142y93n80pf9CqQoIxRku",
+	"Rpx3mnDzV4bnQjXeefT8yr8Udyp/qwANjEWvstnphfKueFuP7bWpNrPw9wssabjMmEuM12cIAQKNsxrd",
+	"oluVbjFDYkP7Lenwig8DUINV8yvYhOnWh+oCu0f7AZYqfnMZsOu9sl6If9atvdWDjXP7AaaGfUBpJy5x",
+	"g/dvpQ/8//e+1EWMa+R+39YMbK4Qf0gZ3/MXS2/figrvl2b+uvDAiupvMYccsajwUjk7ecKkBIx9DopZ",
+	"ivrb3zujJc2cx/B4XepLOzNG7oWo9rdh9Qfbt31S3UK2SGh3Hh+sv9NLc0HuarvvzZe0wJRbPqlYj8oI",
+	"VaTaSrrJg5CNEuN1XIQ2znQsFDRFE5moipwMgEjMONlKZNglt9RjwPq+glrZ6HdKCxSZDogrJRap9K5U",
+	"9Z7yWH3RYPGFFuWD5zOEG/x2IRvTfflNJPe3NTJcjGObJsYFYmu21Mnh4eni3eYY9zYPD+6QUXAUDuuo",
+	"g1v8K/diiWyFmP8rJn79/6oTtCD1Nm+Dnj1kZ8vbpiPKuMfpvDPybUAxu+n3Xf3OnwT8+5LFgRxO6yh6",
+	"COaLUWl3DTh6aNsg74aeQqI+unuitom6K/zCdyGC8a3JuiN85WBTovGrRH/WAS6U/UvJGITyGg6ohs96",
+	"rywomyOk+S9FSSa8XeAP5me2p2dz4HIx5YWgeUr0Z4xqKqk3dEJbRFiDZi+PCp83r60VF1439nnwTWOf",
+	"bXTLCIGd24KPZpHCgigHEkg0m8CDDY+amfm6FXvXlwy3spNegre64VbO3W1v5wHy+n14RXFczy0jrgQA",
+	"pVFCcbelNTfg/W5SyN7ZlE6RMcRad+VNJBdgXSL4zGrkoa2bBBYSkPxy/nN4nD63yvce1bC9ERpci+eH",
+	"4mruGfdDNf+gI1ibuzrk8V5wCVA3pp1/2yORbkNa1vcNLeMDN/qHWx8xGkkYGU+l2VK3cza9yt/uNQEt",
+	"Waa+eju/1L+vKBMNpenqvN7gqw8WBW9N0WlrS9XvRm42I99q9u3fQGPayJw635RAI2kvTZFOFPXAQaIO",
+	"aYbuV5iREiTqLWQw9InNaoTcJtlNYyWEZCyKHA3cSKJMfa28T+27zMKyhUuiRJgwA9lY2KAZW8jqTrvK",
+	"srtqRLaTSp+ujUO7Vo9r3Pe5hXyesLBlUbG3Nzpk+m3x7wt+TQtW56xnEhDlgdYi6HjLOc5zJec21Zmp",
+	"MNf562VLG/845nMuK3upWXFucIH0WUjsX6/WZbXIsdXAQyYnUyrtpeWqjYuSujphjCFpRWTFEaTDZ/Je",
+	"M0ous0pK4PoyrWv62XWdvNeuGcHDrB17sdlA5E52cSN9mSIK9G6feETUGttZApan9YILvJXA5C68h5vQ",
+	"sgQq62RKI6ub3G0iePv69w6R9RDqfzoCR259u1KoHh9Fv9TedyfZg3tzDUO0ixX85rr9eYL70pnSlQ1H",
+	"XSOKSceFEf3oyc7VvMUH09X7cNq5HMdrdB5cEI135oOhFjIV0uhcKAqffSKmHCTZOf+xd/R47/hw98Tm",
+	"8fZy4Azyk/fV/v5Rxkr8CSnJhqOeBOO01A+n45l/6lLmQEohnZnhkGCwDh+umagUGQih++S5vfvPc0fX",
+	"MsD1Jstwj5HDZxFGr28wnONxMxmrl3EURiVb4fU0qGleQrxRi8al9oLGxGGmba85G+J1R66q4zIbji77",
+	"y3Mrk//oBXctz2eil8DRQPWBdVtp4UoiTmwZkNv5Oght9x9ji1qU8ad9cjZQSIPhli/ZgO3Dm781u6A0",
+	"cMugS0HNY7VrqOEM2fOMFcz6gqhyNlR1gLeLr2tUW9mvNJSefLA9qlzD1/tHe+c/9h4dGNa22fA1GhUE",
+	"UMoRXDJrYHeBcgwqTbiYw+SYgU6N7mKaUHWlIlfRmzUym4+a2V4Db5iG8VEBvUpZV9rdTkHoUIMkj/eJ",
+	"6pPj/WPvCMx/053pRKFDmsVwx/WlUIoNCtiN6snmZvenY7MKfPRQ4ZdiI+0wnDP/wrewUp/Pb0DNVXVZ",
+	"S7iZ86xWT65VP020sGS+tNwryndpF5gN3iOLjHRCLic0uyRPyBg+k59enT3tXfx0dvjo8U6kk9RR8ffk",
+	"fdJ/n5DviefkXQsJo4xJmAmutKzwisgGHMTjmVQKlDUug/q0xkSsiXkgJG9mbN7DKjWiqgzvvFjwkbGH",
+	"oHbOdGGLR3Bk+NnvFMnZCBOhhSSXb99cvCNGMnnQqstFRrG091DrZxvOCCpotxn4Dwdgu+hkjKJGaozE",
+	"NgJicBTAxfRb+L0tWV1Z9yWtr3NwZl8phRg2ZwATqrPx70Pg3NZJroUUdhkIJ7x5WOJV5kwv16Mb2gaT",
+	"xnKLQj3Yq8+/vsL0LsJLW0J/aF/6flvwh3PnrvwecwJWB2hs0aa9tVtZBGIzXeV8NooAcv4ue4tCa0ue",
+	"HrXSr5qKscXsgDWrwOfJFenhAdPrAyh/bqrWrftlvT9rBTD1VTCrfxY6f22hs7sOX9NM+xSzey98XpPf",
+	"0QOzVnNd8oAOVQ1+aKy+Strqo/2v4XQXzApA26KYYOudB82dBV0YVU41xo3IDlyDnNWYXw4HU4J5qHbT",
+	"5q5zbKy8bYKgYSVVaipk7qPC2ZgiMqMFGbMa+n3ipvI+IZkoqgl3EBSQKwxjDYWcWK+Z6VgNtVFC5/YT",
+	"Xw0i9q3OeB4CbtmaKvqBnPxs55Dl2h7fWlzTJsrt8w6MWq+4wqjPcZSbaxauAYk7AQv+Ybjx8orx/ImT",
+	"AJch3KzxGRWWptlMFi9gJiIHd9JDdVOkkINiI04Ojsn//T9H/cNI7MXiwfg7W+PnE5188Ic4Wb17rpu7",
+	"xjVaHnRw171Fy4Ncgli2eMfYw2LgbY3GX+UqJClXRZ3XlxL+lrNGg9plx+wkx66oxGo4Rn+ne30dp5cL",
+	"H25u6puJLQdWskhOkr3k5sPN/wsAAP//",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

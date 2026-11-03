@@ -62,6 +62,7 @@ type stubDevices struct {
 	config   []byte
 	secret   string
 	running  map[string]any
+	assigned uuid.UUID
 }
 
 func (s *stubDevices) Reconcile(_ context.Context, poll device.Poll) (device.PollResult, error) {
@@ -83,6 +84,10 @@ func (s *stubDevices) Get(context.Context, string) (device.Detail, error) {
 
 func (s *stubDevices) SetDesiredProfile(context.Context, string, string) error { return s.err }
 func (s *stubDevices) Rename(context.Context, string, string) error            { return s.err }
+func (s *stubDevices) AssignAgentProfile(_ context.Context, _ string, id uuid.UUID) error {
+	s.assigned = id
+	return s.err
+}
 func (s *stubDevices) SetMeetingLimits(_ context.Context, _ string, silence, hours int) error {
 	s.limits = [2]int{silence, hours}
 	return s.err

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/zetesis-labs/sebastian/server/internal/adoption"
+	"github.com/zetesis-labs/sebastian/server/internal/agentprofile"
 	apihttp "github.com/zetesis-labs/sebastian/server/internal/api"
 	"github.com/zetesis-labs/sebastian/server/internal/config"
 	"github.com/zetesis-labs/sebastian/server/internal/database"
@@ -21,6 +23,7 @@ import (
 	"github.com/zetesis-labs/sebastian/server/internal/meeting"
 	postgresstore "github.com/zetesis-labs/sebastian/server/internal/postgres"
 	"github.com/zetesis-labs/sebastian/server/internal/recording"
+	"github.com/zetesis-labs/sebastian/server/internal/secretbox"
 	"github.com/zetesis-labs/sebastian/server/internal/session"
 	"github.com/zetesis-labs/sebastian/server/internal/transcribe"
 )
@@ -85,7 +88,11 @@ func run(logger *slog.Logger) error {
 	go meetings.Run(ctx, 5*time.Second)
 	go transcriber.Run(ctx)
 	go meetings.RunRetention(ctx, cfg.MeetingRetention, 24*time.Hour)
-	handler := apihttp.NewHandler(sessions, recordings, devices, meetings, store, logger, cfg.DatabasePingTimeout)
+	agents, err := agentProfiles(ctx, cfg, store, logger)
+	if err != nil {
+		return err
+	}
+	handler := apihttp.NewHandler(sessions, recordings, devices, meetings, store, logger, cfg.DatabasePingTimeout).WithAgentProfiles(agents)
 	server, err := httpserver.New(cfg.Address, handler, logger, cfg.AdminSecret,
 		httpserver.Raw{Pattern: "PUT /v1/meetings/{id}/audio", Handler: apihttp.MeetingAudioUpload(meetings, cfg.AgentSecret)},
 		httpserver.Raw{Pattern: "HEAD /v1/meetings/{id}/audio", Handler: apihttp.MeetingAudioOffset(meetings)(cfg.AgentSecret)},
@@ -93,6 +100,7 @@ func run(logger *slog.Logger) error {
 		httpserver.Raw{Pattern: "POST /v1/meetings/{id}/stop", Handler: apihttp.MeetingAgentStop(meetings, cfg.AgentSecret)},
 		httpserver.Raw{Pattern: "POST /v1/meetings/{id}/warn", Handler: apihttp.MeetingAgentWarn(meetings, cfg.AgentSecret)},
 		httpserver.Raw{Pattern: "GET /v1/admin/meetings/{id}/audio", Handler: apihttp.MeetingAudioDownload(meetings)},
+		httpserver.Raw{Pattern: "GET /v1/agent-profiles/{id}/credentials", Handler: apihttp.AgentProfileCredentials(agents, cfg.AgentSecret, logger)},
 	)
 	if err != nil {
 		return err
@@ -106,6 +114,7 @@ func run(logger *slog.Logger) error {
 			"public_api_url", cfg.PublicAPIURL,
 			"discovery", cfg.DiscoveryEnabled,
 			"org_secret_configured", cfg.OrgSecret != "",
+			"secrets_key_configured", agents.SecretsKeyConfigured(),
 		)
 		errorsCh <- server.ListenAndServe()
 	}()
@@ -125,4 +134,42 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	return nil
+}
+
+// agentProfiles syncs the Kubernetes-managed profiles from their file before
+// serving: a broken file stops the server instead of serving stale agents.
+func agentProfiles(ctx context.Context, cfg config.Config, store *postgresstore.Store, logger *slog.Logger) (*agentprofile.Service, error) {
+	var sealer agentprofile.Sealer
+	if cfg.SecretsKey != "" {
+		key, err := secretbox.ParseKey(cfg.SecretsKey)
+		if err != nil {
+			return nil, err
+		}
+		box, err := secretbox.New(key)
+		if err != nil {
+			return nil, err
+		}
+		sealer = box
+	} else {
+		logger.Warn("SEBASTIAN_SECRETS_KEY not set — API keys cannot be stored from the panel; the agent uses its environment keys")
+	}
+	agents := agentprofile.NewService(store, sealer, logger)
+	if cfg.AgentProfilesFile == "" {
+		return agents, nil
+	}
+	data, err := os.ReadFile(cfg.AgentProfilesFile)
+	if err != nil {
+		return nil, fmt.Errorf("read agent profiles file: %w", err)
+	}
+	manifest, err := agentprofile.ParseManifest(data)
+	if err != nil {
+		return nil, fmt.Errorf("agent profiles file %s: %w", cfg.AgentProfilesFile, err)
+	}
+	plan, err := agents.Sync(ctx, manifest)
+	if err != nil {
+		return nil, err
+	}
+	logger.Info("agent profiles synced from file", "file", cfg.AgentProfilesFile, "declared", len(manifest),
+		"created", len(plan.Create), "updated", len(plan.Update), "deleted", len(plan.Delete), "released", len(plan.Release))
+	return agents, nil
 }

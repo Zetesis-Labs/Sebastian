@@ -35,6 +35,7 @@ type DeviceService interface {
 	SetDesiredProfile(ctx context.Context, id, name string) error
 	Rename(ctx context.Context, id, name string) error
 	SetMeetingLimits(ctx context.Context, id string, silenceMin, maxHours int) error
+	AssignAgentProfile(ctx context.Context, id string, profileID uuid.UUID) error
 	SetDesiredConfig(ctx context.Context, id string, config map[string]any) (string, error)
 	ClearDesiredConfig(ctx context.Context, id string) error
 	DeviceConfig(ctx context.Context, id, secret string) (json.RawMessage, error)
@@ -54,6 +55,7 @@ type Server struct {
 	recordings       RecordingService
 	devices          DeviceService
 	meetings         MeetingService
+	agents           AgentProfileService
 	readiness        ReadinessChecker
 	logger           *slog.Logger
 	readinessTimeout time.Duration
@@ -188,7 +190,16 @@ func deviceResponse(item device.Device) Device {
 		ReportedConfigVersion: optional(item.ReportedConfig),
 		DesiredConfigVersion:  optional(item.DesiredConfig),
 		SeenOnLanAt:           optionalTime(item.SeenOnLanAt),
+		AgentProfileId:        optionalUUID(item.AgentProfileID),
+		AgentProfileName:      optional(item.AgentProfileName),
 	}
+}
+
+func optionalUUID(value uuid.UUID) *uuid.UUID {
+	if value == uuid.Nil {
+		return nil
+	}
+	return &value
 }
 
 func (h *Server) ListRecordings(ctx context.Context, request ListRecordingsRequestObject) (ListRecordingsResponseObject, error) {

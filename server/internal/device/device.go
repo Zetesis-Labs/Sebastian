@@ -77,6 +77,8 @@ type Device struct {
 	// Meeting recordings (RM-23/24), set from the ficha.
 	MeetingSilenceMin int
 	MeetingMaxHours   int
+	AgentProfileID    uuid.UUID // uuid.Nil = no agent: the unit cannot open sessions
+	AgentProfileName  string
 
 	// Derived / from the LAN announce.
 	State       State
@@ -143,6 +145,9 @@ type Store interface {
 	Forget(ctx context.Context, id string) error
 	Rename(ctx context.Context, id, name string) error
 	SetMeetingLimits(ctx context.Context, id string, silenceMin, maxHours int) error
+	// AssignAgentProfile makes the unit talk through that agent from its next
+	// session; agentprofile.ErrNotFound when the profile does not exist.
+	AssignAgentProfile(ctx context.Context, id string, profileID uuid.UUID) error
 }
 
 // Adopter is the network side (adoption.Client); swapped in tests. Adopt
@@ -308,6 +313,10 @@ func (s *Service) SetDesiredProfile(ctx context.Context, id, name string) error 
 
 func (s *Service) Rename(ctx context.Context, id, name string) error {
 	return s.store.Rename(ctx, id, name)
+}
+
+func (s *Service) AssignAgentProfile(ctx context.Context, id string, profileID uuid.UUID) error {
+	return s.store.AssignAgentProfile(ctx, id, profileID)
 }
 
 // Meeting limits per unit (RM-23: 5–60 min of silence; RM-24: 1–8 h).
