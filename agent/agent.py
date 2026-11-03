@@ -54,6 +54,7 @@ from meeting_mode import (
 )
 from wake_verify import setup_wake_verify
 from tasks import spawn as _spawn
+from turns import user_turns
 from typing import Any
 
 load_dotenv(Path(__file__).with_name(".env"))
@@ -210,11 +211,13 @@ class Sebastian(Agent):
 
 
 def _user_turns(session: AgentSession) -> list[str]:
-    return [
-        item.text_content or ""
+    return user_turns(
+        (
+            getattr(item, "role", None) if getattr(item, "type", None) == "message" else None,
+            getattr(item, "text_content", None) or "",
+        )
         for item in session.history.items
-        if getattr(item, "type", None) == "message" and item.role == "user"
-    ]
+    )
 
 
 async def _user_asked_to_record(session: AgentSession) -> bool:
