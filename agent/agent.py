@@ -23,6 +23,7 @@ import os
 import time
 from pathlib import Path
 
+import aiohttp
 from dotenv import load_dotenv
 from livekit import agents, rtc
 from livekit.agents import (
@@ -46,6 +47,8 @@ from device_identity import device_identity_from_metadata
 from endpointing import AGENT_STATE_TOPIC, close_device_session, setup_endpointing
 from instrumentation import instrument_session
 from meeting_mode import (
+    AGENT_SECRET,
+    API_URL,
     NOT_ASKED_TO_RECORD,
     meeting_from_metadata,
     request_meeting_by_voice,
@@ -53,6 +56,16 @@ from meeting_mode import (
     voice_start_asked,
 )
 from wake_verify import setup_wake_verify
+from model_choice import (
+    ENV_KEYS,
+    CredentialsUnavailable,
+    ModelChoice,
+    UnknownProvider,
+    api_key_for,
+    choice_from_metadata,
+    fetch_profile_credentials,
+    panel_key_for,
+)
 from tasks import spawn as _spawn
 from turns import user_turns
 from typing import Any
@@ -75,6 +88,10 @@ m_end = telemetry.counter(
 )
 m_announce = telemetry.counter(
     "sebastian_agent_announcements_total", "Server-pushed announcements spoken"
+)
+m_model_unavailable = telemetry.counter(
+    "sebastian_agent_model_unavailable_total",
+    "Sessions refused because the agent profile's model could not be built (by provider, reason)",
 )
 
 BARGE_TOPIC = "sebastian.barge_in"
@@ -231,16 +248,18 @@ async def _user_asked_to_record(session: AgentSession) -> bool:
     return False
 
 
-def _build_gemini_realtime_model() -> google.realtime.RealtimeModel:
-    log.info(
-        "[model] provider=gemini model=%s voice=%s language=%s",
-        GEMINI_MODEL,
-        GEMINI_VOICE,
-        GEMINI_LANGUAGE or "<auto>",
-    )
+def _build_gemini_realtime_model(choice: ModelChoice, api_key: str) -> google.realtime.RealtimeModel:
+    model = choice.model or GEMINI_MODEL
+    voice = choice.voice or GEMINI_VOICE
+    language = choice.language or GEMINI_LANGUAGE
+    if language and "native-audio" in model:
+        log.warning("[model] gemini %s rejects a language code; ignoring %r", model, language)
+        language = ""
+    log.info("[model] provider=gemini model=%s voice=%s language=%s", model, voice, language or "<auto>")
     kwargs: dict[str, Any] = dict(
-        model=GEMINI_MODEL,
-        voice=GEMINI_VOICE,
+        model=model,
+        voice=voice,
+        api_key=api_key,
         proactivity=True,
         enable_affective_dialog=True,
         # Less sensitive speech-start detection: with the TV in the room,
@@ -254,16 +273,19 @@ def _build_gemini_realtime_model() -> google.realtime.RealtimeModel:
             ),
         ),
     )
-    if GEMINI_LANGUAGE:
-        kwargs["language"] = GEMINI_LANGUAGE
+    if language:
+        kwargs["language"] = language
     return google.realtime.RealtimeModel(**kwargs)
 
 
-def _build_openai_realtime_model() -> openai.realtime.RealtimeModel:
-    log.info("[model] provider=openai model=%s voice=%s", OPENAI_REALTIME_MODEL, OPENAI_VOICE)
+def _build_openai_realtime_model(choice: ModelChoice, api_key: str) -> openai.realtime.RealtimeModel:
+    model = choice.model or OPENAI_REALTIME_MODEL
+    voice = choice.voice or OPENAI_VOICE
+    log.info("[model] provider=openai model=%s voice=%s", model, voice)
     return openai.realtime.RealtimeModel(
-        model=OPENAI_REALTIME_MODEL,
-        voice=OPENAI_VOICE,
+        model=model,
+        voice=voice,
+        api_key=api_key,
         # eagerness=low is an ENDPOINTING choice (don't commit the user's turn
         # while they pause to think). interrupt_response must be explicit: the
         # field-observed default let talk-over speech pass WITHOUT the server
@@ -275,34 +297,26 @@ def _build_openai_realtime_model() -> openai.realtime.RealtimeModel:
     )
 
 
-def _build_phonic_realtime_model() -> phonic.realtime.RealtimeModel:
-    log.info(
-        "[model] provider=phonic model=%s voice=%s language=%s",
-        PHONIC_MODEL or "<default>",
-        PHONIC_VOICE,
-        PHONIC_LANGUAGE,
-    )
-    kwargs: dict[str, Any] = dict(voice=PHONIC_VOICE, default_language=PHONIC_LANGUAGE)
-    if PHONIC_MODEL:
-        kwargs["phonic_model"] = PHONIC_MODEL
+def _build_phonic_realtime_model(choice: ModelChoice, api_key: str) -> phonic.realtime.RealtimeModel:
+    model = choice.model or PHONIC_MODEL
+    voice = choice.voice or PHONIC_VOICE
+    language = choice.language or PHONIC_LANGUAGE
+    log.info("[model] provider=phonic model=%s voice=%s language=%s", model or "<default>", voice, language)
+    kwargs: dict[str, Any] = dict(api_key=api_key, voice=voice, default_language=language)
+    if model:
+        kwargs["phonic_model"] = model
     return phonic.realtime.RealtimeModel(**kwargs)
 
 
-def _build_realtime_model() -> Any:
-    if MODEL_PROVIDER == "gemini":
-        return _build_gemini_realtime_model()
-    if MODEL_PROVIDER == "openai":
-        return _build_openai_realtime_model()
-    if MODEL_PROVIDER == "phonic":
-        return _build_phonic_realtime_model()
-    raise ValueError(
-        "SEBASTIAN_MODEL_PROVIDER must be 'gemini', 'openai' or 'phonic' "
-        f"(got {MODEL_PROVIDER!r})"
-    )
+_BUILDERS = {
+    "gemini": _build_gemini_realtime_model,
+    "openai": _build_openai_realtime_model,
+    "phonic": _build_phonic_realtime_model,
+}
 
 
-def _build_session() -> AgentSession:
-    realtime = _build_realtime_model()
+def _build_session(choice: ModelChoice, api_key: str) -> AgentSession:
+    realtime = _BUILDERS[choice.provider](choice, api_key)
     return AgentSession(
         llm=realtime,
         # TTS is used only by session.say() for announcements (control_plane.py):
@@ -396,6 +410,47 @@ def _setup_barge_in(ctx: agents.JobContext, session: AgentSession) -> None:
             log.warning("barge-in interrupt failed: %r", e)
 
 
+async def _resolve_model(ctx: agents.JobContext) -> tuple[ModelChoice | None, str | None]:
+    """The speaker's agent profile and its API key. A session never starts on a
+    guessed model: an unknown provider, an unreadable stored key or no key at
+    all refuse it, loudly."""
+    try:
+        choice = choice_from_metadata(ctx.job.metadata, MODEL_PROVIDER)
+    except UnknownProvider as e:
+        log.error("[model] session refused: %s", e)
+        m_model_unavailable.add(1, {"provider": "unknown", "reason": "unknown_provider"})
+        return None, None
+    panel_key: str | None = None
+    if choice.profile_id:
+        if not AGENT_SECRET:
+            # Without it the stored key cannot be asked for, and using the
+            # environment one instead could be another account: refuse.
+            log.error("[model] session refused: SEBASTIAN_AGENT_SECRET not set, the key of profile %s is unknowable", choice.profile_id)
+            m_model_unavailable.add(1, {"provider": choice.provider, "reason": "no_agent_secret"})
+            return choice, None
+        try:
+            async with aiohttp.ClientSession() as http:
+                creds = await fetch_profile_credentials(http, API_URL, AGENT_SECRET, choice.profile_id)
+            panel_key = panel_key_for(choice, creds)
+        except CredentialsUnavailable as e:
+            log.error("[model] session refused: the key of profile %s is unusable: %s", choice.profile_id, e)
+            m_model_unavailable.add(1, {"provider": choice.provider, "reason": "credentials_unavailable"})
+            return choice, None
+    api_key = api_key_for(choice.provider, panel_key, os.environ)
+    if api_key is None:
+        log.error(
+            "[model] session refused: no API key for provider=%s (profile %s): store one in the panel or set %s",
+            choice.provider, choice.profile_id or "<none>", ENV_KEYS[choice.provider],
+        )
+        m_model_unavailable.add(1, {"provider": choice.provider, "reason": "no_api_key"})
+        return choice, None
+    log.info(
+        "[model] profile=%s provider=%s key=%s", choice.profile_id or "<none>", choice.provider,
+        "panel" if panel_key else "environment",
+    )
+    return choice, api_key
+
+
 async def entrypoint(ctx: agents.JobContext) -> None:
     m_jobs.add(1)
     device_identity = device_identity_from_metadata(ctx.job.metadata)
@@ -405,13 +460,18 @@ async def entrypoint(ctx: agents.JobContext) -> None:
         # A meeting recording (design 14 block C): no assistant at all (RM-12).
         await run_meeting(ctx, meeting, device_identity, silero.VAD.load())
         return
+    choice, api_key = await _resolve_model(ctx)
+    if choice is None or api_key is None:
+        await ctx.connect()
+        await close_device_session(ctx, reason="model_unavailable")
+        return
     mic_input = SebastianAudioInput(ctx.room, vad=silero.VAD.load(), device_identity=device_identity)
     ctx.add_shutdown_callback(mic_input.aclose)
     if RECORD and RECORD_TRACK:
         # Raw-track tap — off by default: it starts at the handoff (no
         # pre-roll), so _model.wav is what you want to listen to.
         setup_recorder(ctx)
-    session = _build_session()
+    session = _build_session(choice, api_key)
     instrument_session(session)
     _setup_barge_in(ctx, session)
     _setup_announce(ctx, session)
