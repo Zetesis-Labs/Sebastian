@@ -27,6 +27,17 @@
      iPhone, Spotify a través de AirPlay y Music Assistant de Home Assistant,
      sin licencias de terceros. Spotify Connect directo (`librespot`, no
      oficial) queda fuera; WHIP/URL por Ingress de LiveKit, solo si hace falta.
+     No toca el firmware más allá de 2a: a la placa le da igual quién publique
+     en su sala.
+
+     Android, por Music Assistant (Rubén, 2026-11-04). No trae AirPlay, Google
+     Cast exige receptores certificados por Google y el ESP32-S3 no tiene
+     Bluetooth clásico (A2DP). Un receptor DLNA en el mismo puente, solo si se
+     echa en falta el botón de enviar de alguna app.
+
+     Pendiente: AirPlay se descubre por mDNS, que no pasa de la red de casa
+     (10.0.0.x) a cortes (10.0.100.x). O un repetidor de mDNS en el router, o
+     el puente en una máquina de la red de casa.
 
    En el firmware: una orden `play-start`/`play-stop` por el mismo buzón que
    las de reuniones (hoy solo `record-*`, `control.zig`), un modo de sesión de
