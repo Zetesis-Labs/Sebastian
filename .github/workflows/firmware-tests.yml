@@ -59,3 +59,13 @@ jobs:
             (idf.py reconfigure || true) &&
             find managed_components -name sdkconfig.rename -delete &&
             idf.py build
+      # The component manager may re-solve instead of using dependencies.lock
+      # (see firmware/main/idf_component.yml): fail if it picked other versions.
+      - name: Check the resolved component versions against dependencies.lock
+        run: |
+          versions() { awk '/^  [a-z].*:$/{n=$1} /^    version:/{print n, $2}' "$1"; }
+          git show HEAD:firmware/dependencies.lock > "$RUNNER_TEMP/committed.lock"
+          if ! diff <(versions "$RUNNER_TEMP/committed.lock") <(versions firmware/dependencies.lock); then
+            echo "::error file=firmware/dependencies.lock::the build resolved component versions other than the lock; pin them in firmware/main/idf_component.yml or update the lock on purpose"
+            exit 1
+          fi
