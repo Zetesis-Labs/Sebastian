@@ -211,7 +211,9 @@ de un proxy tampoco, porque no dice dónde está la unidad. Olvidar la borra. Un
 aquí, ausente* ofrece *Readoptar*, que lo adopta en esa dirección (la fila dice
 "última consulta desde 10.0.0.193"). Si no la conoce, remite a *Adoptar por
 IP*. Las órdenes por la red (reunión, aviso) a un altavoz de otra subred usan la
-misma dirección; la red, cuando lo ve, manda sobre ella.
+misma dirección; la red, cuando lo ve, manda sobre ella. Como cualquier adopción,
+readoptar lo deja *esperando arranque* hasta su primer poll, sin volver a
+ofrecer *Readoptar*: la fecha de adopción es siempre la de la última.
 
 **RF-32 Autorización.** El altavoz solo acepta la adopción si el mensaje está
 firmado con el secreto de organización que ya tiene o con su propio secreto de
