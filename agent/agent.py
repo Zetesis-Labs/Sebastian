@@ -17,10 +17,10 @@ Set SEBASTIAN_RECORD=1 to dump the incoming mic track to /tmp for debugging.
 
 import asyncio
 import contextlib
-import json
 import logging
 import os
 import time
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import aiohttp
@@ -33,6 +33,7 @@ from livekit.agents import (
     function_tool,
     get_job_context,
     mcp,
+    tts,
 )
 from livekit.agents.voice.agent_session import TurnHandlingOptions
 from livekit.agents.voice.room_io import RoomOptions
@@ -44,6 +45,13 @@ import talk_over
 import telemetry
 from audio_input import SebastianAudioInput, setup_recorder, setup_output_recorder, RECORD, RECORD_TRACK
 from device_identity import device_identity_from_metadata
+from announce import (
+    CHIME_SAMPLE_RATE,
+    announce_voice,
+    announcement_from_metadata,
+    announcement_from_payload,
+    chime_pcm,
+)
 from endpointing import AGENT_STATE_TOPIC, close_device_session, setup_endpointing
 from instrumentation import instrument_session
 from meeting_mode import (
@@ -89,6 +97,9 @@ m_end = telemetry.counter(
 )
 m_announce = telemetry.counter(
     "sebastian_agent_announcements_total", "Server-pushed announcements spoken"
+)
+m_announce_failed = telemetry.counter(
+    "sebastian_agent_announcements_failed_total", "Server-pushed announcements not said (by reason)"
 )
 m_model_unavailable = telemetry.counter(
     "sebastian_agent_model_unavailable_total",
@@ -316,14 +327,27 @@ _BUILDERS = {
 }
 
 
+def _build_announce_tts(choice: ModelChoice, api_key: str) -> tts.TTS | None:
+    """The voice announcements are said in: the profile's own. Phonic speaks
+    given text itself (supports_say), so its session needs no TTS; OpenAI and
+    Gemini realtime cannot, and use their provider's TTS with the same voice
+    and the profile's key."""
+    voice = announce_voice(choice.provider)
+    if voice == "openai_tts":
+        return openai.TTS(voice=choice.voice or OPENAI_VOICE, api_key=api_key)
+    if voice == "gemini_tts":
+        return google.beta.GeminiTTS(voice_name=choice.voice or GEMINI_VOICE, api_key=api_key)
+    return None
+
+
 def _build_session(choice: ModelChoice, api_key: str) -> AgentSession:
     realtime = _BUILDERS[choice.provider](choice, api_key)
     return AgentSession(
         llm=realtime,
-        # TTS is used only by session.say() for announcements (control_plane.py):
-        # a cold realtime session returns empty generations for out-of-band
-        # replies, so announces speak via deterministic TTS instead.
-        tts=openai.TTS(),
+        # TTS is used only by session.say() for announcements: a cold realtime
+        # session returns empty generations for out-of-band replies, so
+        # announcements are said verbatim (see _build_announce_tts).
+        tts=_build_announce_tts(choice, api_key),
         # NOTE on interruptions: with turn_detection="realtime_llm" the
         # framework hard-ignores every local interruption path (VAD events,
         # transcript activity — see agent_activity.on_vad_inference_done), and
@@ -344,6 +368,27 @@ def _build_session(choice: ModelChoice, api_key: str) -> AgentSession:
 ANNOUNCE_WAIT_S = 60.0  # max courtesy wait for the session to go idle
 
 
+async def _chime_frames() -> AsyncIterator[rtc.AudioFrame]:
+    pcm = chime_pcm()
+    step = CHIME_SAMPLE_RATE // 100 * 2  # 10 ms of mono 16-bit
+    for i in range(0, len(pcm), step):
+        chunk = pcm[i : i + step]
+        yield rtc.AudioFrame(chunk, CHIME_SAMPLE_RATE, 1, len(chunk) // 2)
+
+
+async def _say_announcement(session: AgentSession, text: str) -> None:
+    """Chime, then the text verbatim in the profile's voice. A chime that
+    fails must not cost the announcement itself."""
+    log.info("announce → speaking: %r", text)
+    try:
+        # Not "": LiveKit skips empty text and the transcript segment never ends.
+        await session.say(" ", audio=_chime_frames(), add_to_chat_ctx=False).wait_for_playout()
+    except Exception as e:
+        log.warning("announce chime failed, saying the text anyway: %r", e)
+    await session.say(text).wait_for_playout()
+    m_announce.add(1)
+
+
 async def _speak_when_idle(session: AgentSession, text: str) -> None:
     """Courtesy announce delivery (§4 'proactivity with courtesy').
 
@@ -362,40 +407,44 @@ async def _speak_when_idle(session: AgentSession, text: str) -> None:
             if idle_since is None:
                 idle_since = now
             if now - idle_since >= 3.0:
-                m_announce.add(1)
-                log.info("announce → speaking (TTS): %r", text)
-                # say(TTS), NOT generate_reply: after 4 field cases, every
+                # say(), NOT generate_reply: after 4 field cases, every
                 # announce routed through Gemini was a lottery (empty/garbled
-                # generations: 0.007s, "Anuncio en curso.", "Let me check");
-                # the only announces ever heard went through TTS. Deterministic
-                # verbatim delivery is what an announcement wants anyway.
-                session.say(text)
+                # generations: 0.007s, "Anuncio en curso.", "Let me check").
+                # Deterministic verbatim delivery is what an announcement wants.
+                try:
+                    await _say_announcement(session, text)
+                except Exception:
+                    m_announce_failed.add(1, {"reason": "error"})
+                    log.exception("announce FAILED in the conversation: %r", text)
                 return
         else:
             idle_since = None
         await asyncio.sleep(0.25)
+    m_announce_failed.add(1, {"reason": "busy"})
     log.warning("announce DROPPED: session busy for %.0fs: %r", ANNOUNCE_WAIT_S, text)
 
 
-def _setup_announce(ctx: agents.JobContext, session: AgentSession) -> None:
-    """Per-session announce wiring: an announce pushed on the data channel is
-    spoken once the session goes idle. Delivers ONLY while the device is in an
-    active conversation; proactive delivery to an idle device needs endpoint mode
-    (ROADMAP §9) — control_plane.py returns 409 when the device is idle."""
+def _setup_announce(ctx: agents.JobContext, session: AgentSession, queue: list[str] | None = None) -> None:
+    """Per-session announce wiring: an announce pushed on the data channel
+    while a conversation is open is spoken once the session goes idle. An idle
+    speaker gets its own announce session instead (see entrypoint)."""
 
     @ctx.room.on("data_received")
     def _on_data(packet: rtc.DataPacket) -> None:
         if packet.topic != ANNOUNCE_TOPIC:
             return
-        try:
-            text = json.loads(bytes(packet.data).decode())["text"].strip()
-        except Exception as e:
-            log.warning("announce: bad payload: %r", e)
+        announcement = announcement_from_payload(bytes(packet.data))
+        if announcement is None:
+            m_announce_failed.add(1, {"reason": "bad_payload"})
+            log.warning("announce: bad payload, ignored")
             return
-        if not text:
+        if queue is not None:
+            # An announce session that closes once said: speak it before closing.
+            log.info("announce queued behind this session's own: %r", announcement.text)
+            queue.append(announcement.text)
             return
-        log.info("announce queued (waiting for idle): %r", text)
-        _spawn(_speak_when_idle(session, text))
+        log.info("announce queued (waiting for idle): %r", announcement.text)
+        _spawn(_speak_when_idle(session, announcement.text))
 
 
 def _setup_barge_in(ctx: agents.JobContext, session: AgentSession) -> None:
@@ -461,8 +510,12 @@ async def entrypoint(ctx: agents.JobContext) -> None:
         # A meeting recording (design 14 block C): no assistant at all (RM-12).
         await run_meeting(ctx, meeting, device_identity, silero.VAD.load())
         return
+    announcement = announcement_from_metadata(ctx.job.metadata)
     choice, api_key = await _resolve_model(ctx)
     if choice is None or api_key is None:
+        if announcement is not None:
+            m_announce_failed.add(1, {"reason": "model_unavailable"})
+            log.error("announce NOT said, no model for this profile: %r", announcement.text)
         await ctx.connect()
         await close_device_session(ctx, reason="model_unavailable")
         return
@@ -475,9 +528,14 @@ async def entrypoint(ctx: agents.JobContext) -> None:
     session = _build_session(choice, api_key)
     instrument_session(session)
     _setup_barge_in(ctx, session)
-    _setup_announce(ctx, session)
+    # More announcements can reach an announce session that only speaks (the
+    # server sees the unit talking with an agent): they are said before it closes.
+    queued: list[str] | None = [] if announcement is not None and not announcement.reply else None
+    _setup_announce(ctx, session, queued)
     setup_endpointing(ctx, session, device_identity)
-    setup_wake_verify(ctx, session, mic_input)
+    if announcement is None:
+        # An announce session opens without a wake word: nothing to verify.
+        setup_wake_verify(ctx, session, mic_input)
     session.input.audio = mic_input
 
     async def _flush_device_render() -> None:
@@ -533,6 +591,20 @@ async def entrypoint(ctx: agents.JobContext) -> None:
             ctx.add_shutdown_callback(out_tee.aclose)
     await ctx.connect()
     await ctx.wait_for_participant(identity=device_identity)
+    if announcement is not None:
+        log.info("announce session (reply=%s)", announcement.reply)
+        try:
+            await _say_announcement(session, announcement.text)
+            while queued:
+                await _say_announcement(session, queued.pop(0))
+        except Exception:
+            m_announce_failed.add(1, {"reason": "error"})
+            log.exception("announce FAILED: %r", announcement.text)
+            await close_device_session(ctx, reason="announce_failed")
+            return
+        if not announcement.reply:
+            await close_device_session(ctx, reason="announce", pre_grace_s=GOODBYE_GRACE_S)
+        return
     with contextlib.suppress(asyncio.TimeoutError):
         await asyncio.wait_for(mic_input.preroll_ready.wait(), timeout=1.2)
     if mic_input.preroll_ready.is_set():
