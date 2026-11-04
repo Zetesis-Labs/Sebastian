@@ -290,6 +290,8 @@ fn openSession(audio: AudioPipeline, conn: token.Connection) AppError!void {
     opts.on_data_received = onDataReceived;
 
     logHeap("pre-room");
+    c.sebastian_heap_trace_begin();
+    errdefer c.sebastian_heap_trace_end();
     try requireLiveKitOk(c.livekit_room_create(&room, &opts), error.RoomCreateFailed);
     // If connect fails, destroy the room we just created. Without this the
     // half-open room leaks with its tasks alive (websocket, peer, SCTP retry
@@ -685,6 +687,7 @@ fn teardownActiveSession() void {
     // says its own name and a tail leaking into the mic would immediately re-trigger.
     c.vTaskDelay(1500);
     logHeap("post-drain");
+    c.sebastian_heap_trace_end();
 }
 
 fn runWakeCycle(audio: AudioPipeline) void {

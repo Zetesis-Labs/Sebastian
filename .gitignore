@@ -7,6 +7,7 @@ firmware/sdkconfig.local
 
 # --- ESP-IDF build artifacts ---
 firmware/build/
+firmware/build-heaptrace/
 firmware/managed_components/
 firmware/include/bindings.h
 

@@ -2,6 +2,7 @@
 #
 # DENTRO del devcontainer (build + servicios):
 #   make fw-build     compila el firmware (ESP-IDF + Zig, todo en el contenedor)
+#   make fw-build-heaptrace  firmware de diagnóstico de memoria (nunca a producción)
 #   make agent        agente LiveKit en dev (hot-reload)
 #   make token        token server Python legado (:8787, publicado a la LAN)
 #   make provision    (re)carga el dashboard de Grafana
@@ -15,7 +16,7 @@
 #   make fw-flash                                  flashea vía rfc2217
 #   SEBASTIAN_SERIAL_URL=rfc2217://$IP:4000 make bridge
 
-.PHONY: check dashboard-check dashboard-dev fw-test fw-build fw-flash agent token provision flash bridge serial-share server-check server-generate server-migrate server-outbox server-run
+.PHONY: check dashboard-check dashboard-dev fw-test fw-build fw-build-heaptrace fw-flash agent token provision flash bridge serial-share server-check server-generate server-migrate server-outbox server-run
 
 check: fw-test
 
@@ -50,6 +51,15 @@ fw-test:
 #   git checkout firmware/dependencies.lock
 fw-build:
 	cd firmware && idf.py build
+
+# Firmware de diagnóstico: rastrea la memoria de cada sesión y escribe en el log
+# los bloques de RAM interna que la sobreviven, con quién los reservó
+# (sdkconfig.heaptrace; cuesta ~2 KB de RAM interna). Flashear con
+# `SEBASTIAN_BUILD_DIR=build-heaptrace make flash` y decodificar con
+# tools/heaptrace_decode.py.
+fw-build-heaptrace:
+	cd firmware && idf.py -B build-heaptrace -D SDKCONFIG=build-heaptrace/sdkconfig \
+		-D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.heaptrace" build
 
 # rfc2217 no reenvía el auto-reset del USB-JTAG: pon el chip en download mode
 # a mano (mantén BOOT, pulsa RESET, suelta BOOT) antes de lanzar esto.
