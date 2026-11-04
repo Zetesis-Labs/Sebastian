@@ -53,6 +53,20 @@ pub fn fetchAnnouncement(announcement_id: []const u8) Error!Connection {
     return fetchWith(body.ptr, false);
 }
 
+/// A playback the control room put the unit in: the room of that playback,
+/// only to listen (no agent, no microphone). error.Off when the control room
+/// says the playback is not on any more.
+pub fn fetchPlayback(playback_id: []const u8) (Error || error{Off})!Connection {
+    const body = std.fmt.bufPrintZ(&body_buf, "{{\"kind\":\"playback\",\"playbackId\":\"{s}\"}}", .{playback_id}) catch return error.HttpFailed;
+    return fetchWith(body.ptr, false) catch |err| switch (err) {
+        error.HttpFailed => if (last_status == 404) error.Off else error.HttpFailed,
+        else => err,
+    };
+}
+
+/// HTTP status of the last failed POST /v1/sessions (0 = no answer).
+var last_status: c_int = 0;
+
 fn fetchWith(body: ?[*:0]const u8, default_listen: bool) Error!Connection {
     if (!c.sebastian_get_token_url(&token_server_url, token_server_url.len)) {
         log.err("no control room URL in NVS — device unprovisioned", .{});
@@ -66,6 +80,7 @@ fn fetchWith(body: ?[*:0]const u8, default_listen: bool) Error!Connection {
     const origin = std.fmt.bufPrintZ(&origin_z, "{s}", .{o}) catch return error.HttpFailed;
     var listen = default_listen;
     const rc = c.sebastian_session_create(origin.ptr, @ptrCast(&id_z), @ptrCast(&secret_buf), body, &url_buf, url_buf.len, &token_buf, token_buf.len, &listen);
+    last_status = if (rc > 0) rc else 0;
     if (rc != 0) {
         log.err("POST /v1/sessions failed (rc={d}) — is this unit adopted by {s}?", .{ rc, origin });
         return error.HttpFailed;

@@ -65,6 +65,33 @@ void sebastian_meeting_push(const char *cmd, const char *id, char origin) {
     portEXIT_CRITICAL(&meeting_mux);
 }
 
+// Playback mailbox (sebastian_fleet.h): the latest order. The poll repeats it,
+// so one lost to a newer order comes back within a poll.
+static portMUX_TYPE playback_mux = portMUX_INITIALIZER_UNLOCKED;
+static char playback_verb[8];
+static char playback_id[40];
+
+void sebastian_playback_push(const char *verb, const char *id) {
+    if (!verb || !id || strlen(verb) >= sizeof(playback_verb) || strlen(id) >= sizeof(playback_id)) return;
+    portENTER_CRITICAL(&playback_mux);
+    strlcpy(playback_verb, verb, sizeof(playback_verb));
+    strlcpy(playback_id, id, sizeof(playback_id));
+    portEXIT_CRITICAL(&playback_mux);
+}
+
+bool sebastian_playback_take(char *verb, size_t verb_size, char *id, size_t id_size) {
+    bool got = false;
+    portENTER_CRITICAL(&playback_mux);
+    if (playback_verb[0]) {
+        strlcpy(verb, playback_verb, verb_size);
+        strlcpy(id, playback_id, id_size);
+        playback_verb[0] = 0;
+        got = true;
+    }
+    portEXIT_CRITICAL(&playback_mux);
+    return got;
+}
+
 // Announcement mailbox (sebastian_fleet.h): one pending id, and the last one
 // handed to the app, so the poll repeating it until it is claimed queues it once.
 static portMUX_TYPE announcement_mux = portMUX_INITIALIZER_UNLOCKED;
@@ -302,7 +329,7 @@ static void handle_adopt(int sock, const struct sockaddr_in *peer, const cJSON *
     esp_restart();
 }
 
-// {"t":"cmd","n":nonce,"cmd":"record-start|record-stop|record-warn|announce","id":uuid,"mac":HMAC(orgSecret, nonce.cmd.id)}
+// {"t":"cmd","n":nonce,"cmd":"record-start|record-stop|record-warn|announce|play-start|play-stop","id":uuid,"mac":HMAC(orgSecret, nonce.cmd.id)}
 // → {"t":"ok"} | {"t":"err","why":"auth|profile|busy|idle|json|nonce"} (design 14 §3.2, RM-06/07/54)
 static void handle_cmd(int sock, const struct sockaddr_in *peer, const cJSON *root) {
     const cJSON *n = cJSON_GetObjectItem(root, "n");
@@ -337,6 +364,12 @@ static void handle_cmd(int sock, const struct sockaddr_in *peer, const cJSON *ro
         if (meeting_active) { send_err(sock, peer, "busy"); return; }
         sebastian_announcement_push(id->valuestring);
         ESP_LOGI(TAG, "announcement %s accepted", id->valuestring);
+        send_json(sock, peer, "{\"t\":\"ok\"}");
+        return;
+    }
+    if (strcmp(cmd->valuestring, "play-start") == 0 || strcmp(cmd->valuestring, "play-stop") == 0) {
+        sebastian_playback_push(cmd->valuestring + strlen("play-"), id->valuestring);
+        ESP_LOGI(TAG, "playback order %s (%s) accepted", cmd->valuestring, id->valuestring);
         send_json(sock, peer, "{\"t\":\"ok\"}");
         return;
     }

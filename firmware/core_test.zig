@@ -2,6 +2,7 @@ const std = @import("std");
 
 const aec = @import("main/core/aec_core.zig");
 const decimator = @import("main/core/decimator.zig");
+const playback = @import("main/core/playback_core.zig");
 const gate = @import("main/core/mic_gate.zig");
 const pcm = @import("main/xvf_pcm.zig");
 const pre_roll = @import("main/core/pre_roll_core.zig");
@@ -1507,4 +1508,97 @@ test "reducer: an announcement that waits for an answer opens the mic once the a
     _ = st.step(.{ .agent_active = true });
     a = st.step(.{ .tick = .{ .connection = .connected } });
     try std.testing.expect(a.handoff);
+}
+
+fn playId(comptime text: []const u8) playback.Id {
+    return playback.parseId(text).?;
+}
+
+const play_a = playId("019a5e2c-0000-7000-8000-00000000000a");
+const play_b = playId("019a5e2c-0000-7000-8000-00000000000b");
+
+test "playback: an order to play opens the room once" {
+    var st = playback.State{};
+    try std.testing.expectEqual(playback.Action.none, st.next(0));
+    st.order(.{ .start = play_a });
+    try std.testing.expectEqualDeep(playback.Action{ .open = play_a }, st.next(0));
+    st.opened(play_a);
+    try std.testing.expectEqual(playback.Action.none, st.next(0));
+    st.order(.{ .start = play_a }); // every poll repeats it
+    try std.testing.expectEqual(playback.Action.none, st.next(0));
+}
+
+test "playback: a stop closes the room, a stop for another playback does not" {
+    var st = playback.State{};
+    st.order(.{ .start = play_a });
+    st.opened(play_a);
+    st.order(.{ .stop = play_b });
+    try std.testing.expectEqual(playback.Action.none, st.next(0));
+    st.order(.{ .stop = play_a });
+    try std.testing.expectEqual(playback.Action.close, st.next(0));
+    st.closed();
+    try std.testing.expectEqual(playback.Action.none, st.next(0));
+}
+
+test "playback: another playback replaces the one in the room" {
+    var st = playback.State{};
+    st.order(.{ .start = play_a });
+    st.opened(play_a);
+    st.order(.{ .start = play_b });
+    try std.testing.expectEqual(playback.Action.close, st.next(0));
+    st.closed();
+    try std.testing.expectEqualDeep(playback.Action{ .open = play_b }, st.next(0));
+}
+
+test "playback: leaving for a conversation keeps the wish, so the unit comes back" {
+    var st = playback.State{};
+    st.order(.{ .start = play_a });
+    st.opened(play_a);
+    st.closed(); // the wake word: out of the room
+    try std.testing.expectEqualDeep(playback.Action{ .open = play_a }, st.next(0));
+}
+
+test "playback: the unit drops a playback the control room stopped mentioning" {
+    var st = playback.State{};
+    st.order(.{ .start = play_a });
+    st.opened(play_a);
+    st.silentPolls(1); // may have crossed the LAN start
+    try std.testing.expectEqual(playback.Action.none, st.next(0));
+    st.order(.{ .start = play_a });
+    st.silentPolls(1);
+    try std.testing.expectEqual(playback.Action.none, st.next(0));
+    st.silentPolls(1);
+    try std.testing.expectEqual(playback.Action.close, st.next(0));
+}
+
+test "playback: a room that fails to open is retried later, unless the playback is off" {
+    var st = playback.State{};
+    st.order(.{ .start = play_a });
+    st.openFailed(.transient, 1000);
+    try std.testing.expectEqual(playback.Action.none, st.next(1000 + playback.RETRY_MS - 1));
+    try std.testing.expectEqualDeep(playback.Action{ .open = play_a }, st.next(1000 + playback.RETRY_MS));
+    st.openFailed(.off, 20_000);
+    try std.testing.expectEqual(playback.Action.none, st.next(1_000_000));
+}
+
+test "playback: a room that drops is reopened after a pause" {
+    var st = playback.State{};
+    st.order(.{ .start = play_a });
+    st.opened(play_a);
+    st.ended(5000);
+    try std.testing.expectEqual(playback.Action.none, st.next(5000));
+    try std.testing.expectEqualDeep(playback.Action{ .open = play_a }, st.next(5000 + playback.RETRY_MS));
+}
+
+test "playback: a new playback does not wait for the retry pause of the old one" {
+    var st = playback.State{};
+    st.order(.{ .start = play_a });
+    st.openFailed(.transient, 1000);
+    st.order(.{ .start = play_b });
+    try std.testing.expectEqualDeep(playback.Action{ .open = play_b }, st.next(1001));
+}
+
+test "playback: ids that are not a UUID are ignored" {
+    try std.testing.expect(playback.parseId("") == null);
+    try std.testing.expect(playback.parseId("019a5e2c") == null);
 }

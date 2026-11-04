@@ -376,12 +376,15 @@ pub extern fn sebastian_report_meeting(base_url: [*:0]const u8, device_id: [*:0]
 pub extern fn sebastian_http_get_auth(url: [*:0]const u8, device_id: ?[*:0]const u8, secret: ?[*:0]const u8, capture_header: ?[*:0]const u8, hdr_out: ?[*]u8, hdr_size: usize, out: [*]u8, out_size: usize, status: ?*c_int) c_int;
 pub extern fn sebastian_http_get_auth2(url: [*:0]const u8, device_id: ?[*:0]const u8, secret: ?[*:0]const u8, header1: ?[*:0]const u8, hdr1_out: ?[*]u8, hdr1_size: usize, header2: ?[*:0]const u8, hdr2_out: ?[*]u8, hdr2_size: usize, out: [*]u8, out_size: usize, status: ?*c_int) c_int;
 pub extern fn sebastian_http_get_auth3(url: [*:0]const u8, device_id: ?[*:0]const u8, secret: ?[*:0]const u8, header1: ?[*:0]const u8, hdr1_out: ?[*]u8, hdr1_size: usize, header2: ?[*:0]const u8, hdr2_out: ?[*]u8, hdr2_size: usize, header3: ?[*:0]const u8, hdr3_out: ?[*]u8, hdr3_size: usize, out: [*]u8, out_size: usize, status: ?*c_int) c_int;
+pub extern fn sebastian_http_get_auth4(url: [*:0]const u8, device_id: ?[*:0]const u8, secret: ?[*:0]const u8, header1: ?[*:0]const u8, hdr1_out: ?[*]u8, hdr1_size: usize, header2: ?[*:0]const u8, hdr2_out: ?[*]u8, hdr2_size: usize, header3: ?[*:0]const u8, hdr3_out: ?[*]u8, hdr3_size: usize, header4: ?[*:0]const u8, hdr4_out: ?[*]u8, hdr4_size: usize, out: [*]u8, out_size: usize, status: ?*c_int) c_int;
 pub extern fn sebastian_meeting_push(cmd: [*:0]const u8, id: [*:0]const u8, origin: u8) void;
 pub extern fn sebastian_meeting_take(cmd: [*]u8, cmd_size: usize, id: [*]u8, id_size: usize, origin: ?*u8) bool;
 pub extern fn sebastian_announcement_push(id: [*:0]const u8) void;
 pub extern fn sebastian_announcement_take(id: [*]u8, id_size: usize) bool;
 pub extern fn sebastian_announcement_forget(id: [*:0]const u8) void;
 pub extern fn sebastian_meeting_set_active(active: bool) void;
+pub extern fn sebastian_playback_push(verb: [*:0]const u8, id: [*:0]const u8) void;
+pub extern fn sebastian_playback_take(verb: [*]u8, verb_size: usize, id: [*]u8, id_size: usize) bool;
 pub extern fn sebastian_meeting_is_active() bool;
 pub extern fn sebastian_meeting_set_recordable(recordable: bool) void;
 pub extern fn sebastian_meeting_is_recordable() bool;
