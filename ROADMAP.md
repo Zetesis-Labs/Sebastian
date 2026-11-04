@@ -12,16 +12,32 @@
    hacen). Se valida con las líneas `heap[...]` en placa; ver
    [TROUBLESHOOTING §13](docs/TROUBLESHOOTING.md).
 2. **Avisos y audio hacia un altavoz en reposo.** Hoy `announce(text)` (§3,
-   punto 7) solo habla dentro de una sesión abierta. Objetivo:
-   - texto → la sala de control pide al altavoz abrir sesión → el agente lo
-     dice con la voz de su perfil (Phonic, Gemini, OpenAI) → cierra;
-   - emitir audio (música, sonidos) desde otro dispositivo a la sala del
-     altavoz por WebRTC (otro participante, o Ingress WHIP de LiveKit, §2),
-     teniendo en cuenta el half-duplex y el AEC.
+   punto 7) solo habla dentro de una sesión abierta. Dos fases, elegidas por
+   Rubén el 2026-11-04:
+   - **2a. Sesión de reproducción ordenada desde la sala de control, y una
+     página del panel que emite a un altavoz** (micrófono, fichero o pestaña,
+     con el SDK JS de LiveKit). Valida la cadena con nuestro propio stack y es
+     la base de los avisos con la voz del agente: texto → orden de abrir
+     sesión → el agente lo dice con la voz de su perfil → cierra.
+   - **2b. Un puente en cortes que expone cada altavoz como receptor AirPlay**
+     (`shairport-sync`) y publica su audio en la sala del altavoz. Cubre Mac,
+     iPhone, Spotify a través de AirPlay y Music Assistant de Home Assistant,
+     sin licencias de terceros. Spotify Connect directo (`librespot`, no
+     oficial) queda fuera; WHIP/URL por Ingress de LiveKit, solo si hace falta.
 
-   Las órdenes de la sala de control al altavoz ya existen (así se piden las
-   reuniones); hay que ver si sirven para abrir sesión bajo demanda sin el
-   endpoint permanente.
+   En el firmware: una orden `play-start`/`play-stop` por el mismo buzón que
+   las de reuniones (hoy solo `record-*`, `control.zig`), un modo de sesión de
+   reproducción en el núcleo (sin el tope de 10 min de `session_core.MAX_TICKS`,
+   termina con la orden o cuando la fuente deja de publicar) y la palabra de
+   activación activa durante la música. La reproducción ya funciona: el motor
+   se suscribe a la primera pista de audio de la sala, sea del agente o no
+   (`engine.c`), con la misma descodificación Opus y sin más RAM interna.
+
+   Preguntas abiertas: qué hace la música al oír «Okay Nabu» (pausa, baja o se
+   corta) y si el agente se mezcla en el servidor con la música en una sola
+   pista o el firmware aprende a preferir la pista del agente; si hace falta el
+   mismo audio sincronizado en varios altavoces (eso llevaría a Snapcast); si
+   el altavoz del XVF basta para música.
 3. **Endpoint permanente (#44): aparcado.** No compensa ahora; se reevalúa si
    el punto 2 no puede abrir sesión con latencia aceptable.
 
