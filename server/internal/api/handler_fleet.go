@@ -54,7 +54,7 @@ func (h *Server) GetDevice(ctx context.Context, request GetDeviceRequestObject) 
 	response := DeviceDetail{
 		Id: base.Id, DisplayName: base.DisplayName, Enabled: base.Enabled, State: base.State, MeetingSilenceMin: base.MeetingSilenceMin, MeetingMaxHours: base.MeetingMaxHours,
 		AdoptedAt: base.AdoptedAt, DesiredProfile: base.DesiredProfile, ReportedProfile: base.ReportedProfile,
-		ProfileReportedAt: base.ProfileReportedAt, Firmware: base.Firmware, Ip: base.Ip, ControlRoom: base.ControlRoom,
+		ProfileReportedAt: base.ProfileReportedAt, Firmware: base.Firmware, Ip: base.Ip, LastIp: base.LastIp, ControlRoom: base.ControlRoom,
 		LastError: base.LastError, LastEvent: base.LastEvent, LastEventAt: base.LastEventAt,
 		ReportedConfigVersion: base.ReportedConfigVersion, DesiredConfigVersion: base.DesiredConfigVersion,
 		SeenOnLanAt: base.SeenOnLanAt, HasDeviceSecret: detail.HasDeviceSecret, Sessions: sessions,

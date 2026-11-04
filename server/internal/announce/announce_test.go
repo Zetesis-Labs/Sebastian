@@ -23,7 +23,7 @@ type fakeUnits struct {
 
 func (f *fakeUnits) Get(context.Context, string) (device.Detail, error) { return f.detail, f.err }
 func (f *fakeUnits) Authenticate(context.Context, string, string) error { return f.authErr }
-func (f *fakeUnits) Address(string) string                              { return f.ip }
+func (f *fakeUnits) Address(context.Context, string) string             { return f.ip }
 func (f *fakeUnits) ControlRoom() device.ControlRoom                    { return device.ControlRoom{OrgSecret: f.secret} }
 
 type fakeCommander struct {

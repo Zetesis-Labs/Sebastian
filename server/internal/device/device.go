@@ -65,6 +65,7 @@ type Device struct {
 	Adopted           bool      // holds a device secret issued by this control room
 	AdoptedAt         time.Time
 	ReportedFirmware  string
+	LastIP            string // where its last authenticated poll came from
 	ReportedConfig    string // config version the device runs (from its poll)
 	DesiredConfig     string // version of the stored desired config
 
@@ -113,6 +114,11 @@ type Poll struct {
 	ConfigVersion string
 	Firmware      string
 	Event         string // last event worth telling the owner; "" = none
+	// Secret and IP: where the poll came from is kept only when the unit
+	// proves it is the unit, or anyone on the network could redirect a
+	// readoption (and its new secret) to themselves.
+	Secret string
+	IP     string
 }
 
 type PollResult struct {
@@ -237,6 +243,18 @@ func DigestSecret(secret string) []byte {
 func (s *Service) ControlRoom() ControlRoom { return s.room }
 func (s *Service) DiscoveryEnabled() bool   { return s.lan != nil && s.lan.Enabled() }
 func (s *Service) Reconcile(ctx context.Context, poll Poll) (PollResult, error) {
+	if poll.IP != "" && poll.Secret != "" {
+		if err := s.authenticate(ctx, poll.ID, poll.Secret); err != nil {
+			if errors.Is(err, ErrUnauthorized) || errors.Is(err, ErrNotFound) {
+				s.logger.WarnContext(ctx, "poll secret rejected — its address is not recorded", "device_id", poll.ID, "ip", poll.IP)
+			} else {
+				s.logger.ErrorContext(ctx, "poll secret could not be checked — its address is not recorded", "device_id", poll.ID, "error", err)
+			}
+			poll.IP = ""
+		}
+	} else {
+		poll.IP = ""
+	}
 	return s.store.TouchPoll(ctx, poll)
 }
 
@@ -395,10 +413,14 @@ func (s *Service) Authenticate(ctx context.Context, id, secret string) error {
 	return s.authenticate(ctx, id, secret)
 }
 
-// Address is the unit's LAN address as last announced, "" when not seen.
-func (s *Service) Address(id string) string {
-	ip, err := s.addressFor(id, "")
+// Address is where LAN orders reach the unit: as announced on the LAN, else
+// where its last authenticated poll came from; "" when unknown.
+func (s *Service) Address(ctx context.Context, id string) string {
+	ip, err := s.addressFor(ctx, id, "")
 	if err != nil {
+		if !errors.Is(err, ErrNoAddress) {
+			s.logger.WarnContext(ctx, "device address unreadable — LAN order falls back to the poll", "device_id", id, "error", err)
+		}
 		return ""
 	}
 	return ip
@@ -509,7 +531,7 @@ type AdoptRequest struct {
 	Config       map[string]any // operator overrides merged over the control room's config
 }
 
-func (s *Service) addressFor(id, ip string) (string, error) {
+func (s *Service) addressFor(ctx context.Context, id, ip string) (string, error) {
 	if ip != "" {
 		if !discovery.Reachable(ip) {
 			return "", fmt.Errorf("%w: %q is not an IP address", ErrNoAddress, ip)
@@ -523,6 +545,13 @@ func (s *Service) addressFor(id, ip string) (string, error) {
 			}
 		}
 	}
+	d, err := s.store.Get(ctx, id)
+	switch {
+	case err == nil && discovery.Reachable(d.LastIP):
+		return d.LastIP, nil
+	case err != nil && !errors.Is(err, ErrNotFound):
+		return "", fmt.Errorf("device: read where %s last polled from: %w", id, err)
+	}
 	return "", ErrNoAddress
 }
 
@@ -534,7 +563,7 @@ func (s *Service) Adopt(ctx context.Context, id string, req AdoptRequest) (Job, 
 	if s.room.origin() == "" {
 		return Job{}, errors.New("device: SEBASTIAN_PUBLIC_API_URL is not configured — devices could not reach this control room")
 	}
-	ip, err := s.addressFor(id, req.IP)
+	ip, err := s.addressFor(ctx, id, req.IP)
 	if err != nil {
 		return Job{}, err
 	}
@@ -586,7 +615,7 @@ func (s *Service) Forget(ctx context.Context, id string, req AdoptRequest) (Job,
 	if _, err := s.store.Get(ctx, id); err != nil {
 		return Job{}, err
 	}
-	ip, _ := s.addressFor(id, req.IP)
+	ip, _ := s.addressFor(ctx, id, req.IP)
 	job := s.startJob(id, "forget", ip)
 	signWith := s.room.OrgSecret
 	if req.DeviceSecret != "" {

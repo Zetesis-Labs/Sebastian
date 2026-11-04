@@ -45,7 +45,7 @@ type Filter struct {
 type Units interface {
 	Get(ctx context.Context, id string) (device.Detail, error)
 	Authenticate(ctx context.Context, id, secret string) error
-	Address(id string) string // LAN address, "" when not seen
+	Address(ctx context.Context, id string) string // where LAN orders reach it, "" when unknown
 	ControlRoom() device.ControlRoom
 }
 
@@ -552,7 +552,7 @@ func transitionEvent(from, to State) string {
 // (RM-07). If it cannot (no address, no secret, no reply) the poll header
 // carries it on the unit's next contact (RM-06): CommandFor keeps it pending.
 func (s *Service) deliver(ctx context.Context, m Meeting, cmd string) {
-	ip := s.units.Address(m.DeviceID)
+	ip := s.units.Address(ctx, m.DeviceID)
 	secret := s.units.ControlRoom().OrgSecret
 	if ip == "" || secret == "" || s.cmd == nil {
 		s.logger.InfoContext(ctx, "meeting order deferred to the poll", "meeting", m.ID, "cmd", cmd, "device", m.DeviceID, "lan", ip != "")

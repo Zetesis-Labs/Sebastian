@@ -138,8 +138,8 @@ func (u *fakeUnits) Authenticate(_ context.Context, id, secret string) error {
 	}
 	return nil
 }
-func (u *fakeUnits) Address(string) string           { return u.ip }
-func (u *fakeUnits) ControlRoom() device.ControlRoom { return device.ControlRoom{OrgSecret: u.org} }
+func (u *fakeUnits) Address(context.Context, string) string { return u.ip }
+func (u *fakeUnits) ControlRoom() device.ControlRoom        { return device.ControlRoom{OrgSecret: u.org} }
 
 type sent struct {
 	ip, cmd, secret string

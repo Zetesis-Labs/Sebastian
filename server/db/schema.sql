@@ -51,6 +51,9 @@ CREATE TABLE devices (
   running_config_at timestamptz,
   reported_config_version varchar,
   reported_firmware varchar,
+  -- Where the unit's last authenticated poll came from: how an absent unit is
+  -- readopted and how LAN orders reach a unit on another subnet.
+  last_ip varchar,
   -- The last event the unit reported in its poll (RF-36/42): adopt-denied:<ip>,
   -- cfg-rejected:<why> or an error of its previous boot; last_event_at is the
   -- first poll that carried that value.

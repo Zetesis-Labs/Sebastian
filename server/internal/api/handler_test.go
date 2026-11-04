@@ -380,3 +380,30 @@ func TestDeviceMeetingLimitsTravel(t *testing.T) {
 		t.Fatalf("patch keeps the other limit: %T %v", res, devices.limits)
 	}
 }
+
+func TestThePollHandsTheUnitSecretAndItsAddressToTheFleet(t *testing.T) {
+	devices := &stubDevices{desired: "agente"}
+	handler := NewHandler(stubSessions{}, nil, devices, nil, stubReadiness{}, testLogger(), time.Second)
+
+	secret := "unit-secret-unit-secret-unit-secret-1"
+	ctx := WithClientIP(context.Background(), "10.0.0.193")
+	if _, err := handler.GetDesiredProfile(ctx, GetDesiredProfileRequestObject{
+		DeviceId: "e072a1f96ef0",
+		Params:   GetDesiredProfileParams{XDeviceSecret: &secret},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if devices.poll.Secret != secret || devices.poll.IP != "10.0.0.193" {
+		t.Fatalf("poll = %+v", devices.poll)
+	}
+}
+
+func TestADeviceShowsWhereItsLastPollCameFrom(t *testing.T) {
+	got := deviceResponse(device.Device{ID: "e072a1f96ef0", LastIP: "10.0.0.193", State: device.StateAbsent})
+	if got.LastIp == nil || *got.LastIp != "10.0.0.193" {
+		t.Fatalf("lastIp = %v", got.LastIp)
+	}
+	if none := deviceResponse(device.Device{ID: "e072a1f96ef0"}); none.LastIp != nil {
+		t.Fatalf("no address must be omitted, got %q", *none.LastIp)
+	}
+}

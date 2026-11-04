@@ -73,6 +73,7 @@ type fakeStore struct {
 	digests  map[string][2][]byte
 	forgot   []string
 	renamed  map[string]string
+	getErr   error
 }
 
 func newFakeStore(devices ...Device) *fakeStore {
@@ -91,6 +92,9 @@ func (f *fakeStore) TouchPoll(_ context.Context, p Poll) (PollResult, error) {
 		f.devices[p.ID] = d
 	}
 	d.ReportedProfile, d.ReportedConfig, d.ReportedFirmware, d.ProfileReportedAt = p.Reported, p.ConfigVersion, p.Firmware, now
+	if p.IP != "" {
+		d.LastIP = p.IP
+	}
 	return PollResult{DesiredProfile: d.DesiredProfile, DesiredConfigVersion: f.versions[p.ID]}, nil
 }
 func (f *fakeStore) List(context.Context) ([]Device, error) {
@@ -101,6 +105,9 @@ func (f *fakeStore) List(context.Context) ([]Device, error) {
 	return out, nil
 }
 func (f *fakeStore) Get(_ context.Context, id string) (Device, error) {
+	if f.getErr != nil {
+		return Device{}, f.getErr
+	}
 	d, ok := f.devices[id]
 	if !ok {
 		return Device{}, ErrNotFound
@@ -623,5 +630,80 @@ func TestMeetingLimitsStayInRange(t *testing.T) {
 	}
 	if err := svc.SetMeetingLimits(context.Background(), "68ee", 15, 2); err != nil || store.renamed["68ee:limits"] != "15/2" {
 		t.Fatalf("15 min / 2 h: %v %v", err, store.renamed)
+	}
+}
+
+// ── where an absent unit is (readopt, LAN orders) ───────────────────────────
+
+func adoptedUnit(id, lastIP string) (*fakeStore, Device) {
+	d := Device{ID: id, DisplayName: id, Enabled: true, Adopted: true, LastIP: lastIP}
+	store := newFakeStore(d)
+	store.digests[id] = [2][]byte{DigestSecret(unitSecret), nil}
+	return store, d
+}
+
+func TestAnAuthenticatedPollRecordsWhereTheUnitIs(t *testing.T) {
+	store, _ := adoptedUnit("e072a1f96ef0", "")
+	s := newTestService(store, discovery.Static{}, &fakeAdopter{})
+
+	if _, err := s.Reconcile(context.Background(), Poll{ID: "e072a1f96ef0", Secret: unitSecret, IP: "10.0.0.193"}); err != nil {
+		t.Fatal(err)
+	}
+	if d, _ := store.Get(context.Background(), "e072a1f96ef0"); d.LastIP != "10.0.0.193" {
+		t.Fatalf("last ip = %q", d.LastIP)
+	}
+}
+
+func TestAPollWithoutTheUnitSecretCannotMoveIt(t *testing.T) {
+	for name, secret := range map[string]string{"no secret": "", "wrong secret": "not-the-unit-secret-not-the-unit-secret"} {
+		t.Run(name, func(t *testing.T) {
+			store, _ := adoptedUnit("e072a1f96ef0", "10.0.0.193")
+			s := newTestService(store, discovery.Static{}, &fakeAdopter{})
+
+			if _, err := s.Reconcile(context.Background(), Poll{ID: "e072a1f96ef0", Secret: secret, IP: "10.66.6.6"}); err != nil {
+				t.Fatal(err)
+			}
+			if d, _ := store.Get(context.Background(), "e072a1f96ef0"); d.LastIP != "10.0.0.193" {
+				t.Fatalf("an unauthenticated poll moved the unit to %q", d.LastIP)
+			}
+		})
+	}
+}
+
+func TestAnAbsentUnitIsReadoptedAtTheAddressOfItsLastPoll(t *testing.T) {
+	store, _ := adoptedUnit("e072a1f96ef0", "10.0.0.193")
+	adopter := &fakeAdopter{}
+	s := newTestService(store, discovery.Static{}, adopter)
+
+	job, err := s.Adopt(context.Background(), "e072a1f96ef0", AdoptRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if waitJob(t, s, job).Phase != "adopted" || adopter.calls[0].ip != "10.0.0.193" {
+		t.Fatalf("calls %+v", adopter.calls)
+	}
+	if got := s.Address(context.Background(), "e072a1f96ef0"); got != "10.0.0.193" {
+		t.Fatalf("address for LAN orders = %q", got)
+	}
+}
+
+func TestTheAddressSeenOnTheLANWinsOverTheLastPoll(t *testing.T) {
+	store, _ := adoptedUnit("e072a1f96ef0", "10.0.0.193")
+	lan := discovery.Static{On: true, Items: []discovery.Seen{{ID: "e072a1f96ef0", IP: "10.0.0.131", SeenAt: now}}}
+	s := newTestService(store, lan, &fakeAdopter{})
+
+	if got := s.Address(context.Background(), "e072a1f96ef0"); got != "10.0.0.131" {
+		t.Fatalf("address = %q", got)
+	}
+}
+
+func TestAnUnreadableStoreIsNotMistakenForAnUnknownAddress(t *testing.T) {
+	store, _ := adoptedUnit("e072a1f96ef0", "10.0.0.193")
+	store.getErr = errors.New("connection refused")
+	s := newTestService(store, discovery.Static{}, &fakeAdopter{})
+
+	_, err := s.Adopt(context.Background(), "e072a1f96ef0", AdoptRequest{})
+	if err == nil || errors.Is(err, ErrNoAddress) {
+		t.Fatalf("a failed read must surface as unavailable, not as no address: %v", err)
 	}
 }

@@ -66,7 +66,7 @@ type Announcement struct {
 type Units interface {
 	Get(ctx context.Context, id string) (device.Detail, error)
 	Authenticate(ctx context.Context, id, secret string) error
-	Address(id string) string
+	Address(ctx context.Context, id string) string
 	ControlRoom() device.ControlRoom
 }
 
@@ -216,7 +216,7 @@ func (s *Service) live(deviceID string) []Announcement {
 }
 
 func (s *Service) deliver(ctx context.Context, a Announcement) Delivery {
-	ip := s.units.Address(a.DeviceID)
+	ip := s.units.Address(ctx, a.DeviceID)
 	secret := s.units.ControlRoom().OrgSecret
 	if ip == "" || secret == "" || s.cmd == nil {
 		s.logger.InfoContext(ctx, "announce order deferred to the poll", "announcement", a.ID, "device", a.DeviceID, "lan", ip != "")
