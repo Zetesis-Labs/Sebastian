@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  adoptLabel,
   canAdopt,
   canForget,
   configSync,
@@ -47,6 +48,14 @@ describe('fleet sections', () => {
     expect(canForget('moved')).toBe(true)
     expect(canAdopt('leaving')).toBe(false)
     expect(canForget('leaving')).toBe(false)
+  })
+
+  it('an absent unit of ours can be readopted where it last polled from', () => {
+    expect(canAdopt('absent')).toBe(true)
+    expect(adoptLabel('absent')).toBe('Readoptar')
+    expect(adoptLabel('moved')).toBe('Recuperar')
+    expect(adoptLabel('managed_elsewhere')).toBe('Adoptar aquí')
+    expect(adoptLabel('unadopted')).toBe('Adoptar')
   })
 
   it('managed elsewhere is read-only except adopt (RF-13)', () => {
@@ -126,6 +135,11 @@ describe('timeline', () => {
     expect(
       timeline({ state: 'moved', profileReportedAt: '2026-09-18T11:59:00Z', adoptedAt: '2026-09-18T11:50:00Z', seenOnLanAt: '2026-09-18T11:59:30Z', controlRoom: 'http://10.0.0.188:8788' }, now),
     ).toEqual(['último contacto hace 1 min', 'adoptado hace 10 min', 'en la red hace 30 s (vinculado a 10.0.0.188:8788)'])
+  })
+  it('says where an absent unit last polled from', () => {
+    expect(
+      timeline({ state: 'absent', profileReportedAt: '2026-09-18T10:00:00Z', lastIp: '10.0.0.193' }, now),
+    ).toEqual(['último contacto hace 2 h', 'no se ve en la red (última consulta desde 10.0.0.193)'])
   })
   it('says when a unit never contacted and is not on the LAN', () => {
     expect(timeline({ state: 'joining', adoptedAt: '2026-09-18T11:59:40Z' }, now)).toEqual(['sin contacto todavía', 'adoptado hace 20 s', 'no se ve en la red'])

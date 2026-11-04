@@ -681,6 +681,8 @@ export interface components {
             profileReportedAt?: string;
             firmware?: string;
             ip?: string;
+            /** @description Where the unit's last authenticated poll came from. Adopting an absent unit without an `ip` uses it, and so do LAN orders to a unit on another subnet. */
+            lastIp?: string;
             /** @description Origin the device announces it is bound to (may be another control room). */
             controlRoom?: string;
             /** @description What the device reports about its last control-room contact (empty = ok). */
@@ -1185,7 +1187,10 @@ export interface operations {
                 /** @description The unit's last event worth telling the owner (RF-36/42): adopt-denied:<ip>, cfg-rejected:<why>, or the error recorded by its previous boot. Empty when none. */
                 ev?: string;
             };
-            header?: never;
+            header?: {
+                /** @description The unit's secret, once adopted. Only a poll that carries it records where the unit is (`lastIp`); the poll works without it. */
+                "X-Device-Secret"?: string;
+            };
             path: {
                 deviceId: string;
             };
