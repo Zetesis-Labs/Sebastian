@@ -46,6 +46,7 @@ var url_buf: [384]u8 = undefined;
 var resp_buf: [64]u8 = undefined;
 var hdr_buf: [32]u8 = undefined;
 var meeting_hdr: [48]u8 = undefined;
+var announcement_hdr: [48]u8 = undefined;
 var cfg_ver: [24]u8 = undefined;
 var dev_secret: [129]u8 = undefined;
 var org_secret: [129]u8 = undefined;
@@ -149,6 +150,18 @@ fn fetchAndApplyConfig(origin: [*:0]const u8, version: []const u8) void {
     requestRestart(text);
 }
 
+/// The poll's X-Announce header carries the oldest announcement the control
+/// room wants said ("start:<id>"); the LAN command is the fast path for it.
+fn relayAnnouncementOrder(header: []const u8) void {
+    const prefix = "start:";
+    if (!std.mem.startsWith(u8, header, prefix)) return;
+    const id = header[prefix.len..];
+    if (id.len == 0 or id.len >= 40 or !c.sebastian_meeting_is_recordable()) return;
+    var id_buf: [40]u8 = undefined;
+    const id_z2 = std.fmt.bufPrintZ(&id_buf, "{s}", .{id}) catch return;
+    c.sebastian_announcement_push(id_z2.ptr);
+}
+
 /// The poll's X-Meeting header carries a pending meeting order (RM-06):
 /// "start:<id>" | "stop:<id>" | "warn:<id>". Same mailbox as the LAN command.
 fn relayMeetingOrder(header: []const u8) void {
@@ -226,9 +239,10 @@ fn pollOnce() void {
     }) catch return;
 
     var status: c_int = 0;
-    const n = c.sebastian_http_get_auth2(url.ptr, @ptrCast(&id_z), secretZ(), "X-Desired-Config", &hdr_buf, hdr_buf.len, "X-Meeting", &meeting_hdr, meeting_hdr.len, &resp_buf, resp_buf.len, &status);
+    const n = c.sebastian_http_get_auth3(url.ptr, @ptrCast(&id_z), secretZ(), "X-Desired-Config", &hdr_buf, hdr_buf.len, "X-Meeting", &meeting_hdr, meeting_hdr.len, "X-Announce", &announcement_hdr, announcement_hdr.len, &resp_buf, resp_buf.len, &status);
     announceResult(status, n);
     if (n >= 0) relayMeetingOrder(std.mem.sliceTo(&meeting_hdr, 0));
+    if (n >= 0) relayAnnouncementOrder(std.mem.sliceTo(&announcement_hdr, 0));
     if (status == 401 and c.sebastian_is_bound()) {
         // The control room does not know our secret (rebuilt, or we were
         // forgotten there): enrol again on the next poll if we can.

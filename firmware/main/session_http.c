@@ -18,16 +18,18 @@ static const char *TAG = "session_http";
 
 // esp_http_client_get_header() reads the REQUEST headers; response headers only
 // arrive through the event handler. This captures the one header we care about.
+#define CAPTURED_HEADERS 3
+
 typedef struct {
-    const char *name[2];
-    char *out[2];
-    size_t size[2];
+    const char *name[CAPTURED_HEADERS];
+    char *out[CAPTURED_HEADERS];
+    size_t size[CAPTURED_HEADERS];
 } header_capture_t;
 
 static esp_err_t on_http_event(esp_http_client_event_t *evt) {
     header_capture_t *cap = evt->user_data;
     if (evt->event_id != HTTP_EVENT_ON_HEADER || !cap || !evt->header_key || !evt->header_value) return ESP_OK;
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < CAPTURED_HEADERS; i++) {
         if (cap->name[i] && cap->out[i] && strcasecmp(evt->header_key, cap->name[i]) == 0) {
             strlcpy(cap->out[i], evt->header_value, cap->size[i]);
         }
@@ -62,11 +64,24 @@ int sebastian_http_get_auth2(const char *url, const char *device_id, const char 
                              const char *header1, char *hdr1_out, size_t hdr1_size,
                              const char *header2, char *hdr2_out, size_t hdr2_size,
                              char *out, size_t out_size, int *status) {
+    return sebastian_http_get_auth3(url, device_id, secret, header1, hdr1_out, hdr1_size, header2, hdr2_out, hdr2_size,
+                                    NULL, NULL, 0, out, out_size, status);
+}
+
+int sebastian_http_get_auth3(const char *url, const char *device_id, const char *secret,
+                             const char *header1, char *hdr1_out, size_t hdr1_size,
+                             const char *header2, char *hdr2_out, size_t hdr2_size,
+                             const char *header3, char *hdr3_out, size_t hdr3_size,
+                             char *out, size_t out_size, int *status) {
     if (hdr1_out && hdr1_size) hdr1_out[0] = '\0';
     if (hdr2_out && hdr2_size) hdr2_out[0] = '\0';
+    if (hdr3_out && hdr3_size) hdr3_out[0] = '\0';
     if (status) *status = 0;
-    header_capture_t cap = {.name = {header1, header2}, .out = {hdr1_out, hdr2_out}, .size = {hdr1_size, hdr2_size}};
-    const bool capturing = (header1 && hdr1_out && hdr1_size) || (header2 && hdr2_out && hdr2_size);
+    header_capture_t cap = {.name = {header1, header2, header3},
+                            .out = {hdr1_out, hdr2_out, hdr3_out},
+                            .size = {hdr1_size, hdr2_size, hdr3_size}};
+    const bool capturing = (header1 && hdr1_out && hdr1_size) || (header2 && hdr2_out && hdr2_size) ||
+                           (header3 && hdr3_out && hdr3_size);
     esp_http_client_handle_t client = open_client(url, HTTP_METHOD_GET, device_id, secret, capturing ? &cap : NULL);
     if (client == NULL) return -1;
     int result;
@@ -87,7 +102,8 @@ cleanup:
 
 int sebastian_session_create(const char *base_url, const char *device_id, const char *secret,
                              const char *json_body,
-                             char *url_out, size_t url_size, char *token_out, size_t token_size) {
+                             char *url_out, size_t url_size, char *token_out, size_t token_size,
+                             bool *listen_out) {
     char url[300];
     snprintf(url, sizeof(url), "%s/v1/sessions", base_url);
     esp_http_client_handle_t client = open_client(url, HTTP_METHOD_POST, device_id, secret, NULL);
@@ -122,6 +138,12 @@ int sebastian_session_create(const char *base_url, const char *device_id, const 
     }
     strlcpy(url_out, server_url->valuestring, url_size);
     strlcpy(token_out, token->valuestring, token_size);
+    if (listen_out) {
+        // Only when the server says it: the caller holds the default for the
+        // kind of session (open for a conversation, closed for an announcement).
+        const cJSON *listen = cJSON_GetObjectItem(root, "listen");
+        if (cJSON_IsBool(listen)) *listen_out = cJSON_IsTrue(listen);
+    }
     cJSON_Delete(root);
     result = 0;
 cleanup:

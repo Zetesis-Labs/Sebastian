@@ -109,6 +109,9 @@ pub const Phase = union(enum) {
 };
 
 pub const State = struct {
+    /// Whether the session ever opens the mic. False for an announcement that
+    /// only speaks: no handoff, and the ring never shows "listening".
+    listen: bool = true,
     phase: Phase = .connecting,
     timing: session_core.Timing = .{},
     agent_ready: bool = false,
@@ -197,9 +200,9 @@ pub const State = struct {
         // handoff can never fire against a connection that already dropped.
         if (self.phase == .connecting and t.connection == .connected) {
             self.phase = .waiting_agent;
-            out.ui_active = true;
+            out.ui_active = self.listen;
         }
-        if (self.phase == .waiting_agent and t.connection == .connected and self.agent_ready) {
+        if (self.listen and self.phase == .waiting_agent and t.connection == .connected and self.agent_ready) {
             self.phase = .live;
             out.handoff = true;
         }
