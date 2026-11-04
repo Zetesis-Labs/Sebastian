@@ -246,6 +246,7 @@ pub extern fn av_render_alloc_i2s_render(cfg: *i2s_render_cfg_t) audio_render_ha
 pub extern fn av_render_open(cfg: *av_render_cfg_t) av_render_handle_t;
 pub extern fn av_render_set_fixed_frame_info(render: av_render_handle_t, info: *av_render_audio_frame_info_t) c_int;
 pub extern fn av_render_flush(render: av_render_handle_t) c_int;
+pub extern fn av_render_reset(render: av_render_handle_t) c_int;
 pub extern fn esp_audio_dec_register_default() c_int;
 pub extern fn esp_audio_enc_register_default() c_int;
 
