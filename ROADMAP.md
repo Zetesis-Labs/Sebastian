@@ -19,9 +19,19 @@
    *Readoptar* (PR #75 y #77, servidor 1.4.1), que recupera un altavoz ausente
    en la IP de su última consulta, sin escribirla a mano. Queda la música y el
    audio que no es del agente, en dos fases elegidas por Rubén el 2026-11-04:
-   - **2a. Sesión de reproducción ordenada desde la sala de control, y una
-     página del panel que emite a un altavoz** (micrófono, fichero o pestaña,
-     con el SDK JS de LiveKit). Valida la cadena con nuestro propio stack.
+   - **2a. Sesión de reproducción ordenada desde la sala de control.**
+     Acortada por Rubén el 2026-11-05: sin página del panel (AirPlay ya cubre
+     emitir desde el Mac), sin SDK JS de LiveKit y sin fuente que avise cada
+     poco de que sigue viva. La cadena se prueba con `tools/play.py`, que
+     publica un fichero con el SDK de LiveKit para Python que ya usa el
+     agente. La reproducción es una sala de fondo mientras la placa está en
+     reposo: entra solo a escuchar (no publica el micrófono), sin tope de
+     10 min, y sigue atenta a la palabra, los avisos y las reuniones. Para
+     atenderlos sale de la sala y vuelve si la reproducción sigue. El estado
+     vive en la memoria del servidor, como los avisos. Bloque 1: la sala, las
+     órdenes, los tokens y, en la ficha, el estado y Parar. Bloque 2: la
+     palabra y los avisos con música, y la herramienta del agente para
+     pararla.
    - **2b. Un puente en cortes que expone cada altavoz como receptor AirPlay**
      (`shairport-sync`) y publica su audio en la sala del altavoz. Cubre Mac,
      iPhone, Spotify a través de AirPlay y Music Assistant de Home Assistant,
@@ -42,11 +52,13 @@
      no sale del nodo. De paso, prod podría ver las placas por mDNS
      (`discovery: true`).
 
-   En el firmware: una orden `play-start`/`play-stop` por el mismo buzón que
-   las de reuniones (hoy solo `record-*`, `control.zig`), un modo de sesión de
-   reproducción en el núcleo (sin el tope de 10 min de `session_core.MAX_TICKS`,
-   termina con la orden o cuando la fuente deja de publicar) y la palabra de
-   activación activa durante la música. La reproducción ya funciona: el motor
+   En el firmware: las órdenes `play-start`/`play-stop` por la LAN firmada y
+   la cabecera `X-Playback` de la consulta, con su propio hueco en el buzón
+   (`adopt.c`); la sala de reproducción en el bucle de reposo, sin el tope de
+   10 min de `session_core.MAX_TICKS`, que termina con `play-stop` o cuando la
+   sala de control deja de mencionarla en dos consultas seguidas
+   (`core/playback_core.zig`); y la palabra de activación activa durante la
+   música. La reproducción ya funciona: el motor
    se suscribe a la primera pista de audio de la sala, sea del agente o no
    (`engine.c`), con la misma descodificación Opus y sin más RAM interna.
 
