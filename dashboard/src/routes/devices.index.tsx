@@ -4,6 +4,7 @@ import { adoptDevice, forgetDevice, getAdoptionJob, getDevices, type AdoptionJob
 import { SecretDialog } from '../components/SecretDialog'
 import { errorMessage, formatDate } from '../lib/format'
 import {
+  adoptLabel,
   canAdopt,
   canForget,
   eventMessage,
@@ -325,7 +326,7 @@ function DeviceRow({
       <div className="device-actions">
         {canAdopt(device.state) && handover === null && (
           <button type="button" className="chip-button" disabled={busy} onClick={() => onAdopt(device)}>
-            {busy ? 'Adoptando…' : device.state === 'managed_elsewhere' ? 'Adoptar aquí' : device.state === 'moved' ? 'Recuperar' : 'Adoptar'}
+            {busy ? 'Adoptando…' : adoptLabel(device.state)}
           </button>
         )}
         {canForget(device.state) && (

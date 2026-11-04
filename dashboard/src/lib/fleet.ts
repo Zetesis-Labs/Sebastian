@@ -82,7 +82,20 @@ export function groupDevices(devices: Device[]): Record<Section, Device[]> {
 
 // What the operator may do with a unit in each state (RF-13, RF-30, RF-37).
 export function canAdopt(state: DeviceState): boolean {
-  return state !== 'adopted' && state !== 'absent' && state !== 'joining' && state !== 'leaving'
+  return state !== 'adopted' && state !== 'joining' && state !== 'leaving'
+}
+
+export function adoptLabel(state: DeviceState): string {
+  switch (state) {
+    case 'managed_elsewhere':
+      return 'Adoptar aquí'
+    case 'moved':
+      return 'Recuperar'
+    case 'absent':
+      return 'Readoptar'
+    default:
+      return 'Adoptar'
+  }
 }
 
 export function canForget(state: DeviceState): boolean {
@@ -106,7 +119,7 @@ export function shortRoom(origin: string): string {
 // The row's chronology (spec §3.2 transitions): what the unit told us, when we
 // adopted it and what the LAN says — the three clocks a transition depends on.
 export function timeline(
-  device: Pick<Device, 'profileReportedAt' | 'adoptedAt' | 'seenOnLanAt' | 'controlRoom' | 'state'>,
+  device: Pick<Device, 'profileReportedAt' | 'adoptedAt' | 'seenOnLanAt' | 'controlRoom' | 'state' | 'lastIp'>,
   now: Date,
 ): string[] {
   const items: string[] = []
@@ -116,7 +129,7 @@ export function timeline(
     const bound = device.controlRoom ? `vinculado a ${shortRoom(device.controlRoom)}` : 'sin control room'
     items.push(`en la red ${timeAgo(device.seenOnLanAt, now)} (${bound})`)
   } else if (device.state !== 'registered') {
-    items.push('no se ve en la red')
+    items.push(device.lastIp ? `no se ve en la red (última consulta desde ${device.lastIp})` : 'no se ve en la red')
   }
   return items
 }
