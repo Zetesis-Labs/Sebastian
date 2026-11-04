@@ -176,6 +176,13 @@ func (f *fakeStore) MarkAdopted(_ context.Context, id string, digest []byte) err
 	f.digests[id] = [2][]byte{digest, nil}
 	return nil
 }
+func (f *fakeStore) ConfirmSecret(_ context.Context, id string, digest []byte) error {
+	if _, ok := f.devices[id]; !ok {
+		return ErrNotFound
+	}
+	f.digests[id] = [2][]byte{digest, nil}
+	return nil
+}
 func (f *fakeStore) SetPendingSecret(_ context.Context, id string, digest []byte) error {
 	d := f.digests[id]
 	f.digests[id] = [2][]byte{d[0], digest}
@@ -615,6 +622,29 @@ func TestRegenerateSecretTravelsInTheConfigUntilConfirmed(t *testing.T) {
 	raw, _ = s.DeviceConfig(context.Background(), "aaaa", secret)
 	if strings.Contains(string(raw), "new-secret-new-secret") {
 		t.Fatal("a confirmed secret must not keep travelling in the config")
+	}
+}
+
+func TestConfirmingARegeneratedSecretIsNotANewAdoption(t *testing.T) {
+	store := newFakeStore(Device{ID: "aaaa"})
+	s := newTestService(store, discovery.Static{}, &fakeAdopter{})
+	_ = store.MarkAdopted(context.Background(), "aaaa", DigestSecret("old"))
+	adoptedAt := now.Add(-time.Hour)
+	store.devices["aaaa"].AdoptedAt = adoptedAt
+	s.newSecret = func() string { return "new-secret-new-secret-new-secret-1234" }
+	secret, err := s.RegenerateSecret(context.Background(), "aaaa")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.Authenticate(context.Background(), "aaaa", secret); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.devices["aaaa"].AdoptedAt; !got.Equal(adoptedAt) {
+		t.Fatalf("adopted at %v, want %v: a unit that only rotates its secret must not go back to waiting for its first poll", got, adoptedAt)
+	}
+	if err := s.Authenticate(context.Background(), "aaaa", "old"); !errors.Is(err, ErrUnauthorized) {
+		t.Fatal("the old secret must stop working once the new one is confirmed")
 	}
 }
 

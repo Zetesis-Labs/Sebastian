@@ -148,6 +148,8 @@ type Store interface {
 	// sessions).
 	MarkAdopted(ctx context.Context, id string, digest []byte) error
 	SetPendingSecret(ctx context.Context, id string, digest []byte) error
+	// ConfirmSecret promotes the pending secret; the adoption is unchanged.
+	ConfirmSecret(ctx context.Context, id string, digest []byte) error
 	Forget(ctx context.Context, id string) error
 	Rename(ctx context.Context, id, name string) error
 	SetMeetingLimits(ctx context.Context, id string, silenceMin, maxHours int) error
@@ -437,7 +439,7 @@ func (s *Service) authenticate(ctx context.Context, id, secret string) error {
 	}
 	if len(pending) > 0 && string(pending) == string(digest) {
 		// First contact with the regenerated secret: it becomes the secret.
-		if err := s.store.MarkAdopted(ctx, id, digest); err != nil {
+		if err := s.store.ConfirmSecret(ctx, id, digest); err != nil {
 			return err
 		}
 		s.mu.Lock()
