@@ -49,7 +49,7 @@ export interface paths {
         put?: never;
         /**
          * Create a device session and dispatch its assigned agent
-         * @description With `kind=meeting` the agent is dispatched in meeting mode for that meeting (design 14 §3.2).
+         * @description With `kind=meeting` the agent is dispatched in meeting mode for that meeting (design 14 §3.2); with `kind=announce` it says the announcement the unit was ordered to fetch, and `listen` tells the unit whether to open its microphone.
          */
         post: operations["createSession"];
         delete?: never;
@@ -363,6 +363,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/devices/{deviceId}/announcements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make the unit say something
+         * @description A unit in a conversation says it at the next pause. An idle unit is ordered over the LAN, signed with the organization secret, and by its next poll, to open an announce session: the agent plays a chime, says the text in the voice of the unit's agent profile and, with `reply`, stays listening for an answer. The order expires after two minutes.
+         */
+        post: operations["createAnnouncement"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/devices/{deviceId}/meetings": {
         parameters: {
             query?: never;
@@ -582,6 +602,8 @@ export interface components {
             status: "ok";
         };
         Session: {
+            /** @description Open the microphone; false for an announcement that only speaks. */
+            listen: boolean;
             /** Format: uuid */
             id: string;
             room: string;
@@ -944,9 +966,32 @@ export interface components {
              * @default conversation
              * @enum {string}
              */
-            kind: "conversation" | "meeting";
+            kind: "conversation" | "meeting" | "announce";
             /** Format: uuid */
             meetingId?: string;
+            /** Format: uuid */
+            announcementId?: string;
+        };
+        AnnouncementInput: {
+            text: string;
+            /**
+             * @description Stay listening after saying it, for an answer.
+             * @default false
+             */
+            reply: boolean;
+        };
+        Announcement: {
+            /** Format: uuid */
+            id: string;
+            text: string;
+            reply: boolean;
+            /**
+             * @description conversation = said in the unit's open conversation; lan = ordered over the LAN (the poll carries it too); poll = waits for the next poll (up to 30 s).
+             * @enum {string}
+             */
+            delivery: "conversation" | "lan" | "poll";
+            /** Format: date-time */
+            expiresAt: string;
         };
         RecordingSummary: {
             /** Format: int64 */
@@ -1109,6 +1154,15 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+            /** @description The announcement is unknown to this unit, already said or expired. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             /** @description LiveKit or persistence is unavailable. */
             503: {
                 headers: {
@@ -1146,6 +1200,8 @@ export interface operations {
                     "X-Desired-Config"?: string;
                     /** @description A pending meeting order (RM-06): start:<meetingId> or stop:<meetingId>. Absent when none. */
                     "X-Meeting"?: string;
+                    /** @description The oldest announcement the unit has not claimed: start:<announcementId>. Absent when none. */
+                    "X-Announce"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -1784,6 +1840,53 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["AgentProfileNotFound"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    createAnnouncement: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deviceId: components["parameters"]["DeviceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnnouncementInput"];
+            };
+        };
+        responses: {
+            /** @description Announcement accepted. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Announcement"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["DeviceNotFound"];
+            /** @description The unit is recording a meeting. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The unit cannot say it: empty or too long a text, not adopted here, not in the agente profile or not contacting. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             503: components["responses"]["Unavailable"];
         };
     };

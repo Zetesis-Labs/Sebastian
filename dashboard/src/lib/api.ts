@@ -1,4 +1,5 @@
 import { createServerFn } from '@tanstack/react-start'
+import type { Announcement } from './announcements'
 import type { components } from './api-schema'
 import type { AgentProfile, AgentProfileInput } from './agents'
 
@@ -224,6 +225,12 @@ export const getMeetings = createServerFn({ method: 'GET' })
 export const getMeeting = createServerFn({ method: 'GET' })
   .validator((meetingId: string) => meetingId)
   .handler(async ({ data }) => apiGet<Meeting>(`/v1/admin/meetings/${id(data)}`))
+
+export const createAnnouncement = createServerFn({ method: 'POST' })
+  .validator((input: { deviceId: string; text: string; reply: boolean }) => input)
+  .handler(async ({ data }) =>
+    apiSend<Announcement>(`/v1/admin/devices/${id(data.deviceId)}/announcements`, 'POST', { text: data.text, reply: data.reply }),
+  )
 
 export const startMeeting = createServerFn({ method: 'POST' })
   .validator((input: { deviceId: string }) => input)
