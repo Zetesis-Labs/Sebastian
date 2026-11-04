@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/Zetesis-Labs/Sebastian/compare/dashboard-v1.2.0...dashboard-v1.3.0) (2026-11-04)
+
+
+### Miscellaneous Chores
+
+* **dashboard:** Synchronize dashboard and firmware versions
+
 ## [1.2.0](https://github.com/Zetesis-Labs/Sebastian/compare/dashboard-v1.1.1...dashboard-v1.2.0) (2026-11-03)
 
 
