@@ -2,6 +2,13 @@
 
 All notable changes to Sebastian Server will be documented in this file.
 
+## [1.4.0](https://github.com/Zetesis-Labs/Sebastian/compare/server-v1.3.0...server-v1.4.0) (2026-11-04)
+
+
+### Features
+
+* **server:** readopt an absent unit where its last authenticated poll came from ([27c72e8](https://github.com/Zetesis-Labs/Sebastian/commit/27c72e8cc022c661af679caed9933a274169174a))
+
 ## [1.3.0](https://github.com/Zetesis-Labs/Sebastian/compare/server-v1.2.0...server-v1.3.0) (2026-11-04)
 
 

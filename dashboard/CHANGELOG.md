@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0](https://github.com/Zetesis-Labs/Sebastian/compare/dashboard-v1.4.0...dashboard-v1.5.0) (2026-11-04)
+
+
+### Features
+
+* **dashboard:** readopt an absent speaker ([e17b11d](https://github.com/Zetesis-Labs/Sebastian/commit/e17b11df6d98eb19b921fa0d549faa9e01fc4d7a))
+
 ## [1.4.0](https://github.com/Zetesis-Labs/Sebastian/compare/dashboard-v1.3.0...dashboard-v1.4.0) (2026-11-04)
 
 

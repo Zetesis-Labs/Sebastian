@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0](https://github.com/Zetesis-Labs/Sebastian/compare/firmware-v1.4.0...firmware-v1.5.0) (2026-11-04)
+
+
+### Miscellaneous Chores
+
+* **firmware:** Synchronize dashboard and firmware versions
+
 ## [1.4.0](https://github.com/Zetesis-Labs/Sebastian/compare/firmware-v1.3.0...firmware-v1.4.0) (2026-11-04)
 
 
