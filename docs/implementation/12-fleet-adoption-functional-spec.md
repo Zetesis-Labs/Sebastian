@@ -204,6 +204,15 @@ adoptar salvo que el operador lo pida expresamente.
 hace lo mismo sin necesidad de haberlo descubierto. Si la IP no responde en 5 s,
 lo dice. Si responde, provisiona igual.
 
+**RF-68 Readoptar un ausente.** El control room guarda la dirección desde la
+que llega cada poll que trae el secreto de altavoz; un poll sin él no la cambia,
+para que nadie desvíe una readopción hacia su máquina, y uno que llega a través
+de un proxy tampoco, porque no dice dónde está la unidad. Olvidar la borra. Un altavoz *adoptado
+aquí, ausente* ofrece *Readoptar*, que lo adopta en esa dirección (la fila dice
+"última consulta desde 10.0.0.193"). Si no la conoce, remite a *Adoptar por
+IP*. Las órdenes por la red (reunión, aviso) a un altavoz de otra subred usan la
+misma dirección; la red, cuando lo ve, manda sobre ella.
+
 **RF-32 Autorización.** El altavoz solo acepta la adopción si el mensaje está
 firmado con el secreto de organización que ya tiene o con su propio secreto de
 altavoz. Si no, la rechaza, no cambia nada y lo anuncia (RF-36).
@@ -234,7 +243,8 @@ dueño se entera de que lo intentó, esté o no en la misma red.
 **RF-37 Olvidar.** *Olvidar* en un altavoz adoptado aquí lo devuelve al estado
 *Sin adoptar*: borra el control room y los dos secretos en la unidad, conserva
 la WiFi, y lo elimina del inventario conservando su historial de sesiones. Pide
-confirmación escribiendo la MAC.
+confirmación escribiendo la MAC. Un ausente recibe la orden en la dirección de
+su último poll (RF-68).
 
 **RF-38 Ceder una unidad.** Para entregar un altavoz a alguien de fuera sin
 darle el secreto de organización: el dueño le comunica el secreto de altavoz
