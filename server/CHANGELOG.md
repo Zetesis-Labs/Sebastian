@@ -2,6 +2,14 @@
 
 All notable changes to Sebastian Server will be documented in this file.
 
+## [1.4.1](https://github.com/Zetesis-Labs/Sebastian/compare/server-v1.4.0...server-v1.4.1) (2026-11-04)
+
+
+### Bug Fixes
+
+* **server:** a readopted unit waits again for its first poll ([3ee2d31](https://github.com/Zetesis-Labs/Sebastian/commit/3ee2d31d4129235b880e247239424ce4385bd88c))
+* **server:** confirming a rotated secret is not a new adoption ([3b545b2](https://github.com/Zetesis-Labs/Sebastian/commit/3b545b2197b92feb2165333c314a0703337e8f6c))
+
 ## [1.4.0](https://github.com/Zetesis-Labs/Sebastian/compare/server-v1.3.0...server-v1.4.0) (2026-11-04)
 
 
