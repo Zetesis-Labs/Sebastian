@@ -23,6 +23,7 @@ type adminDeviceRow struct {
 	Adopted               bool       `bun:"adopted"`
 	AdoptedAt             *time.Time `bun:"adopted_at"`
 	ReportedFirmware      *string    `bun:"reported_firmware"`
+	LastIP                *string    `bun:"last_ip"`
 	ReportedConfigVersion *string    `bun:"reported_config_version"`
 	DesiredConfigVersion  *string    `bun:"desired_config_version"`
 	LastEvent             *string    `bun:"last_event"`
@@ -34,7 +35,7 @@ type adminDeviceRow struct {
 }
 
 const adminDeviceColumns = `id, display_name, enabled, desired_device_profile, reported_device_profile,
-	profile_reported_at, credential_digest IS NOT NULL AS adopted, adopted_at, reported_firmware,
+	profile_reported_at, credential_digest IS NOT NULL AS adopted, adopted_at, reported_firmware, last_ip,
 	reported_config_version, desired_config_version, last_event, last_event_at, meeting_silence_min, meeting_max_hours,
 	agent_profile_id, (SELECT ap.name FROM agent_profiles AS ap WHERE ap.id = devices.agent_profile_id) AS agent_profile_name`
 
@@ -54,6 +55,9 @@ func (r adminDeviceRow) toDomain() device.Device {
 	}
 	if r.ReportedFirmware != nil {
 		item.ReportedFirmware = *r.ReportedFirmware
+	}
+	if r.LastIP != nil {
+		item.LastIP = *r.LastIP
 	}
 	if r.ReportedConfigVersion != nil {
 		item.ReportedConfig = *r.ReportedConfigVersion
@@ -91,13 +95,14 @@ func (s *Store) TouchPoll(ctx context.Context, poll device.Poll) (device.PollRes
 	err := s.db.NewRaw(`
 		INSERT INTO devices (id, display_name, livekit_identity, enabled, created_at, updated_at,
 		                     reported_device_profile, profile_reported_at, reported_config_version, reported_firmware,
-		                     last_event, last_event_at)
-		VALUES (?, ?, ?, TRUE, ?, ?, NULLIF(?, ''), ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?)
+		                     last_event, last_event_at, last_ip)
+		VALUES (?, ?, ?, TRUE, ?, ?, NULLIF(?, ''), ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, NULLIF(?, ''))
 		ON CONFLICT (id) DO UPDATE SET
 			reported_device_profile = EXCLUDED.reported_device_profile,
 			profile_reported_at = EXCLUDED.profile_reported_at,
 			reported_config_version = EXCLUDED.reported_config_version,
 			reported_firmware = COALESCE(EXCLUDED.reported_firmware, devices.reported_firmware),
+			last_ip = COALESCE(EXCLUDED.last_ip, devices.last_ip),
 			last_event = COALESCE(EXCLUDED.last_event, devices.last_event),
 			last_event_at = CASE
 				WHEN EXCLUDED.last_event IS NULL OR EXCLUDED.last_event IS NOT DISTINCT FROM devices.last_event
@@ -106,7 +111,7 @@ func (s *Store) TouchPoll(ctx context.Context, poll device.Poll) (device.PollRes
 			updated_at = EXCLUDED.updated_at
 		RETURNING COALESCE(desired_device_profile, '') AS desired_profile,
 		          COALESCE(desired_config_version, '') AS desired_config`,
-		poll.ID, poll.ID, poll.ID, now, now, poll.Reported, now, poll.ConfigVersion, poll.Firmware, poll.Event, now,
+		poll.ID, poll.ID, poll.ID, now, now, poll.Reported, now, poll.ConfigVersion, poll.Firmware, poll.Event, now, poll.IP,
 	).Scan(ctx, &row)
 	if err != nil {
 		return device.PollResult{}, fmt.Errorf("touch device poll: %w", err)
@@ -363,7 +368,7 @@ func (s *Store) Forget(ctx context.Context, id string) error {
 			return q.Set("forgotten_at = ?", now).
 				Set("credential_digest = NULL").Set("pending_credential_digest = NULL").
 				Set("desired_config = NULL").Set("desired_config_version = NULL").
-				Set("desired_device_profile = NULL").Set("adopted_at = NULL")
+				Set("desired_device_profile = NULL").Set("adopted_at = NULL").Set("last_ip = NULL")
 		}); err != nil {
 			return err
 		}

@@ -99,6 +99,9 @@ func (h *Server) GetDesiredProfile(ctx context.Context, request GetDesiredProfil
 	if request.Params.Ev != nil {
 		poll.Event = *request.Params.Ev
 	}
+	if request.Params.XDeviceSecret != nil {
+		poll.Secret, poll.IP = *request.Params.XDeviceSecret, ClientIP(ctx)
+	}
 	result, err := h.devices.Reconcile(ctx, poll)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "device reconcile failed", "device_id", request.DeviceId, "error", err)
@@ -190,6 +193,7 @@ func deviceResponse(item device.Device) Device {
 		ProfileReportedAt:     optionalTime(item.ProfileReportedAt),
 		Firmware:              optional(item.Firmware),
 		Ip:                    optional(item.IP),
+		LastIp:                optional(item.LastIP),
 		ControlRoom:           optional(item.ControlRoom),
 		LastError:             optional(item.LastError),
 		LastEvent:             optional(item.LastEvent),

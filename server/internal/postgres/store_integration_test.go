@@ -502,3 +502,50 @@ func TestMeetingLifecycleLeavesDomainEventsAndKeepsTheTrace(t *testing.T) {
 		t.Fatal("dropped meetings are gone")
 	}
 }
+
+// Readopt: an authenticated poll leaves where the unit is; a poll that carries
+// no address (unauthenticated) keeps the last one.
+func TestThePollKeepsTheLastAddressOfTheUnit(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not set")
+	}
+	ctx := context.Background()
+	db, err := database.Open(databaseURL)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	store := NewStore(db)
+	id := "test" + strings.ReplaceAll(uuid.NewString(), "-", "")[:8]
+	t.Cleanup(func() { _, _ = db.ExecContext(ctx, `DELETE FROM devices WHERE id = ?`, id) })
+
+	if _, err := store.TouchPoll(ctx, device.Poll{ID: id, IP: "10.0.0.193"}); err != nil {
+		t.Fatalf("TouchPoll: %v", err)
+	}
+	if _, err := store.TouchPoll(ctx, device.Poll{ID: id}); err != nil {
+		t.Fatalf("TouchPoll: %v", err)
+	}
+	got, err := store.Get(ctx, id)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.LastIP != "10.0.0.193" {
+		t.Fatalf("last ip = %q", got.LastIP)
+	}
+	if _, err := store.TouchPoll(ctx, device.Poll{ID: id, IP: "10.0.0.201"}); err != nil {
+		t.Fatalf("TouchPoll: %v", err)
+	}
+	if moved, _ := store.Get(ctx, id); moved.LastIP != "10.0.0.201" {
+		t.Fatalf("a new address must replace the old one: %q", moved.LastIP)
+	}
+	if err := store.Forget(ctx, id); err != nil {
+		t.Fatalf("Forget: %v", err)
+	}
+	if _, err := store.TouchPoll(ctx, device.Poll{ID: id}); err != nil {
+		t.Fatalf("TouchPoll: %v", err)
+	}
+	if back, _ := store.Get(ctx, id); back.LastIP != "" {
+		t.Fatalf("a forgotten unit must not keep an address its lease may have lost: %q", back.LastIP)
+	}
+}

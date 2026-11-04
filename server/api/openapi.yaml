@@ -135,6 +135,14 @@ paths:
           schema:
             type: string
             maxLength: 64
+        - name: X-Device-Secret
+          in: header
+          description: >-
+            The unit's secret, once adopted. Only a poll that carries it
+            records where the unit is (`lastIp`); the poll works without it.
+          schema:
+            type: string
+            maxLength: 256
       responses:
         "200":
           description: Desired profile name; empty when none is set.
@@ -1486,6 +1494,12 @@ components:
           type: string
         ip:
           type: string
+        lastIp:
+          type: string
+          description: >-
+            Where the unit's last authenticated poll came from. Adopting an
+            absent unit without an `ip` uses it, and so do LAN orders to a unit
+            on another subnet.
         controlRoom:
           type: string
           description: Origin the device announces it is bound to (may be another control room).

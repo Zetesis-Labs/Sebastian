@@ -2,11 +2,14 @@ package httpserver
 
 import (
 	"log/slog"
+	"net"
 	"net/http"
 	"runtime/debug"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/zetesis-labs/sebastian/server/internal/api"
 )
 
 func Middleware(logger *slog.Logger, next http.Handler) http.Handler {
@@ -19,6 +22,14 @@ func Middleware(logger *slog.Logger, next http.Handler) http.Handler {
 		w.Header().Set("X-Request-ID", requestID)
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Cache-Control", "no-store")
+
+		if !proxied(r) {
+			if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+				r = r.WithContext(api.WithClientIP(r.Context(), host))
+			} else {
+				logger.WarnContext(r.Context(), "unparseable remote address", "remote_addr", r.RemoteAddr, "error", err)
+			}
+		}
 
 		response := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 		defer func() {
@@ -42,6 +53,12 @@ func Middleware(logger *slog.Logger, next http.Handler) http.Handler {
 		}()
 		next.ServeHTTP(response, r)
 	})
+}
+
+// proxied: the TCP peer is a proxy, not the client, and what it forwards is
+// not trusted, so the request tells nothing about where the client is.
+func proxied(r *http.Request) bool {
+	return r.Header.Get("X-Forwarded-For") != "" || r.Header.Get("Forwarded") != "" || r.Header.Get("X-Real-Ip") != ""
 }
 
 type statusWriter struct {
