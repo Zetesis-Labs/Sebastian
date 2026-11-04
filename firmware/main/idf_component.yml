@@ -15,3 +15,13 @@ dependencies:
   # Fleet: the unit announces itself on the LAN (_sebastian._tcp) so any control
   # room lists it, adopted or not (docs/implementation/11-fleet-adoption-control-room.md).
   espressif/mdns: "~1.8"
+  # dependencies.lock cannot hold these: the component manager discards a lock
+  # whose livekit override_path is relative (it cannot evaluate it while
+  # loading) and re-solves to the newest releases. Pinned to the versions in the
+  # lock, validated on hardware; CI fails if the build resolves anything else.
+  espressif/dl_fft: "0.7.0"
+  espressif/esp-nn: "1.4.1"
+  espressif/esp32-camera: "2.1.7"
+  espressif/esp_h264: "1.4.1"
+  espressif/esp_jpeg: "1.3.1"
+  espressif/esp_sccb_intf: "0.0.9"
