@@ -316,7 +316,7 @@ func (s *Store) MarkAdopted(ctx context.Context, id string, digest []byte) error
 		ON CONFLICT (id) DO UPDATE SET
 			credential_digest = EXCLUDED.credential_digest,
 			pending_credential_digest = NULL,
-			adopted_at = COALESCE(devices.adopted_at, EXCLUDED.adopted_at),
+			adopted_at = EXCLUDED.adopted_at,
 			agent_profile_id = COALESCE(devices.agent_profile_id, EXCLUDED.agent_profile_id),
 			forgotten_at = NULL,
 			enabled = TRUE,
