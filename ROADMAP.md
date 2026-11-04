@@ -11,14 +11,17 @@
    ni los callbacks que corren en ella pueden escribir en la flash (hoy no lo
    hacen). Se valida con las líneas `heap[...]` en placa; ver
    [TROUBLESHOOTING §13](docs/TROUBLESHOOTING.md).
-2. **Avisos y audio hacia un altavoz en reposo.** Hoy `announce(text)` (§3,
-   punto 7) solo habla dentro de una sesión abierta. Dos fases, elegidas por
-   Rubén el 2026-11-04:
+2. **Audio hacia un altavoz en reposo.** Los avisos ya llegan a un altavoz en
+   reposo (hecho el 2026-11-04, PR #73: servidor 1.3.0, agente 0.1.13,
+   firmware 1.4.0). El panel o la API mandan el texto, la placa abre una
+   sesión de aviso y el agente lo dice tras una señal, con la voz de su
+   perfil; puede quedarse escuchando la respuesta. También está hecho
+   *Readoptar* (PR #75 y #77, servidor 1.4.1), que recupera un altavoz ausente
+   en la IP de su última consulta, sin escribirla a mano. Queda la música y el
+   audio que no es del agente, en dos fases elegidas por Rubén el 2026-11-04:
    - **2a. Sesión de reproducción ordenada desde la sala de control, y una
      página del panel que emite a un altavoz** (micrófono, fichero o pestaña,
-     con el SDK JS de LiveKit). Valida la cadena con nuestro propio stack y es
-     la base de los avisos con la voz del agente: texto → orden de abrir
-     sesión → el agente lo dice con la voz de su perfil → cierra.
+     con el SDK JS de LiveKit). Valida la cadena con nuestro propio stack.
    - **2b. Un puente en cortes que expone cada altavoz como receptor AirPlay**
      (`shairport-sync`) y publica su audio en la sala del altavoz. Cubre Mac,
      iPhone, Spotify a través de AirPlay y Music Assistant de Home Assistant,
@@ -328,8 +331,9 @@ Actionable, deduplicated. Deep multi-session efforts link to their design sectio
    orphaned-generate_reply collision — so the agent queues it and speaks only
    after ~3 s of continuous idle (validated live: queued mid-story, waited 18 s,
    spoke in the pause). Remaining: the MCP face, more modes (`record_note`,
-   `play_media`, `set_mode`), and proactive announce to an *idle* device — which
-   is exactly the always-connected enabler (§9). Also shipped alongside:
+   `play_media`, `set_mode`). Proactive announce to an *idle* device SHIPPED
+   2026-11-04 (PR #73): the unit opens an announce session on order (see
+   "Próximos pasos", point 2). Also shipped alongside:
    **per-session mic recordings** (`agent/recordings/<ts>_<room>.wav`, on by
    default, `SEBASTIAN_RECORD=0` disables) — the local Egress for
    forensics/dataset.

@@ -13,7 +13,7 @@ Estado y procedencia: [STATUS](docs/STATUS.md) y
 | ID | Estado en el código | Criterio pendiente de aceptación |
 |---|---|---|
 | A1 | `/token` retirado de Go/firmware; `POST /v1/sessions` requiere identidad y secreto de unidad. | Comprobar en el entorno de despliegue que peticiones sin credenciales no crean sesiones ni dispatches; medir y acotar solicitudes repetidas. |
-| A2 | API administrativa con `X-Admin-Secret`, SSR en el dashboard. `announce` sigue en el control plane Python separado. | Verificar acceso real al panel y al control plane, autenticación y límites de texto/peticiones. El secreto SSR no autentica al usuario del navegador. |
+| A2 | API administrativa con `X-Admin-Secret`, SSR en el dashboard. Los avisos van por esa API (`POST /v1/admin/devices/{id}/announcements`, 2026-11-04); el control plane Python antiguo (`agent/control_plane.py`) sigue en el repo. | Verificar acceso real al panel y al control plane, autenticación y límites de texto/peticiones. El secreto SSR no autentica al usuario del navegador. |
 | A3 | La configuración admite URLs de red local; no hay una garantía general de TLS en todo el recorrido. | Documentar transporte, red de confianza y exposición de cada servicio; comprobar el recorrido de credenciales en ese entorno. |
 | A4 | El chart requiere secretos existentes para los componentes principales; el Compose incluye valores de desarrollo. | Verificar los secretos y el render de producción, evitando trasladar las credenciales del Compose. |
 
