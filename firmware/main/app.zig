@@ -32,6 +32,7 @@ const wakeword = @import("wakeword.zig");
 const xvf_aec = @import("xvf_aec.zig");
 const pre_roll = @import("pre_roll.zig");
 const arbiter_core = @import("core/arbiter_core.zig");
+const playback_core = @import("core/playback_core.zig");
 const session_core = @import("core/session_core.zig");
 const reducer = @import("core/session_reducer.zig");
 const token = @import("token.zig");
@@ -54,6 +55,11 @@ var room: c.livekit_room_handle_t = null;
 // produces it every few ms, so it is sampled into each tick via swap.
 var render_peak = std.atomic.Value(u32).init(0);
 var wake_seq: u32 = 0;
+// The playback room the idle loop keeps open (server internal/playback): the
+// unit only listens there, and leaves it for any session.
+var playback = playback_core.State{};
+var playback_heap_log_ms: u64 = 0;
+const PLAYBACK_HEAP_LOG_MS: u64 = 60_000;
 // The meeting the idle loop was told to record (design 14 §3.2, block B).
 var meeting_id_z: [40]u8 = undefined;
 var announcement_id_z: [40]u8 = undefined;
@@ -292,15 +298,27 @@ fn connectNetwork() AppError!void {
     startSntp();
 }
 
+/// A session talks (publishes the mic, even if muted until the handoff) or
+/// only listens (a playback room: nothing leaves the unit).
+const RoomMode = enum { talk, listen_only };
+
 fn openSession(audio: AudioPipeline, conn: token.Connection) AppError!void {
+    return openRoom(audio, conn, .talk);
+}
+
+fn openRoom(audio: AudioPipeline, conn: token.Connection, mode: RoomMode) AppError!void {
     var opts = std.mem.zeroes(c.livekit_room_options_t);
     opts.subscribe.kind = c.LIVEKIT_MEDIA_TYPE_AUDIO;
     opts.subscribe.renderer = audio.speaker;
-    opts.publish.kind = c.LIVEKIT_MEDIA_TYPE_AUDIO;
-    opts.publish.audio_encode.codec = c.LIVEKIT_AUDIO_CODEC_OPUS;
-    opts.publish.audio_encode.sample_rate = 48000;
-    opts.publish.audio_encode.channel_count = 1;
-    opts.publish.capturer = audio.mic;
+    if (mode == .talk) {
+        opts.publish.kind = c.LIVEKIT_MEDIA_TYPE_AUDIO;
+        opts.publish.audio_encode.codec = c.LIVEKIT_AUDIO_CODEC_OPUS;
+        opts.publish.audio_encode.sample_rate = 48000;
+        opts.publish.audio_encode.channel_count = 1;
+        opts.publish.capturer = audio.mic;
+    } else {
+        opts.publish.kind = c.LIVEKIT_MEDIA_TYPE_NONE;
+    }
     opts.on_state_changed = onStateChanged;
     opts.on_participant_info = onParticipantInfo;
     opts.on_data_received = onDataReceived;
@@ -322,7 +340,9 @@ fn openSession(audio: AudioPipeline, conn: token.Connection) AppError!void {
     try requireLiveKitOk(c.livekit_room_connect(room, conn.server_url, conn.token), error.RoomConnectFailed);
     logHeap("post-connect");
     log.info("session open", .{});
-    c.sebastian_adopt_session_active(true); // config changes wait for the conversation
+    // Config changes wait for a conversation; a playback is simply rejoined
+    // after the restart.
+    if (mode == .talk) c.sebastian_adopt_session_active(true);
 }
 
 fn closeSession() void {
@@ -470,7 +490,7 @@ fn revokeUsbToIdle() void {
     xvf_ui.setState(.idle);
 }
 
-fn waitForWakeWord() IdleOutcome {
+fn waitForWakeWord(audio: AudioPipeline) IdleOutcome {
     // Convivencia: while idling for the wake word, the USB host can borrow
     // the mic — usage-driven, zero config (core/arbiter_core hysteresis).
     // Ownership changes execute HERE, on the single agent task, so they can
@@ -489,6 +509,7 @@ fn waitForWakeWord() IdleOutcome {
             if (arb.owner == .usb) revokeUsbToIdle();
             return .announcement;
         }
+        stepPlayback(audio);
         c.vTaskDelay(arbiter_core.TICK_MS);
     }
     // Rare race: detection latched in the same tick the mic went to USB.
@@ -752,9 +773,103 @@ fn drainAndResetSpeaker() void {
     log.info("speaker drained in {d} ms, renderer reset", .{elapsed});
 }
 
+fn nowMs() u64 {
+    return @intCast(@divTrunc(c.esp_timer_get_time(), 1000));
+}
+
+fn takePlaybackOrders() void {
+    var verb: [8]u8 = undefined;
+    var id: [40]u8 = undefined;
+    if (c.sebastian_playback_take(&verb, verb.len, &id, id.len)) {
+        const v = std.mem.sliceTo(&verb, 0);
+        if (playback_core.parseId(std.mem.sliceTo(&id, 0))) |parsed| {
+            if (std.mem.eql(u8, v, "start")) playback.order(.{ .start = parsed });
+            if (std.mem.eql(u8, v, "stop")) playback.order(.{ .stop = parsed });
+        } else {
+            log.warn("playback order {s} with a malformed id — ignored", .{v});
+        }
+    }
+    playback.silentPolls(control.takeSilentPlaybackPolls());
+}
+
+/// One idle tick of the playback: take the orders, watch the room, and open
+/// or close it as playback_core says.
+fn stepPlayback(audio: AudioPipeline) void {
+    takePlaybackOrders();
+    if (playback.open != null) {
+        const state = c.livekit_room_get_state(room);
+        if (classifyConnection(state) == .ended) {
+            log.warn("playback room dropped (state={d}) — rejoining in {d} s", .{ state, playback_core.RETRY_MS / 1000 });
+            closePlaybackRoom();
+            playback.ended(nowMs());
+        } else if (nowMs() >= playback_heap_log_ms) {
+            playback_heap_log_ms = nowMs() + PLAYBACK_HEAP_LOG_MS;
+            logHeap("playback");
+        }
+    }
+    switch (playback.next(nowMs())) {
+        .none => {},
+        .close => {
+            log.info("playback over — leaving the room", .{});
+            closePlaybackRoom();
+        },
+        .open => |id| openPlaybackRoom(audio, id),
+    }
+}
+
+fn openPlaybackRoom(audio: AudioPipeline, id: playback_core.Id) void {
+    log.info("playback {s}: joining the room to listen", .{&id});
+    const conn = token.fetchPlayback(&id) catch |err| {
+        if (err == error.Off) {
+            log.info("playback {s} is off at the control room", .{&id});
+            playback.openFailed(.off, nowMs());
+        } else {
+            logStageError("playback token", err);
+            playback.openFailed(.transient, nowMs());
+        }
+        return;
+    };
+    wdgArm(45); // room_connect has wedged before; the watchdog reboots us to idle
+    openRoom(audio, conn, .listen_only) catch |err| {
+        wdgDisarm();
+        logStageError("playback room", err);
+        playback.openFailed(.transient, nowMs());
+        return;
+    };
+    wdgDisarm();
+    playback.opened(id);
+    playback_heap_log_ms = nowMs() + PLAYBACK_HEAP_LOG_MS;
+    logHeap("playback-open");
+}
+
+/// Out of the playback room, cutting the music at once (no drain: nobody
+/// wants the tail of a song). The wish is untouched: leaving for a session
+/// comes back to it.
+fn closePlaybackRoom() void {
+    if (playback.open == null) return;
+    wdgArm(25); // livekit_room_close has hung forever before
+    closeSession();
+    wdgDisarm();
+    c.sebastian_heap_trace_end();
+    render_peak.store(0, .monotonic);
+    if (speaker_render != null) {
+        wdgArm(10);
+        const rc = c.av_render_reset(speaker_render);
+        wdgDisarm();
+        if (rc != 0) log.err("playback: av_render_reset failed (rc={d})", .{rc});
+    }
+    playback.closed();
+    logHeap("playback-closed");
+}
+
 fn runWakeCycle(audio: AudioPipeline) void {
     startWakeDetection();
-    switch (waitForWakeWord()) {
+    const outcome = waitForWakeWord(audio);
+    if (playback.open != null) {
+        log.info("leaving the playback to attend the {s}", .{@tagName(outcome)});
+        closePlaybackRoom();
+    }
+    switch (outcome) {
         .meeting => return runMeetingCycle(audio),
         .announcement => return runAnnouncementCycle(audio),
         .wake => {},

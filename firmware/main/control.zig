@@ -47,6 +47,10 @@ var resp_buf: [64]u8 = undefined;
 var hdr_buf: [32]u8 = undefined;
 var meeting_hdr: [48]u8 = undefined;
 var announcement_hdr: [48]u8 = undefined;
+var playback_hdr: [48]u8 = undefined;
+/// Polls that answered without X-Playback since the app last asked
+/// (playback_core: a control room that forgot the playback).
+var silent_playback_polls = std.atomic.Value(u32).init(0);
 var cfg_ver: [24]u8 = undefined;
 var dev_secret: [129]u8 = undefined;
 var org_secret: [129]u8 = undefined;
@@ -162,6 +166,31 @@ fn relayAnnouncementOrder(header: []const u8) void {
     c.sebastian_announcement_push(id_z2.ptr);
 }
 
+/// The poll's X-Playback header says which playback the unit should be
+/// listening to ("start:<id>") or leaving ("stop:<id>"); same mailbox as the
+/// LAN order. A poll without it is counted for playback_core.
+fn relayPlaybackOrder(header: []const u8) void {
+    if (header.len == 0) {
+        _ = silent_playback_polls.fetchAdd(1, .monotonic);
+        return;
+    }
+    const colon = std.mem.indexOfScalar(u8, header, ':') orelse return;
+    const verb = header[0..colon];
+    const id = header[colon + 1 ..];
+    if (id.len == 0 or id.len >= 40 or !c.sebastian_meeting_is_recordable()) return;
+    if (!std.mem.eql(u8, verb, "start") and !std.mem.eql(u8, verb, "stop")) return;
+    var verb_buf: [8]u8 = undefined;
+    var id_buf: [40]u8 = undefined;
+    const verb_z = std.fmt.bufPrintZ(&verb_buf, "{s}", .{verb}) catch return;
+    const id_z2 = std.fmt.bufPrintZ(&id_buf, "{s}", .{id}) catch return;
+    c.sebastian_playback_push(verb_z.ptr, id_z2.ptr);
+}
+
+/// Polls without X-Playback since the last call.
+pub fn takeSilentPlaybackPolls() u32 {
+    return silent_playback_polls.swap(0, .monotonic);
+}
+
 /// The poll's X-Meeting header carries a pending meeting order (RM-06):
 /// "start:<id>" | "stop:<id>" | "warn:<id>". Same mailbox as the LAN command.
 fn relayMeetingOrder(header: []const u8) void {
@@ -239,10 +268,11 @@ fn pollOnce() void {
     }) catch return;
 
     var status: c_int = 0;
-    const n = c.sebastian_http_get_auth3(url.ptr, @ptrCast(&id_z), secretZ(), "X-Desired-Config", &hdr_buf, hdr_buf.len, "X-Meeting", &meeting_hdr, meeting_hdr.len, "X-Announce", &announcement_hdr, announcement_hdr.len, &resp_buf, resp_buf.len, &status);
+    const n = c.sebastian_http_get_auth4(url.ptr, @ptrCast(&id_z), secretZ(), "X-Desired-Config", &hdr_buf, hdr_buf.len, "X-Meeting", &meeting_hdr, meeting_hdr.len, "X-Announce", &announcement_hdr, announcement_hdr.len, "X-Playback", &playback_hdr, playback_hdr.len, &resp_buf, resp_buf.len, &status);
     announceResult(status, n);
     if (n >= 0) relayMeetingOrder(std.mem.sliceTo(&meeting_hdr, 0));
     if (n >= 0) relayAnnouncementOrder(std.mem.sliceTo(&announcement_hdr, 0));
+    if (n >= 0) relayPlaybackOrder(std.mem.sliceTo(&playback_hdr, 0));
     if (status == 401 and c.sebastian_is_bound()) {
         // The control room does not know our secret (rebuilt, or we were
         // forgotten there): enrol again on the next poll if we can.

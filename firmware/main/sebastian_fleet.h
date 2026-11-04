@@ -76,6 +76,13 @@ int sebastian_http_get_auth3(const char *url, const char *device_id, const char 
                              const char *header2, char *hdr2_out, size_t hdr2_size,
                              const char *header3, char *hdr3_out, size_t hdr3_size,
                              char *out, size_t out_size, int *status);
+// Same, capturing a fourth response header.
+int sebastian_http_get_auth4(const char *url, const char *device_id, const char *secret,
+                             const char *header1, char *hdr1_out, size_t hdr1_size,
+                             const char *header2, char *hdr2_out, size_t hdr2_size,
+                             const char *header3, char *hdr3_out, size_t hdr3_size,
+                             const char *header4, char *hdr4_out, size_t hdr4_size,
+                             char *out, size_t out_size, int *status);
 
 // ── announce.c ──────────────────────────────────────────────────────────────
 // Advertise _sebastian._tcp on the LAN. Call once the network is up.
@@ -114,6 +121,13 @@ void sebastian_meeting_set_active(bool active);
 bool sebastian_meeting_is_active(void);
 void sebastian_meeting_set_recordable(bool recordable); // agente profile (RM-54)
 bool sebastian_meeting_is_recordable(void);
+// ── playback orders (server internal/playback) ──────────────────────────────
+// The control room wants this unit listening to a playback room. The LAN
+// command ({"cmd":"play-start"|"play-stop"}) and the poll's X-Playback header
+// carry the order; the app keeps the room open while it idles.
+// verb: "start" | "stop"; id: the playback UUID.
+void sebastian_playback_push(const char *verb, const char *id);
+bool sebastian_playback_take(char *verb, size_t verb_size, char *id, size_t id_size);
 // ── spoken announcements (server internal/announce) ─────────────────────────
 // Not the mDNS announce of announce.c: the control room wants this idle unit
 // to say something. The LAN command {"cmd":"announce"} and the poll's

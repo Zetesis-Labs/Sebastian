@@ -18,7 +18,7 @@ static const char *TAG = "session_http";
 
 // esp_http_client_get_header() reads the REQUEST headers; response headers only
 // arrive through the event handler. This captures the one header we care about.
-#define CAPTURED_HEADERS 3
+#define CAPTURED_HEADERS 4
 
 typedef struct {
     const char *name[CAPTURED_HEADERS];
@@ -64,8 +64,8 @@ int sebastian_http_get_auth2(const char *url, const char *device_id, const char 
                              const char *header1, char *hdr1_out, size_t hdr1_size,
                              const char *header2, char *hdr2_out, size_t hdr2_size,
                              char *out, size_t out_size, int *status) {
-    return sebastian_http_get_auth3(url, device_id, secret, header1, hdr1_out, hdr1_size, header2, hdr2_out, hdr2_size,
-                                    NULL, NULL, 0, out, out_size, status);
+    return sebastian_http_get_auth4(url, device_id, secret, header1, hdr1_out, hdr1_size, header2, hdr2_out, hdr2_size,
+                                    NULL, NULL, 0, NULL, NULL, 0, out, out_size, status);
 }
 
 int sebastian_http_get_auth3(const char *url, const char *device_id, const char *secret,
@@ -73,15 +73,26 @@ int sebastian_http_get_auth3(const char *url, const char *device_id, const char 
                              const char *header2, char *hdr2_out, size_t hdr2_size,
                              const char *header3, char *hdr3_out, size_t hdr3_size,
                              char *out, size_t out_size, int *status) {
+    return sebastian_http_get_auth4(url, device_id, secret, header1, hdr1_out, hdr1_size, header2, hdr2_out, hdr2_size,
+                                    header3, hdr3_out, hdr3_size, NULL, NULL, 0, out, out_size, status);
+}
+
+int sebastian_http_get_auth4(const char *url, const char *device_id, const char *secret,
+                             const char *header1, char *hdr1_out, size_t hdr1_size,
+                             const char *header2, char *hdr2_out, size_t hdr2_size,
+                             const char *header3, char *hdr3_out, size_t hdr3_size,
+                             const char *header4, char *hdr4_out, size_t hdr4_size,
+                             char *out, size_t out_size, int *status) {
     if (hdr1_out && hdr1_size) hdr1_out[0] = '\0';
     if (hdr2_out && hdr2_size) hdr2_out[0] = '\0';
     if (hdr3_out && hdr3_size) hdr3_out[0] = '\0';
+    if (hdr4_out && hdr4_size) hdr4_out[0] = '\0';
     if (status) *status = 0;
-    header_capture_t cap = {.name = {header1, header2, header3},
-                            .out = {hdr1_out, hdr2_out, hdr3_out},
-                            .size = {hdr1_size, hdr2_size, hdr3_size}};
+    header_capture_t cap = {.name = {header1, header2, header3, header4},
+                            .out = {hdr1_out, hdr2_out, hdr3_out, hdr4_out},
+                            .size = {hdr1_size, hdr2_size, hdr3_size, hdr4_size}};
     const bool capturing = (header1 && hdr1_out && hdr1_size) || (header2 && hdr2_out && hdr2_size) ||
-                           (header3 && hdr3_out && hdr3_size);
+                           (header3 && hdr3_out && hdr3_size) || (header4 && hdr4_out && hdr4_size);
     esp_http_client_handle_t client = open_client(url, HTTP_METHOD_GET, device_id, secret, capturing ? &cap : NULL);
     if (client == NULL) return -1;
     int result;
