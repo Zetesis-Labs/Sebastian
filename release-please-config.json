@@ -6,6 +6,7 @@
   "separate-pull-requests": false,
   "bump-minor-pre-major": true,
   "bump-patch-for-minor-pre-major": true,
+  "bootstrap-sha": "145a561023e32bdb085c71e2213aa3b74ad7d83b",
   "packages": {
     "agent": {
       "package-name": "sebastian-agent",
@@ -30,6 +31,22 @@
       "component": "helm",
       "release-type": "helm",
       "changelog-path": "CHANGELOG.md"
+    },
+    "firmware": {
+      "package-name": "sebastian-firmware",
+      "component": "firmware",
+      "release-type": "simple",
+      "changelog-path": "CHANGELOG.md"
     }
-  }
+  },
+  "plugins": [
+    {
+      "type": "linked-versions",
+      "groupName": "dashboard and firmware",
+      "components": [
+        "dashboard",
+        "firmware"
+      ]
+    }
+  ]
 }
