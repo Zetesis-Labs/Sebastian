@@ -35,9 +35,12 @@
      Bluetooth clásico (A2DP). Un receptor DLNA en el mismo puente, solo si se
      echa en falta el botón de enviar de alguna app.
 
-     Pendiente: AirPlay se descubre por mDNS, que no pasa de la red de casa
-     (10.0.0.x) a cortes (10.0.100.x). O un repetidor de mDNS en el router, o
-     el puente en una máquina de la red de casa.
+     AirPlay se descubre por mDNS, que no pasa de la red de casa (10.0.0.x) a
+     cortes (10.0.100.x). Decidido (Rubén, 2026-11-04): repetidor de mDNS en
+     el router de casa (VyOS, `service mdns repeater`) y el puente con
+     `hostNetwork`, como LiveKit, porque desde la red de pods la multidifusión
+     no sale del nodo. De paso, prod podría ver las placas por mDNS
+     (`discovery: true`).
 
    En el firmware: una orden `play-start`/`play-stop` por el mismo buzón que
    las de reuniones (hoy solo `record-*`, `control.zig`), un modo de sesión de
