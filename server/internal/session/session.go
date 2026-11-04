@@ -139,12 +139,20 @@ func (s *Service) Create(ctx context.Context, credentials Credentials) (Created,
 	}
 	// The whole id: a UUIDv7's first 8 hex digits are timestamp bits that only
 	// change every ~65 s, so a short prefix collides between back-to-back sessions.
-	room := fmt.Sprintf("%s-%s", s.roomPrefix, sessionID.String())
-	if credentials.Kind == KindPlayback {
-		room = credentials.PlaybackRoom
-	}
 	now := s.now().UTC()
 	expiresAt := now.Add(s.tokenTTL)
+	if credentials.Kind == KindPlayback {
+		// Not a session row: no agent is dispatched (the zombie the row guards
+		// against), and the unit rejoins the same room after every
+		// conversation, which the row's unique room would refuse.
+		room := credentials.PlaybackRoom
+		token, err := s.livekit.MintListenToken(room, device.Identity, s.tokenTTL)
+		if err != nil {
+			return Created{}, fmt.Errorf("mint listen token: %w", ErrUnavailable)
+		}
+		return Created{ID: sessionID, Room: room, ServerURL: s.serverURL, Token: token, ExpiresAt: expiresAt}, nil
+	}
+	room := fmt.Sprintf("%s-%s", s.roomPrefix, sessionID.String())
 	// Persist the session BEFORE any LiveKit side effect. If the record fails we
 	// return here having dispatched nothing — the alternative (record last) leaves
 	// a dispatched agent with no session row: a zombie in the room.
@@ -160,14 +168,6 @@ func (s *Service) Create(ctx context.Context, credentials Credentials) (Created,
 		// Keep the store error in the chain: swallowing it turned every storage
 		// fault into an opaque 503 with nothing to debug from.
 		return Created{}, fmt.Errorf("record session: %w: %w", ErrUnavailable, err)
-	}
-
-	if credentials.Kind == KindPlayback {
-		token, err := s.livekit.MintListenToken(room, device.Identity, s.tokenTTL)
-		if err != nil {
-			return Created{}, fmt.Errorf("mint listen token: %w", ErrUnavailable)
-		}
-		return Created{ID: sessionID, Room: room, ServerURL: s.serverURL, Token: token, ExpiresAt: expiresAt}, nil
 	}
 
 	metadata, err := json.Marshal(dispatchMetadata(device, credentials))
