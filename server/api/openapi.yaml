@@ -44,7 +44,8 @@ paths:
         With `kind=meeting` the agent is dispatched in meeting mode for that
         meeting (design 14 §3.2); with `kind=announce` it says the announcement
         the unit was ordered to fetch, and `listen` tells the unit whether to
-        open its microphone.
+        open its microphone. With `kind=playback` no agent comes: the unit
+        joins the room of the playback it was ordered into, only to listen.
       tags: [sessions]
       security:
         - DeviceSecret: []
@@ -157,6 +158,10 @@ paths:
                 type: string
             X-Announce:
               description: "The oldest announcement the unit has not claimed: start:<announcementId>. Absent when none."
+              schema:
+                type: string
+            X-Playback:
+              description: "The playback the unit should be listening to (start:<playbackId>), or the one it must leave for two minutes after it stopped (stop:<playbackId>). Absent when none."
               schema:
                 type: string
           content:
@@ -795,6 +800,89 @@ paths:
                 $ref: "#/components/schemas/Problem"
         "503":
           $ref: "#/components/responses/Unavailable"
+  /v1/admin/devices/{deviceId}/playback:
+    post:
+      operationId: startPlayback
+      summary: Make the unit play what a source publishes
+      description: >-
+        The unit is ordered over the LAN, signed with the organization
+        secret, and by its next poll, to join a playback room only to listen.
+        It keeps the room while it idles, leaves it for the wake word, an
+        announcement or a meeting, and comes back while the playback is on.
+        The response tells the source where to publish; a playback already
+        on is kept and returned.
+      tags: [administration]
+      security:
+        - AdminSecret: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+      responses:
+        "201":
+          description: Playback on.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlaybackStarted"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/DeviceNotFound"
+        "409":
+          description: The unit is recording a meeting.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "422":
+          description: The unit cannot play here, in the agente profile or while contacting.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    get:
+      operationId: getPlayback
+      summary: The playback on for the unit
+      tags: [administration]
+      security:
+        - AdminSecret: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+      responses:
+        "200":
+          description: A playback is on.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Playback"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Nothing is playing.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+    delete:
+      operationId: stopPlayback
+      summary: Stop the unit's playback
+      tags: [administration]
+      security:
+        - AdminSecret: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+      responses:
+        "204":
+          description: Stopped; the unit is ordered out of the room.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Nothing is playing.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
   /v1/admin/devices/{deviceId}/meetings:
     post:
       operationId: startMeeting
@@ -1789,7 +1877,7 @@ components:
       properties:
         kind:
           type: string
-          enum: [conversation, meeting, announce]
+          enum: [conversation, meeting, announce, playback]
           default: conversation
         meetingId:
           type: string
@@ -1797,6 +1885,43 @@ components:
         announcementId:
           type: string
           format: uuid
+        playbackId:
+          type: string
+          format: uuid
+    Playback:
+      type: object
+      additionalProperties: false
+      required: [id, startedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        startedAt:
+          type: string
+          format: date-time
+    PlaybackStarted:
+      type: object
+      additionalProperties: false
+      required: [id, startedAt, room, serverUrl, sourceToken, delivery]
+      properties:
+        id:
+          type: string
+          format: uuid
+        startedAt:
+          type: string
+          format: date-time
+        room:
+          type: string
+        serverUrl:
+          type: string
+          description: The LiveKit URL the source connects to.
+        sourceToken:
+          type: string
+          description: Lets the source publish into the room, not listen to it.
+        delivery:
+          type: string
+          enum: [lan, poll]
+          description: lan = ordered over the LAN (the poll carries it too); poll = waits for the next poll (up to 30 s).
     AnnouncementInput:
       type: object
       additionalProperties: false

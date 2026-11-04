@@ -28,14 +28,16 @@ type Device struct {
 }
 
 // Kind is what the session is for: a conversation with the agent, a
-// meeting recording (docs/implementation/14 §3.2) or an announcement the
-// control room ordered — the agent reads it from the dispatch metadata.
+// meeting recording (docs/implementation/14 §3.2), an announcement the
+// control room ordered — the agent reads it from the dispatch metadata — or
+// a playback, where the unit only listens to a source and no agent comes.
 type Kind string
 
 const (
 	KindConversation Kind = "conversation"
 	KindMeeting      Kind = "meeting"
 	KindAnnounce     Kind = "announce"
+	KindPlayback     Kind = "playback"
 )
 
 // Announced is what an announce session says, already claimed by the unit.
@@ -50,6 +52,7 @@ type Credentials struct {
 	Kind         Kind
 	MeetingID    uuid.UUID // with KindMeeting
 	Announcement Announced // with KindAnnounce
+	PlaybackRoom string    // with KindPlayback: the room the source publishes into
 }
 
 type Created struct {
@@ -83,6 +86,8 @@ type Store interface {
 type LiveKit interface {
 	Dispatch(context.Context, string, string, []byte) error
 	MintToken(string, string, time.Duration) (string, error)
+	// MintListenToken grants joining the room to listen, not to publish.
+	MintListenToken(string, string, time.Duration) (string, error)
 }
 
 type Service struct {
@@ -135,6 +140,9 @@ func (s *Service) Create(ctx context.Context, credentials Credentials) (Created,
 	// The whole id: a UUIDv7's first 8 hex digits are timestamp bits that only
 	// change every ~65 s, so a short prefix collides between back-to-back sessions.
 	room := fmt.Sprintf("%s-%s", s.roomPrefix, sessionID.String())
+	if credentials.Kind == KindPlayback {
+		room = credentials.PlaybackRoom
+	}
 	now := s.now().UTC()
 	expiresAt := now.Add(s.tokenTTL)
 	// Persist the session BEFORE any LiveKit side effect. If the record fails we
@@ -152,6 +160,14 @@ func (s *Service) Create(ctx context.Context, credentials Credentials) (Created,
 		// Keep the store error in the chain: swallowing it turned every storage
 		// fault into an opaque 503 with nothing to debug from.
 		return Created{}, fmt.Errorf("record session: %w: %w", ErrUnavailable, err)
+	}
+
+	if credentials.Kind == KindPlayback {
+		token, err := s.livekit.MintListenToken(room, device.Identity, s.tokenTTL)
+		if err != nil {
+			return Created{}, fmt.Errorf("mint listen token: %w", ErrUnavailable)
+		}
+		return Created{ID: sessionID, Room: room, ServerURL: s.serverURL, Token: token, ExpiresAt: expiresAt}, nil
 	}
 
 	metadata, err := json.Marshal(dispatchMetadata(device, credentials))
