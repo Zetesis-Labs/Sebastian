@@ -549,3 +549,36 @@ func TestThePollKeepsTheLastAddressOfTheUnit(t *testing.T) {
 		t.Fatalf("a forgotten unit must not keep an address its lease may have lost: %q", back.LastIP)
 	}
 }
+
+func TestReadoptingAUnitWaitsAgainForItsFirstPoll(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not set")
+	}
+	ctx := context.Background()
+	db, err := database.Open(databaseURL)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	store := NewStore(db)
+	id := "test" + strings.ReplaceAll(uuid.NewString(), "-", "")[:8]
+	t.Cleanup(func() { _, _ = db.ExecContext(ctx, `DELETE FROM devices WHERE id = ?`, id) })
+
+	if err := store.MarkAdopted(ctx, id, []byte("digest")); err != nil {
+		t.Fatalf("MarkAdopted: %v", err)
+	}
+	if _, err := store.TouchPoll(ctx, device.Poll{ID: id}); err != nil {
+		t.Fatalf("TouchPoll: %v", err)
+	}
+	if err := store.MarkAdopted(ctx, id, []byte("digest-2")); err != nil {
+		t.Fatalf("MarkAdopted again: %v", err)
+	}
+	got, err := store.Get(ctx, id)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if !got.AdoptedAt.After(got.ProfileReportedAt) {
+		t.Fatalf("readopted at %v, last poll %v: the new adoption must come after the old poll", got.AdoptedAt, got.ProfileReportedAt)
+	}
+}
