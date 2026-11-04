@@ -1,5 +1,30 @@
 # ROADMAP — Sebastian
 
+## Próximos pasos (2026-11-04)
+
+1. **Margen de RAM interna en la sesión.** Pasar a PSRAM la pila (8 KB) y la
+   cola de eventos (32 × 184 B) del motor de LiveKit
+   (`components/livekit/core/engine.c`, `xTaskCreateWithCaps` /
+   `xQueueCreateWithCaps`). Con el firmware 1.3.0 la sala aún pide ~14,4 KB
+   seguidos de RAM interna, el bloque libre más grande queda en ~16 KB tras la
+   primera sesión y el mínimo en el pico baja a ~7 KB. Condición: ni esa tarea
+   ni los callbacks que corren en ella pueden escribir en la flash (hoy no lo
+   hacen). Se valida con las líneas `heap[...]` en placa; ver
+   [TROUBLESHOOTING §13](docs/TROUBLESHOOTING.md).
+2. **Avisos y audio hacia un altavoz en reposo.** Hoy `announce(text)` (§3,
+   punto 7) solo habla dentro de una sesión abierta. Objetivo:
+   - texto → la sala de control pide al altavoz abrir sesión → el agente lo
+     dice con la voz de su perfil (Phonic, Gemini, OpenAI) → cierra;
+   - emitir audio (música, sonidos) desde otro dispositivo a la sala del
+     altavoz por WebRTC (otro participante, o Ingress WHIP de LiveKit, §2),
+     teniendo en cuenta el half-duplex y el AEC.
+
+   Las órdenes de la sala de control al altavoz ya existen (así se piden las
+   reuniones); hay que ver si sirven para abrir sesión bajo demanda sin el
+   endpoint permanente.
+3. **Endpoint permanente (#44): aparcado.** No compensa ahora; se reevalúa si
+   el punto 2 no puede abrir sesión con latencia aceptable.
+
 ## Prioridades actuales (2026-09-19)
 
 Referencia: `84f278b6`, rama `feat/meetings-b`. La flota y el bloque A de reuniones
