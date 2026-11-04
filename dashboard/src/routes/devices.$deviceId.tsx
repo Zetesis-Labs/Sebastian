@@ -11,12 +11,14 @@ import {
   setDeviceProfile,
   setMeetingLimits,
   startMeeting,
+  createAnnouncement,
   stopMeeting,
   type ControlRoomPublic,
   type DeviceDetail,
   type Json,
   type Meeting,
 } from '../lib/api'
+import { ANNOUNCEMENT_MAX, announcementIssue, canAnnounce, deliveryMessage } from '../lib/announcements'
 import { errorMessage, formatDate, formatDuration } from '../lib/format'
 import { agentSummary, type AgentProfile } from '../lib/agents'
 import { MEETING_STATE_LABEL, MEETING_STATE_TONE, activeMeeting, canRecord, meetingLabel, recordingSince } from '../lib/meetings'
@@ -89,12 +91,12 @@ function DevicePage() {
   const desired = detail.desiredConfigVersion ?? '—'
   const event = eventMessage(detail, detail.lastEventAt ? formatDate(detail.lastEventAt) : '')
 
-  async function act(label: string, fn: () => Promise<unknown>, done: string) {
+  async function act<T>(label: string, fn: () => Promise<T>, done: string | ((result: T) => string)) {
     setBusy(true)
     setMsg({ text: label, tone: 'info' })
     try {
-      await fn()
-      setMsg({ text: done, tone: 'ok' })
+      const result = await fn()
+      setMsg({ text: typeof done === 'function' ? done(result) : done, tone: 'ok' })
       await router.invalidate()
     } catch (e) {
       setMsg({ text: e instanceof Error ? e.message : String(e), tone: 'warn' })
@@ -187,6 +189,8 @@ function DevicePage() {
       </section>
 
       <AgentPanel detail={detail} agents={agents} busy={busy} act={act} />
+
+      <AnnouncePanel detail={detail} busy={busy} act={act} />
 
       <MeetingsPanel detail={detail} meetings={meetings} busy={busy} now={now} act={act} />
 
@@ -415,6 +419,62 @@ function Detail({ label, value }: Readonly<{ label: string; value: string }>) {
       <span>{label}</span>
       <strong>{value}</strong>
     </div>
+  )
+}
+
+// Announcements: the agent says a text on the unit, after a chime; with
+// "Esperar respuesta" it then listens for an answer.
+type Act = <T>(label: string, fn: () => Promise<T>, done: string | ((result: T) => string)) => Promise<void>
+
+function AnnouncePanel({ detail, busy, act }: Readonly<{ detail: DeviceDetail; busy: boolean; act: Act }>) {
+  const offer = canAnnounce(detail)
+  const [text, setText] = useState('')
+  const [reply, setReply] = useState(false)
+  const issue = announcementIssue(text)
+  return (
+    <section className="device-panel">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">Avisos</p>
+          <h2>Que el altavoz diga algo</h2>
+        </div>
+      </div>
+      {!offer.ok ? (
+        <p className="device-meta warn">{offer.reason}</p>
+      ) : (
+        <form
+          className="config-form"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (issue) return
+            void act(
+              'Enviando el aviso…',
+              () => createAnnouncement({ data: { deviceId: detail.id, text: text.trim(), reply } }),
+              (a) => {
+                setText('')
+                return deliveryMessage(a.delivery)
+              },
+            )
+          }}
+        >
+          <label className="config-field" style={{ gridColumn: '1 / -1' }}>
+            <span>Aviso</span>
+            <textarea rows={2} maxLength={ANNOUNCEMENT_MAX} value={text} onChange={(e) => setText(e.target.value)} placeholder="La lavadora ha terminado" />
+            <small>Suena una señal y el agente lo dice con su voz. Si está en una conversación, lo dice en la próxima pausa.</small>
+          </label>
+          <label className="config-field">
+            <span>Respuesta</span>
+            <span>
+              <input type="checkbox" checked={reply} onChange={(e) => setReply(e.target.checked)} /> Esperar respuesta
+            </span>
+            <small>{reply ? 'Tras el aviso escucha, con el anillo en verde, por si contestas.' : 'Solo lo dice y cierra; el micrófono no se abre.'}</small>
+          </label>
+          <div className="device-actions" style={{ alignSelf: 'end' }}>
+            <button type="submit" className="chip-button primary" disabled={busy || issue !== ''}>Avisar</button>
+          </div>
+        </form>
+      )}
+    </section>
   )
 }
 
