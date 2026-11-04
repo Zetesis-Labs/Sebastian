@@ -1,5 +1,6 @@
 import { createServerFn } from '@tanstack/react-start'
 import type { Announcement } from './announcements'
+import type { Playback } from './playback'
 import type { components } from './api-schema'
 import type { AgentProfile, AgentProfileInput } from './agents'
 
@@ -57,6 +58,16 @@ async function apiGet<T>(path: string): Promise<T> {
   return response.json() as Promise<T>
 }
 
+// A resource that may not exist: 404 is an answer (undefined), not an error.
+async function apiGetOptional<T>(path: string): Promise<T | undefined> {
+  try {
+    return await apiGet<T>(path)
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return undefined
+    throw error
+  }
+}
+
 async function apiSend<T = void>(path: string, method: string, body?: unknown): Promise<T> {
   const { baseURL, secret } = apiConfiguration()
   const response = await fetch(`${baseURL}${path}`, {
@@ -97,14 +108,15 @@ export type ControlRoomPublic = Omit<ControlRoomInfo, 'orgSecret'>
 export const getDevice = createServerFn({ method: 'GET' })
   .validator((deviceId: string) => deviceId)
   .handler(async ({ data }) => {
-    const [detail, room, meetings, agents] = await Promise.all([
+    const [detail, room, meetings, agents, playback] = await Promise.all([
       apiGet<DeviceDetailWire>(`/v1/admin/devices/${id(data)}`),
       apiGet<ControlRoomInfo>('/v1/admin/control-room'),
       apiGet<MeetingList>(`/v1/admin/meetings?deviceId=${id(data)}&limit=8`),
       apiGet<AgentProfileList>('/v1/admin/agent-profiles'),
+      apiGetOptional<Playback>(`/v1/admin/devices/${id(data)}/playback`),
     ])
     const { orgSecret: _omit, ...publicRoom } = room
-    return { detail, room: publicRoom as ControlRoomPublic, meetings: meetings.items, agents: agents.items }
+    return { detail, room: publicRoom as ControlRoomPublic, meetings: meetings.items, agents: agents.items, playback: playback ?? null }
   })
 
 // Desired-state: the device reconciles on its next poll (~30 s) and reboots
@@ -220,6 +232,10 @@ export const createAnnouncement = createServerFn({ method: 'POST' })
   .handler(async ({ data }) =>
     apiSend<Announcement>(`/v1/admin/devices/${id(data.deviceId)}/announcements`, 'POST', { text: data.text, reply: data.reply }),
   )
+
+export const stopPlayback = createServerFn({ method: 'POST' })
+  .validator((input: { deviceId: string }) => input)
+  .handler(async ({ data }) => apiSend(`/v1/admin/devices/${id(data.deviceId)}/playback`, 'DELETE'))
 
 export const startMeeting = createServerFn({ method: 'POST' })
   .validator((input: { deviceId: string }) => input)

@@ -49,7 +49,7 @@ export interface paths {
         put?: never;
         /**
          * Create a device session and dispatch its assigned agent
-         * @description With `kind=meeting` the agent is dispatched in meeting mode for that meeting (design 14 §3.2); with `kind=announce` it says the announcement the unit was ordered to fetch, and `listen` tells the unit whether to open its microphone.
+         * @description With `kind=meeting` the agent is dispatched in meeting mode for that meeting (design 14 §3.2); with `kind=announce` it says the announcement the unit was ordered to fetch, and `listen` tells the unit whether to open its microphone. With `kind=playback` no agent comes: the unit joins the room of the playback it was ordered into, only to listen.
          */
         post: operations["createSession"];
         delete?: never;
@@ -378,6 +378,28 @@ export interface paths {
          */
         post: operations["createAnnouncement"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/devices/{deviceId}/playback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The playback on for the unit */
+        get: operations["getPlayback"];
+        put?: never;
+        /**
+         * Make the unit play what a source publishes
+         * @description The unit is ordered over the LAN, signed with the organization secret, and by its next poll, to join a playback room only to listen. It keeps the room while it idles, leaves it for the wake word, an announcement or a meeting, and comes back while the playback is on. The response tells the source where to publish; a playback already on is kept and returned.
+         */
+        post: operations["startPlayback"];
+        /** Stop the unit's playback */
+        delete: operations["stopPlayback"];
         options?: never;
         head?: never;
         patch?: never;
@@ -873,11 +895,35 @@ export interface components {
              * @default conversation
              * @enum {string}
              */
-            kind: "conversation" | "meeting" | "announce";
+            kind: "conversation" | "meeting" | "announce" | "playback";
             /** Format: uuid */
             meetingId?: string;
             /** Format: uuid */
             announcementId?: string;
+            /** Format: uuid */
+            playbackId?: string;
+        };
+        Playback: {
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            startedAt: string;
+        };
+        PlaybackStarted: {
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            startedAt: string;
+            room: string;
+            /** @description The LiveKit URL the source connects to. */
+            serverUrl: string;
+            /** @description Lets the source publish into the room, not listen to it. */
+            sourceToken: string;
+            /**
+             * @description lan = ordered over the LAN (the poll carries it too); poll = waits for the next poll (up to 30 s).
+             * @enum {string}
+             */
+            delivery: "lan" | "poll";
         };
         AnnouncementInput: {
             text: string;
@@ -1102,6 +1148,8 @@ export interface operations {
                     "X-Meeting"?: string;
                     /** @description The oldest announcement the unit has not claimed: start:<announcementId>. Absent when none. */
                     "X-Announce"?: string;
+                    /** @description The playback the unit should be listening to (start:<playbackId>), or the one it must leave for two minutes after it stopped (stop:<playbackId>). Absent when none. */
+                    "X-Playback"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -1788,6 +1836,111 @@ export interface operations {
                 };
             };
             503: components["responses"]["Unavailable"];
+        };
+    };
+    getPlayback: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deviceId: components["parameters"]["DeviceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A playback is on. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Playback"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description Nothing is playing. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    startPlayback: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deviceId: components["parameters"]["DeviceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Playback on. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlaybackStarted"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["DeviceNotFound"];
+            /** @description The unit is recording a meeting. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The unit cannot play here, in the agente profile or while contacting. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    stopPlayback: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deviceId: components["parameters"]["DeviceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stopped; the unit is ordered out of the room. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description Nothing is playing. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     startMeeting: {
