@@ -50,11 +50,19 @@
    se suscribe a la primera pista de audio de la sala, sea del agente o no
    (`engine.c`), con la misma descodificación Opus y sin más RAM interna.
 
-   Preguntas abiertas: qué hace la música al oír «Okay Nabu» (pausa, baja o se
-   corta) y si el agente se mezcla en el servidor con la música en una sola
-   pista o el firmware aprende a preferir la pista del agente; si hace falta el
-   mismo audio sincronizado en varios altavoces (eso llevaría a Snapcast); si
-   el altavoz del XVF basta para música.
+   Decidido (Rubén, 2026-11-04):
+   - Al oír «Okay Nabu» manda el agente: la música baja muchísimo, sin
+     pararse, para que no estorbe mientras dura la conversación.
+   - El agente tiene una herramienta para parar la música cuando se le pide.
+   - Sincronizar el mismo audio en varios altavoces (Snapcast) no se contempla
+     aún, sin cerrar la puerta.
+   - La placa va siempre a un altavoz externo: el XVF no tiene altavoz propio.
+
+   Pregunta abierta: dónde se baja la música y se mezcla con la voz del agente.
+   En el servidor, en una sola pista que la placa reproduce (el firmware sigue
+   con una pista y sin más RAM), o en la placa, que reproduce las dos y baja la
+   música al instante al oír la palabra (un segundo descodificador Opus y la
+   mezcla, con ~7 KB de margen de RAM interna en el pico; ver el punto 1).
 3. **Endpoint permanente (#44): aparcado.** No compensa ahora; se reevalúa si
    el punto 2 no puede abrir sesión con latencia aceptable.
 
