@@ -1484,3 +1484,27 @@ test "speaker drain: keeps waiting past the minimum while the agent's tail still
 test "speaker drain: gives up at the cap even if the speaker never goes quiet" {
     try std.testing.expect(session.speakerDrained(session.DRAIN_MAX_MS, true));
 }
+
+test "reducer: an announcement that only speaks never opens the mic nor lights the ring" {
+    var st = reducer.State{ .listen = false };
+    _ = st.step(.{ .agent_active = true });
+    var a = st.step(.{ .tick = .{ .connection = .connected } });
+    try std.testing.expect(!a.ui_active);
+    try std.testing.expect(!a.handoff);
+    a = st.step(.{ .tick = .{ .connection = .connected } });
+    try std.testing.expect(!a.handoff);
+
+    // The agent closes it once said.
+    _ = st.step(.{ .agent_state = .close });
+    try std.testing.expect(st.phase == .done and st.phase.done == .agent_close);
+}
+
+test "reducer: an announcement that waits for an answer opens the mic once the agent is there" {
+    var st = reducer.State{ .listen = true };
+    var a = st.step(.{ .tick = .{ .connection = .connected } });
+    try std.testing.expect(a.ui_active);
+    try std.testing.expect(!a.handoff);
+    _ = st.step(.{ .agent_active = true });
+    a = st.step(.{ .tick = .{ .connection = .connected } });
+    try std.testing.expect(a.handoff);
+}

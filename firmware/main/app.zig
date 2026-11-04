@@ -56,9 +56,25 @@ var render_peak = std.atomic.Value(u32).init(0);
 var wake_seq: u32 = 0;
 // The meeting the idle loop was told to record (design 14 §3.2, block B).
 var meeting_id_z: [40]u8 = undefined;
+var announcement_id_z: [40]u8 = undefined;
 var meeting_origin: u8 = 'n';
 
-const IdleOutcome = enum { wake, meeting };
+const IdleOutcome = enum { wake, meeting, announcement };
+
+/// What an active session was opened for: decides what the mic handoff does.
+const SessionKind = union(enum) {
+    /// Wake word: the pre-roll travels with the handoff (wake id).
+    wake: u32,
+    /// Announcement: no pre-roll; `listen` says whether the mic opens at all.
+    announcement: bool,
+
+    fn listens(self: SessionKind) bool {
+        return switch (self) {
+            .wake => true,
+            .announcement => |listen| listen,
+        };
+    }
+};
 
 // Discrete session events (agent state, participant info) flow through this
 // queue from the LiveKit callback threads into the session loop. Created once
@@ -469,6 +485,10 @@ fn waitForWakeWord() IdleOutcome {
             if (arb.owner == .usb) revokeUsbToIdle();
             return .meeting;
         }
+        if (c.sebastian_announcement_take(&announcement_id_z, announcement_id_z.len)) {
+            if (arb.owner == .usb) revokeUsbToIdle();
+            return .announcement;
+        }
         c.vTaskDelay(arbiter_core.TICK_MS);
     }
     // Rare race: detection latched in the same tick the mic went to USB.
@@ -514,6 +534,10 @@ fn nextWakeId() u32 {
 
 fn openSessionForWake(audio: AudioPipeline, conn: token.Connection, wake_id: u32) bool {
     log.info("opening session wake_id={d} pre_roll_ms={d}", .{ wake_id, pre_roll.availableMs() });
+    return openSessionGuarded(audio, conn);
+}
+
+fn openSessionGuarded(audio: AudioPipeline, conn: token.Connection) bool {
     // Session hygiene BEFORE the room exists: drop any event raced from the end
     // of the previous session (a late "close" must not kill this one at tick 0)
     // and any speaker tail still in the render-peak accumulator.
@@ -601,7 +625,15 @@ fn logAecDiagnostics(win: reducer.AecLog) void {
     }
 }
 
-fn applyActions(st: *reducer.State, actions: reducer.Actions, wake_id: u32) void {
+/// An announcement that waits for an answer: the mic goes live once the agent
+/// is in the room. No pre-roll (nobody spoke a wake word) and the wake task
+/// was stopped when the order arrived.
+fn completeAnnouncementHandoff() void {
+    mic_src.setLive(true);
+    log.info("announcement: mic open for the answer", .{});
+}
+
+fn applyActions(st: *reducer.State, actions: reducer.Actions, kind: SessionKind) void {
     // Latency-sensitive first: the half-duplex gate and the barge-in flush.
     if (actions.mic_gate) |speaking| mic_src.setAgentSpeaking(speaking);
     if (actions.flush_render) {
@@ -615,8 +647,14 @@ fn applyActions(st: *reducer.State, actions: reducer.Actions, wake_id: u32) void
     }
     if (actions.publish_barge) publishBargeIn();
     if (actions.ui_active) xvf_ui.setState(.active); // ring: DoA beam — I'm listening
-    if (actions.handoff) completeWakeHandoff(st, wake_id);
-    if (actions.retry_preroll) retryPreroll(st, wake_id);
+    if (actions.handoff) switch (kind) {
+        .wake => |wake_id| completeWakeHandoff(st, wake_id),
+        .announcement => completeAnnouncementHandoff(),
+    };
+    if (actions.retry_preroll) switch (kind) {
+        .wake => |wake_id| retryPreroll(st, wake_id),
+        .announcement => {},
+    };
     if (actions.log_aec) |win| logAecDiagnostics(win);
 }
 
@@ -635,8 +673,8 @@ fn logSessionClose(st: *const reducer.State, reason: reducer.CloseReason, raw_st
     }
 }
 
-fn runActiveSession(wake_id: u32) void {
-    var st = reducer.State{};
+fn runActiveSession(kind: SessionKind) void {
+    var st = reducer.State{ .listen = kind.listens() };
     var raw_state: c_int = c.LIVEKIT_CONNECTION_STATE_DISCONNECTED;
     var usb_capture_ticks: u32 = 0;
     while (true) {
@@ -647,7 +685,7 @@ fn runActiveSession(wake_id: u32) void {
         if (c.xQueueReceive(event_queue, &event, SESSION_TICK_MS) != 1) {
             event = sampleTick(&raw_state);
         }
-        applyActions(&st, st.step(event), wake_id);
+        applyActions(&st, st.step(event), kind);
         // Convivencia: sustained USB capture mid-session means the user is at
         // the PC deliberately using the mic — close cleanly; the idle loop
         // grants ownership right after teardown.
@@ -716,9 +754,10 @@ fn drainAndResetSpeaker() void {
 
 fn runWakeCycle(audio: AudioPipeline) void {
     startWakeDetection();
-    if (waitForWakeWord() == .meeting) {
-        runMeetingCycle(audio);
-        return;
+    switch (waitForWakeWord()) {
+        .meeting => return runMeetingCycle(audio),
+        .announcement => return runAnnouncementCycle(audio),
+        .wake => {},
     }
 
     // The wake task keeps draining I2S into the pre-roll ring through token fetch
@@ -727,7 +766,30 @@ fn runWakeCycle(audio: AudioPipeline) void {
     const wake_id = nextWakeId();
     if (!openSessionForWake(audio, conn, wake_id)) return;
 
-    runActiveSession(wake_id);
+    runActiveSession(.{ .wake = wake_id });
+    teardownActiveSession();
+}
+
+/// The control room asked this idle unit to say something (server
+/// internal/announce). No wake word and no pre-roll; the session's `listen`
+/// decides whether the mic opens for an answer. The ring stays blue while it
+/// only speaks and turns green when it listens.
+fn runAnnouncementCycle(audio: AudioPipeline) void {
+    const id = std.mem.sliceTo(&announcement_id_z, 0);
+    log.info("announcement {s}: opening the session", .{id});
+    wakeword.stop();
+    xvf_ui.setState(.waking);
+    const id_ptr: [*:0]const u8 = @ptrCast(&announcement_id_z);
+    const conn = token.fetchAnnouncement(id) catch |err| {
+        logStageError("announcement session", err);
+        c.sebastian_announcement_forget(id_ptr); // the server keeps it: the poll retries
+        return;
+    };
+    if (!openSessionGuarded(audio, conn)) {
+        c.sebastian_announcement_forget(id_ptr);
+        return;
+    }
+    runActiveSession(.{ .announcement = conn.listen });
     teardownActiveSession();
 }
 

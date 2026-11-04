@@ -65,6 +65,38 @@ void sebastian_meeting_push(const char *cmd, const char *id, char origin) {
     portEXIT_CRITICAL(&meeting_mux);
 }
 
+// Announcement mailbox (sebastian_fleet.h): one pending id, and the last one
+// handed to the app, so the poll repeating it until it is claimed queues it once.
+static portMUX_TYPE announcement_mux = portMUX_INITIALIZER_UNLOCKED;
+static char announcement_id[40];
+static char announcement_taken[40];
+
+void sebastian_announcement_push(const char *id) {
+    if (!id || !id[0] || strlen(id) >= sizeof(announcement_id)) return;
+    portENTER_CRITICAL(&announcement_mux);
+    if (strcmp(id, announcement_taken) != 0) strlcpy(announcement_id, id, sizeof(announcement_id));
+    portEXIT_CRITICAL(&announcement_mux);
+}
+
+void sebastian_announcement_forget(const char *id) {
+    portENTER_CRITICAL(&announcement_mux);
+    if (id && strcmp(id, announcement_taken) == 0) announcement_taken[0] = 0;
+    portEXIT_CRITICAL(&announcement_mux);
+}
+
+bool sebastian_announcement_take(char *id, size_t id_size) {
+    bool got = false;
+    portENTER_CRITICAL(&announcement_mux);
+    if (announcement_id[0]) {
+        strlcpy(id, announcement_id, id_size);
+        strlcpy(announcement_taken, announcement_id, sizeof(announcement_taken));
+        announcement_id[0] = 0;
+        got = true;
+    }
+    portEXIT_CRITICAL(&announcement_mux);
+    return got;
+}
+
 bool sebastian_meeting_take(char *cmd, size_t cmd_size, char *id, size_t id_size, char *origin) {
     bool got = false;
     portENTER_CRITICAL(&meeting_mux);
@@ -270,7 +302,7 @@ static void handle_adopt(int sock, const struct sockaddr_in *peer, const cJSON *
     esp_restart();
 }
 
-// {"t":"cmd","n":nonce,"cmd":"record-start|record-stop","id":meetingId,"mac":HMAC(orgSecret, nonce.cmd.id)}
+// {"t":"cmd","n":nonce,"cmd":"record-start|record-stop|record-warn|announce","id":uuid,"mac":HMAC(orgSecret, nonce.cmd.id)}
 // → {"t":"ok"} | {"t":"err","why":"auth|profile|busy|idle|json|nonce"} (design 14 §3.2, RM-06/07/54)
 static void handle_cmd(int sock, const struct sockaddr_in *peer, const cJSON *root) {
     const cJSON *n = cJSON_GetObjectItem(root, "n");
@@ -296,11 +328,18 @@ static void handle_cmd(int sock, const struct sockaddr_in *peer, const cJSON *ro
     snprintf(signed_text, sizeof(signed_text), "%s.%s", cmd->valuestring, id->valuestring);
     if (!hex_decode(mac->valuestring, expected, sizeof(expected)) || !sebastian_get_org_secret(org, sizeof(org)) ||
         !hmac_matches(org, n->valuestring, signed_text, expected)) {
-        ESP_LOGW(TAG, "meeting order rejected: signature does not match the organization secret");
+        ESP_LOGW(TAG, "LAN order rejected: signature does not match the organization secret");
         send_err(sock, peer, "auth");
         return;
     }
     if (!meeting_recordable) { send_err(sock, peer, "profile"); return; }
+    if (strcmp(cmd->valuestring, "announce") == 0) {
+        if (meeting_active) { send_err(sock, peer, "busy"); return; }
+        sebastian_announcement_push(id->valuestring);
+        ESP_LOGI(TAG, "announcement %s accepted", id->valuestring);
+        send_json(sock, peer, "{\"t\":\"ok\"}");
+        return;
+    }
     const bool start = strcmp(cmd->valuestring, "record-start") == 0;
     const bool stop = strcmp(cmd->valuestring, "record-stop") == 0;
     const bool warn = strcmp(cmd->valuestring, "record-warn") == 0;

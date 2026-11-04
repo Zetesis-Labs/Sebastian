@@ -38,7 +38,8 @@ bool sebastian_take_last_error(char *out, size_t out_size);
 // something else, or a negative value for transport/parse errors.
 int sebastian_session_create(const char *base_url, const char *device_id, const char *secret,
                              const char *json_body, // NULL = no body (a conversation)
-                             char *url_out, size_t url_size, char *token_out, size_t token_size);
+                             char *url_out, size_t url_size, char *token_out, size_t token_size,
+                             bool *listen_out); // the session's "listen", left untouched when absent
 // PUT {base}/v1/devices/{id}/meeting: the unit confirms it records, or that it
 // stopped and why (meeting recordings, RM-52). Returns 0 on 204, the HTTP
 // status when refused, negative on transport errors.
@@ -68,6 +69,12 @@ int sebastian_http_get_auth(const char *url, const char *device_id, const char *
 int sebastian_http_get_auth2(const char *url, const char *device_id, const char *secret,
                              const char *header1, char *hdr1_out, size_t hdr1_size,
                              const char *header2, char *hdr2_out, size_t hdr2_size,
+                             char *out, size_t out_size, int *status);
+// Same, capturing a third response header.
+int sebastian_http_get_auth3(const char *url, const char *device_id, const char *secret,
+                             const char *header1, char *hdr1_out, size_t hdr1_size,
+                             const char *header2, char *hdr2_out, size_t hdr2_size,
+                             const char *header3, char *hdr3_out, size_t hdr3_size,
                              char *out, size_t out_size, int *status);
 
 // ── announce.c ──────────────────────────────────────────────────────────────
@@ -107,5 +114,14 @@ void sebastian_meeting_set_active(bool active);
 bool sebastian_meeting_is_active(void);
 void sebastian_meeting_set_recordable(bool recordable); // agente profile (RM-54)
 bool sebastian_meeting_is_recordable(void);
+// ── spoken announcements (server internal/announce) ─────────────────────────
+// Not the mDNS announce of announce.c: the control room wants this idle unit
+// to say something. The LAN command {"cmd":"announce"} and the poll's
+// X-Announce header carry the id; the app claims it when it opens the session.
+// An id already taken is not queued again (the poll repeats it until claimed).
+void sebastian_announcement_push(const char *id);
+bool sebastian_announcement_take(char *id, size_t id_size);
+// The session for `id` could not be opened: let the poll queue it again.
+void sebastian_announcement_forget(const char *id);
 // hex HMAC-SHA256(secret, a + "." + b) — the proof shared by adoption and enrolment.
 bool sebastian_hmac_sha256_hex(const char *secret, const char *a, const char *b, char out[65]);
