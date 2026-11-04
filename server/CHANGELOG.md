@@ -2,6 +2,13 @@
 
 All notable changes to Sebastian Server will be documented in this file.
 
+## [1.3.0](https://github.com/Zetesis-Labs/Sebastian/compare/server-v1.2.0...server-v1.3.0) (2026-11-04)
+
+
+### Features
+
+* **server:** announcements — order an idle speaker or speak in its conversation ([5eaa326](https://github.com/Zetesis-Labs/Sebastian/commit/5eaa326c60c4d653c62b0f3a2b8694ecf033260b))
+
 ## [1.2.0](https://github.com/Zetesis-Labs/Sebastian/compare/server-v1.1.1...server-v1.2.0) (2026-11-03)
 
 

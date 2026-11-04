@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/Zetesis-Labs/Sebastian/compare/firmware-v1.3.0...firmware-v1.4.0) (2026-11-04)
+
+
+### Features
+
+* **firmware:** say the announcements the control room orders ([7df7c06](https://github.com/Zetesis-Labs/Sebastian/commit/7df7c06544c53b0ddbd27f79468e5fe2286b6107))
+
 ## [1.3.0](https://github.com/Zetesis-Labs/Sebastian/compare/firmware-v1.2.0...firmware-v1.3.0) (2026-11-04)
 
 

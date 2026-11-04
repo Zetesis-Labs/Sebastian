@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/Zetesis-Labs/Sebastian/compare/dashboard-v1.3.0...dashboard-v1.4.0) (2026-11-04)
+
+
+### Features
+
+* **dashboard:** make a speaker say something ([3c71746](https://github.com/Zetesis-Labs/Sebastian/commit/3c7174660a7c8ff91376e63a7a271c132899ab51))
+
 ## [1.3.0](https://github.com/Zetesis-Labs/Sebastian/compare/dashboard-v1.2.0...dashboard-v1.3.0) (2026-11-04)
 
 
