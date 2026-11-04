@@ -197,6 +197,12 @@ func (s *Service) Report(ctx context.Context, deviceID, secret string, id uuid.U
 	return err
 }
 
+// InMeeting tells whether the unit has a meeting requested or recording.
+func (s *Service) InMeeting(ctx context.Context, deviceID string) (bool, error) {
+	_, busy, err := s.store.Active(ctx, deviceID)
+	return busy, err
+}
+
 // PendingCommand is the order the unit must still hear, carried by the poll
 // header when the LAN command could not reach it (RM-06).
 func (s *Service) PendingCommand(ctx context.Context, deviceID string) string {

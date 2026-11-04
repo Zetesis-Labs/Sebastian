@@ -40,7 +40,11 @@ paths:
     post:
       operationId: createSession
       summary: Create a device session and dispatch its assigned agent
-      description: With `kind=meeting` the agent is dispatched in meeting mode for that meeting (design 14 §3.2).
+      description: >-
+        With `kind=meeting` the agent is dispatched in meeting mode for that
+        meeting (design 14 §3.2); with `kind=announce` it says the announcement
+        the unit was ordered to fetch, and `listen` tells the unit whether to
+        open its microphone.
       tags: [sessions]
       security:
         - DeviceSecret: []
@@ -74,6 +78,12 @@ paths:
                 $ref: "#/components/schemas/Session"
         "401":
           description: Invalid device credentials.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          description: The announcement is unknown to this unit, already said or expired.
           content:
             application/problem+json:
               schema:
@@ -135,6 +145,10 @@ paths:
                 type: string
             X-Meeting:
               description: "A pending meeting order (RM-06): start:<meetingId> or stop:<meetingId>. Absent when none."
+              schema:
+                type: string
+            X-Announce:
+              description: "The oldest announcement the unit has not claimed: start:<announcementId>. Absent when none."
               schema:
                 type: string
           content:
@@ -725,6 +739,54 @@ paths:
           $ref: "#/components/responses/AgentProfileNotFound"
         "503":
           $ref: "#/components/responses/Unavailable"
+  /v1/admin/devices/{deviceId}/announcements:
+    post:
+      operationId: createAnnouncement
+      summary: Make the unit say something
+      description: >-
+        A unit in a conversation says it at the next pause. An idle unit is
+        ordered over the LAN, signed with the organization secret, and by its
+        next poll, to open an announce session: the agent plays a chime, says
+        the text in the voice of the unit's agent profile and, with `reply`,
+        stays listening for an answer. The order expires after two minutes.
+      tags: [administration]
+      security:
+        - AdminSecret: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnnouncementInput"
+      responses:
+        "202":
+          description: Announcement accepted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Announcement"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/DeviceNotFound"
+        "409":
+          description: The unit is recording a meeting.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "422":
+          description: >-
+            The unit cannot say it: empty or too long a text, not adopted
+            here, not in the agente profile or not contacting.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/admin/devices/{deviceId}/meetings:
     post:
       operationId: startMeeting
@@ -1264,8 +1326,11 @@ components:
     Session:
       type: object
       additionalProperties: false
-      required: [id, room, serverUrl, token, expiresAt]
+      required: [id, room, serverUrl, token, expiresAt, listen]
       properties:
+        listen:
+          type: boolean
+          description: Open the microphone; false for an announcement that only speaks.
         id:
           type: string
           format: uuid
@@ -1906,11 +1971,49 @@ components:
       properties:
         kind:
           type: string
-          enum: [conversation, meeting]
+          enum: [conversation, meeting, announce]
           default: conversation
         meetingId:
           type: string
           format: uuid
+        announcementId:
+          type: string
+          format: uuid
+    AnnouncementInput:
+      type: object
+      additionalProperties: false
+      required: [text]
+      properties:
+        text:
+          type: string
+          minLength: 1
+          maxLength: 500
+        reply:
+          type: boolean
+          default: false
+          description: Stay listening after saying it, for an answer.
+    Announcement:
+      type: object
+      additionalProperties: false
+      required: [id, text, reply, delivery, expiresAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        text:
+          type: string
+        reply:
+          type: boolean
+        delivery:
+          type: string
+          enum: [conversation, lan, poll]
+          description: >-
+            conversation = said in the unit's open conversation; lan = ordered
+            over the LAN (the poll carries it too); poll = waits for the next
+            poll (up to 30 s).
+        expiresAt:
+          type: string
+          format: date-time
     RecordingSummary:
       type: object
       additionalProperties: false

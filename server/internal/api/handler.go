@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/zetesis-labs/sebastian/server/internal/announce"
 	"github.com/zetesis-labs/sebastian/server/internal/device"
 	"github.com/zetesis-labs/sebastian/server/internal/recording"
 	"github.com/zetesis-labs/sebastian/server/internal/session"
@@ -55,6 +56,7 @@ type Server struct {
 	recordings       RecordingService
 	devices          DeviceService
 	meetings         MeetingService
+	announcements    AnnouncementService
 	agents           AgentProfileService
 	readiness        ReadinessChecker
 	logger           *slog.Logger
@@ -111,6 +113,11 @@ func (h *Server) GetDesiredProfile(ctx context.Context, request GetDesiredProfil
 	if h.meetings != nil {
 		if order := h.meetings.PendingCommand(ctx, request.DeviceId); order != "" {
 			response.Headers.XMeeting = &order
+		}
+	}
+	if h.announcements != nil {
+		if order := h.announcements.PendingCommand(ctx, request.DeviceId); order != "" {
+			response.Headers.XAnnounce = &order
 		}
 	}
 	return response, nil
@@ -335,7 +342,19 @@ func (h *Server) CreateSession(ctx context.Context, request CreateSessionRequest
 			credentials.MeetingID = *request.Body.MeetingId
 		}
 	}
+	var claimed *announce.Announcement
+	if request.Body != nil && request.Body.Kind != nil && *request.Body.Kind == SessionRequestKindAnnounce {
+		a, resp := h.claimAnnouncement(ctx, request, &credentials)
+		if resp != nil {
+			return resp, nil
+		}
+		claimed = &a
+	}
 	created, err := h.sessions.Create(ctx, credentials)
+	if err != nil && claimed != nil {
+		// Not said: back in the queue, for the unit's next poll to retry.
+		h.announcements.Restore(*claimed)
+	}
 	if errors.Is(err, session.ErrUnauthorized) {
 		return CreateSession401ApplicationProblemPlusJSONResponse(problem(
 			401,
@@ -357,7 +376,32 @@ func (h *Server) CreateSession(ctx context.Context, request CreateSessionRequest
 		ServerUrl: created.ServerURL,
 		Token:     created.Token,
 		ExpiresAt: created.ExpiresAt,
+		Listen:    created.Listen,
 	}, nil
+}
+
+// claimAnnouncement fills an announce session with the announcement the unit
+// was ordered to fetch; a non-nil response refuses the session.
+func (h *Server) claimAnnouncement(ctx context.Context, request CreateSessionRequestObject, credentials *session.Credentials) (announce.Announcement, CreateSessionResponseObject) {
+	gone := CreateSession404ApplicationProblemPlusJSONResponse(problem(404, "Announcement not found", "The announcement is unknown to this unit, already said or expired."))
+	if h.announcements == nil || request.Body.AnnouncementId == nil {
+		return announce.Announcement{}, gone
+	}
+	a, err := h.announcements.Claim(ctx, credentials.DeviceID, credentials.Secret, *request.Body.AnnouncementId)
+	switch {
+	case errors.Is(err, announce.ErrUnauthorized), errors.Is(err, device.ErrNotFound):
+		// A forgotten unit gets 401 like any session, so it enrols again.
+		return a, CreateSession401ApplicationProblemPlusJSONResponse(problem(401, "Unauthorized", "The device credentials are invalid."))
+	case errors.Is(err, announce.ErrNotFound):
+		h.logger.WarnContext(ctx, "announce session refused: the announcement was already said or expired", "device_id", credentials.DeviceID, "announcement", *request.Body.AnnouncementId)
+		return a, gone
+	case err != nil:
+		h.logger.ErrorContext(ctx, "announcement claim failed", "device_id", credentials.DeviceID, "error", err)
+		return a, CreateSession503ApplicationProblemPlusJSONResponse(problem(503, "Session unavailable", "The session could not be created."))
+	}
+	credentials.Kind = session.KindAnnounce
+	credentials.Announcement = session.Announced{Text: a.Text, Reply: a.Reply}
+	return a, nil
 }
 
 func problem(status int, title, detail string) Problem {

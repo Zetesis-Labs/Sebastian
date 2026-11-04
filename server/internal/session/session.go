@@ -27,21 +27,29 @@ type Device struct {
 	MeetingSilenceMin int // RM-23, travels to the agent with a meeting session
 }
 
-// Kind is what the session is for: a conversation with the agent, or a
-// meeting recording (docs/implementation/14 §3.2) — the agent reads it from
-// the dispatch metadata.
+// Kind is what the session is for: a conversation with the agent, a
+// meeting recording (docs/implementation/14 §3.2) or an announcement the
+// control room ordered — the agent reads it from the dispatch metadata.
 type Kind string
 
 const (
 	KindConversation Kind = "conversation"
 	KindMeeting      Kind = "meeting"
+	KindAnnounce     Kind = "announce"
 )
 
+// Announced is what an announce session says, already claimed by the unit.
+type Announced struct {
+	Text  string
+	Reply bool // the agent stays listening after saying it
+}
+
 type Credentials struct {
-	DeviceID  string
-	Secret    string
-	Kind      Kind
-	MeetingID uuid.UUID // with KindMeeting
+	DeviceID     string
+	Secret       string
+	Kind         Kind
+	MeetingID    uuid.UUID // with KindMeeting
+	Announcement Announced // with KindAnnounce
 }
 
 type Created struct {
@@ -50,6 +58,9 @@ type Created struct {
 	ServerURL string
 	Token     string
 	ExpiresAt time.Time
+	// Listen tells the unit to open its microphone; an announcement that
+	// only speaks keeps it closed.
+	Listen bool
 }
 
 type Record struct {
@@ -159,13 +170,17 @@ func (s *Service) Create(ctx context.Context, credentials Credentials) (Created,
 		return Created{}, fmt.Errorf("dispatch agent: %w", ErrUnavailable)
 	}
 
-	return Created{ID: sessionID, Room: room, ServerURL: s.serverURL, Token: token, ExpiresAt: expiresAt}, nil
+	return Created{ID: sessionID, Room: room, ServerURL: s.serverURL, Token: token, ExpiresAt: expiresAt, Listen: listens(credentials)}, nil
 }
 
 // dispatchMetadata is what the agent learns about the job: the unit, its
 // profile and, for a meeting, the mode and the meeting to feed (design 14 §3.2).
 func dispatchMetadata(device Device, credentials Credentials) map[string]any {
 	out := map[string]any{"device_id": device.ID, "profile_id": device.ProfileID, "config": device.AgentConfig}
+	if credentials.Kind == KindAnnounce {
+		out["mode"] = "announce"
+		out["announcement"] = map[string]any{"text": credentials.Announcement.Text, "reply": credentials.Announcement.Reply}
+	}
 	if credentials.Kind == KindMeeting {
 		out["mode"] = "meeting"
 		if credentials.MeetingID != uuid.Nil {
@@ -176,4 +191,8 @@ func dispatchMetadata(device Device, credentials Credentials) map[string]any {
 		}
 	}
 	return out
+}
+
+func listens(credentials Credentials) bool {
+	return credentials.Kind != KindAnnounce || credentials.Announcement.Reply
 }
