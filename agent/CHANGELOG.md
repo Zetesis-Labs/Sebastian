@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.13](https://github.com/Zetesis-Labs/Sebastian/compare/agent-v0.1.12...agent-v0.1.13) (2026-11-04)
+
+
+### Features
+
+* **agent:** announcements in the profile's voice, after a chime ([2d37e8f](https://github.com/Zetesis-Labs/Sebastian/commit/2d37e8f06ae75c6280b7daa0a745381474072616))
+
 ## [0.1.12](https://github.com/Zetesis-Labs/Sebastian/compare/agent-v0.1.11...agent-v0.1.12) (2026-11-03)
 
 
