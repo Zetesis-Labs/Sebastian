@@ -4,8 +4,9 @@
 # uvx); no hace falta ESP-IDF instalado.
 #
 #   tools/flash.sh [puerto]      # puerto por defecto: primer /dev/cu.usbmodem*
+#   SEBASTIAN_BUILD_DIR=build-heaptrace tools/flash.sh   # el build de diagnóstico
 set -euo pipefail
-cd "$(dirname "$0")/../firmware/build"
+cd "$(dirname "$0")/../firmware/${SEBASTIAN_BUILD_DIR:-build}"
 
 PORT="${1:-$(ls /dev/cu.usbmodem* /dev/ttyACM* /dev/ttyUSB* 2>/dev/null | head -1)}"
 if [[ -z "${PORT}" ]]; then

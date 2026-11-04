@@ -7,6 +7,7 @@
 //   xtensa-esp32s3-elf-addr2line -pfiaC -e build/sebastian.elf <bt...>
 
 #include <inttypes.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -111,3 +112,99 @@ void sebastian_heap_log(const char *label) {
              in.free_blocks, in.allocated_blocks, in.minimum_free_bytes, fails);
     report_failures();
 }
+
+// Session leak window (diagnostic builds with CONFIG_HEAP_TRACING_STANDALONE,
+// see sdkconfig.heaptrace): traces every allocation from just before the room
+// is created until the post-session drain, keeps the ones still alive and logs
+// those in internal RAM with their call stack. The records live in PSRAM.
+#if CONFIG_HEAP_TRACING_STANDALONE
+#include "esp_heap_trace.h"
+#include "esp_memory_utils.h"
+
+#define TRACE_RECORDS 2000
+
+static heap_trace_record_t *trace_records;
+static bool trace_ready;
+static uint32_t trace_window;
+
+void sebastian_heap_trace_begin(void) {
+    if (!trace_ready) {
+        if (trace_records == NULL) {
+            trace_records = heap_caps_calloc(TRACE_RECORDS, sizeof(heap_trace_record_t), MALLOC_CAP_SPIRAM);
+            if (trace_records == NULL) {
+                ESP_LOGE(TAG, "trace: no PSRAM for %d records", TRACE_RECORDS);
+                return;
+            }
+        }
+        esp_err_t err = heap_trace_init_standalone(trace_records, TRACE_RECORDS);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "trace: init failed: %s", esp_err_to_name(err));
+            return;
+        }
+        trace_ready = true;
+    }
+    if (heap_trace_stop() == ESP_OK) {
+        ESP_LOGW(TAG, "trace[%" PRIu32 "] was never closed: its window is lost", trace_window);
+    }
+    esp_err_t err = heap_trace_start(HEAP_TRACE_LEAKS);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "trace: start failed: %s", esp_err_to_name(err));
+        return;
+    }
+    trace_window++;
+}
+
+void sebastian_heap_trace_end(void) {
+    esp_err_t err = heap_trace_stop();
+    if (err != ESP_OK) {
+        if (err != ESP_ERR_INVALID_STATE) {
+            ESP_LOGW(TAG, "trace: stop failed: %s", esp_err_to_name(err));
+        }
+        return;
+    }
+    heap_trace_summary_t sum = {0};
+    err = heap_trace_summary(&sum);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "trace[%" PRIu32 "] summary failed: %s", trace_window, esp_err_to_name(err));
+        return;
+    }
+    size_t internal = 0, internal_bytes = 0, psram = 0, unreadable = 0;
+    for (size_t i = 0; i < sum.count; i++) {
+        heap_trace_record_t r;
+        if (heap_trace_get(i, &r) != ESP_OK) {
+            unreadable++;
+            continue;
+        }
+        if (r.address == NULL) {
+            continue;
+        }
+        if (!esp_ptr_internal(r.address)) {
+            psram++;
+            continue;
+        }
+        internal++;
+        internal_bytes += r.size;
+        char bt[CONFIG_HEAP_TRACING_STACK_DEPTH * 11 + 1] = "";
+        size_t used = 0;
+        for (int j = 0; j < CONFIG_HEAP_TRACING_STACK_DEPTH && r.alloced_by[j] != NULL; j++) {
+            used += snprintf(bt + used, sizeof(bt) - used, " %p", r.alloced_by[j]);
+        }
+        ESP_LOGI(TAG, "trace[%" PRIu32 "] alive addr=%p size=%zu by%s", trace_window, r.address, r.size, bt);
+        if (internal % 8 == 0) {
+            vTaskDelay(pdMS_TO_TICKS(20));
+        }
+    }
+    if (sum.has_overflowed || unreadable) {
+        ESP_LOGW(TAG, "trace[%" PRIu32 "] INCOMPLETE: records overflowed=%zu unreadable=%zu",
+                 trace_window, sum.has_overflowed, unreadable);
+    }
+    ESP_LOGI(TAG,
+             "trace[%" PRIu32 "] summary: internal alive=%zu (%zu B) psram alive=%zu | allocs=%zu frees=%zu"
+             " | records high=%zu/%zu overflowed=%zu | psram free=%zu",
+             trace_window, internal, internal_bytes, psram, sum.total_allocations, sum.total_frees,
+             sum.high_water_mark, sum.capacity, sum.has_overflowed, heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+}
+#else
+void sebastian_heap_trace_begin(void) {}
+void sebastian_heap_trace_end(void) {}
+#endif
