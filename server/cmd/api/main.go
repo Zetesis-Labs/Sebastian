@@ -13,6 +13,7 @@ import (
 
 	"github.com/zetesis-labs/sebastian/server/internal/adoption"
 	"github.com/zetesis-labs/sebastian/server/internal/agentprofile"
+	"github.com/zetesis-labs/sebastian/server/internal/announce"
 	apihttp "github.com/zetesis-labs/sebastian/server/internal/api"
 	"github.com/zetesis-labs/sebastian/server/internal/config"
 	"github.com/zetesis-labs/sebastian/server/internal/database"
@@ -92,7 +93,10 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	handler := apihttp.NewHandler(sessions, recordings, devices, meetings, store, logger, cfg.DatabasePingTimeout).WithAgentProfiles(agents)
+	announcements := announce.NewService(devices, lanClient, busyUnits{livekit: livekit, meetings: meetings}, logger)
+	handler := apihttp.NewHandler(sessions, recordings, devices, meetings, store, logger, cfg.DatabasePingTimeout).
+		WithAgentProfiles(agents).
+		WithAnnouncements(announcements)
 	server, err := httpserver.New(cfg.Address, handler, logger, cfg.AdminSecret,
 		httpserver.Raw{Pattern: "PUT /v1/meetings/{id}/audio", Handler: apihttp.MeetingAudioUpload(meetings, cfg.AgentSecret)},
 		httpserver.Raw{Pattern: "HEAD /v1/meetings/{id}/audio", Handler: apihttp.MeetingAudioOffset(meetings)(cfg.AgentSecret)},
@@ -172,4 +176,19 @@ func agentProfiles(ctx context.Context, cfg config.Config, store *postgresstore.
 	logger.Info("agent profiles synced from file", "file", cfg.AgentProfilesFile, "declared", len(manifest),
 		"created", len(plan.Create), "updated", len(plan.Update), "deleted", len(plan.Delete), "released", len(plan.Release))
 	return agents, nil
+}
+
+// busyUnits tells the announce service what a unit is doing: talking with an
+// agent (LiveKit, where it joins with its device id) or recording a meeting.
+type busyUnits struct {
+	livekit  *livekitgateway.Gateway
+	meetings *meeting.Service
+}
+
+func (b busyUnits) Say(ctx context.Context, deviceID string, payload []byte) (bool, error) {
+	return b.livekit.SendToAgentWith(ctx, deviceID, announce.Topic, payload)
+}
+
+func (b busyUnits) InMeeting(ctx context.Context, deviceID string) (bool, error) {
+	return b.meetings.InMeeting(ctx, deviceID)
 }

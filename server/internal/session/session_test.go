@@ -189,3 +189,36 @@ func TestDispatchMetadataCarriesTheMeetingMode(t *testing.T) {
 		t.Fatalf("meeting metadata: %v", meeting)
 	}
 }
+
+func TestDispatchMetadataCarriesTheAnnouncement(t *testing.T) {
+	dev := Device{ID: "68ee", ProfileID: uuid.Must(uuid.NewV7())}
+	got := dispatchMetadata(dev, Credentials{
+		DeviceID:     "68ee",
+		Kind:         KindAnnounce,
+		Announcement: Announced{Text: "La lavadora ha terminado", Reply: true},
+	})
+	if got["mode"] != "announce" {
+		t.Fatalf("mode = %v", got["mode"])
+	}
+	body, ok := got["announcement"].(map[string]any)
+	if !ok || body["text"] != "La lavadora ha terminado" || body["reply"] != true {
+		t.Fatalf("announcement = %#v", got["announcement"])
+	}
+}
+
+func TestTheUnitOpensItsMicrophoneUnlessTheAnnouncementOnlySpeaks(t *testing.T) {
+	cases := map[string]struct {
+		credentials Credentials
+		want        bool
+	}{
+		"conversation":       {Credentials{Kind: KindConversation}, true},
+		"meeting":            {Credentials{Kind: KindMeeting}, true},
+		"announce and reply": {Credentials{Kind: KindAnnounce, Announcement: Announced{Text: "x", Reply: true}}, true},
+		"announce only":      {Credentials{Kind: KindAnnounce, Announcement: Announced{Text: "x"}}, false},
+	}
+	for name, tc := range cases {
+		if got := listens(tc.credentials); got != tc.want {
+			t.Errorf("%s: listens = %v, want %v", name, got, tc.want)
+		}
+	}
+}
