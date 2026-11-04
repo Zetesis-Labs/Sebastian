@@ -35,8 +35,32 @@ func (g *Gateway) Dispatch(ctx context.Context, room, agentName string, metadata
 }
 
 func (g *Gateway) MintToken(room, identity string, ttl time.Duration) (string, error) {
+	return g.mint(&auth.VideoGrant{RoomJoin: true, Room: room}, identity, ttl)
+}
+
+// MintListenToken lets the unit into a playback room to hear the source: it
+// can neither publish media nor data there.
+func (g *Gateway) MintListenToken(room, identity string, ttl time.Duration) (string, error) {
+	grant := &auth.VideoGrant{RoomJoin: true, Room: room}
+	grant.SetCanPublish(false)
+	grant.SetCanPublishData(false)
+	grant.SetCanSubscribe(true)
+	return g.mint(grant, identity, ttl)
+}
+
+// MintSourceToken lets a playback source publish into the room without
+// hearing what is there.
+func (g *Gateway) MintSourceToken(room, identity string, ttl time.Duration) (string, error) {
+	grant := &auth.VideoGrant{RoomJoin: true, Room: room}
+	grant.SetCanPublish(true)
+	grant.SetCanPublishData(false)
+	grant.SetCanSubscribe(false)
+	return g.mint(grant, identity, ttl)
+}
+
+func (g *Gateway) mint(grant *auth.VideoGrant, identity string, ttl time.Duration) (string, error) {
 	return auth.NewAccessToken(g.apiKey, g.apiSecret).
-		SetVideoGrant(&auth.VideoGrant{RoomJoin: true, Room: room}).
+		SetVideoGrant(grant).
 		SetIdentity(identity).
 		SetName(identity).
 		SetValidFor(ttl).

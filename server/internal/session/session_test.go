@@ -38,6 +38,7 @@ type fakeLiveKit struct {
 	metadata   []byte
 	err        error
 	mintErr    error
+	listenRoom string
 }
 
 func (f *fakeLiveKit) Dispatch(_ context.Context, _, _ string, metadata []byte) error {
@@ -48,6 +49,11 @@ func (f *fakeLiveKit) Dispatch(_ context.Context, _, _ string, metadata []byte) 
 
 func (f *fakeLiveKit) MintToken(_, _ string, _ time.Duration) (string, error) {
 	return "jwt", f.mintErr
+}
+
+func (f *fakeLiveKit) MintListenToken(room, _ string, _ time.Duration) (string, error) {
+	f.listenRoom = room
+	return "listen-jwt", f.mintErr
 }
 
 func TestCreateDispatchesAndRecordsTheSession(t *testing.T) {
@@ -220,5 +226,31 @@ func TestTheUnitOpensItsMicrophoneUnlessTheAnnouncementOnlySpeaks(t *testing.T) 
 		if got := listens(tc.credentials); got != tc.want {
 			t.Errorf("%s: listens = %v, want %v", name, got, tc.want)
 		}
+	}
+}
+
+func TestAPlaybackSessionJoinsThePlaybackRoomOnlyToListen(t *testing.T) {
+	store := &fakeStore{device: Device{ID: "e072a1f96ef0", Identity: "e072a1f96ef0", CredentialDigest: DigestSecret("correct"), AgentName: "sebastian"}}
+	livekit := &fakeLiveKit{}
+	service := NewService(store, livekit, "ws://livekit:7880", "sebastian", time.Hour)
+	room := "sebastian-play-019a5e2c-0000-7000-8000-000000000000"
+
+	created, err := service.Create(context.Background(), Credentials{
+		DeviceID: "e072a1f96ef0", Secret: "correct", Kind: KindPlayback, PlaybackRoom: room,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if livekit.dispatched {
+		t.Fatal("a playback has no agent in its room")
+	}
+	if created.Room != room || livekit.listenRoom != room || created.Token != "listen-jwt" {
+		t.Fatalf("created = %+v, listen token for %q", created, livekit.listenRoom)
+	}
+	if created.Listen {
+		t.Fatal("the unit must not open its microphone into a playback")
+	}
+	if store.record.Room != room {
+		t.Fatalf("recorded room = %q", store.record.Room)
 	}
 }

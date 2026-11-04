@@ -22,6 +22,7 @@ import (
 	"github.com/zetesis-labs/sebastian/server/internal/httpserver"
 	livekitgateway "github.com/zetesis-labs/sebastian/server/internal/livekit"
 	"github.com/zetesis-labs/sebastian/server/internal/meeting"
+	"github.com/zetesis-labs/sebastian/server/internal/playback"
 	postgresstore "github.com/zetesis-labs/sebastian/server/internal/postgres"
 	"github.com/zetesis-labs/sebastian/server/internal/secretbox"
 	"github.com/zetesis-labs/sebastian/server/internal/session"
@@ -92,9 +93,12 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	announcements := announce.NewService(devices, lanClient, busyUnits{livekit: livekit, meetings: meetings}, logger)
+	playbacks := playback.NewService(devices, lanClient, meetings, livekit,
+		playback.Config{RoomPrefix: cfg.RoomPrefix, ServerURL: cfg.LiveKitURL, TokenTTL: cfg.TokenTTL}, logger)
 	handler := apihttp.NewHandler(sessions, devices, meetings, store, logger, cfg.DatabasePingTimeout).
 		WithAgentProfiles(agents).
-		WithAnnouncements(announcements)
+		WithAnnouncements(announcements).
+		WithPlayback(playbacks)
 	server, err := httpserver.New(cfg.Address, handler, logger, cfg.AdminSecret,
 		httpserver.Raw{Pattern: "PUT /v1/meetings/{id}/audio", Handler: apihttp.MeetingAudioUpload(meetings, cfg.AgentSecret)},
 		httpserver.Raw{Pattern: "HEAD /v1/meetings/{id}/audio", Handler: apihttp.MeetingAudioOffset(meetings)(cfg.AgentSecret)},

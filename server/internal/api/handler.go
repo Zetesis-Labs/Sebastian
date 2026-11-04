@@ -48,6 +48,7 @@ type Server struct {
 	devices          DeviceService
 	meetings         MeetingService
 	announcements    AnnouncementService
+	playback         PlaybackService
 	agents           AgentProfileService
 	readiness        ReadinessChecker
 	logger           *slog.Logger
@@ -110,6 +111,11 @@ func (h *Server) GetDesiredProfile(ctx context.Context, request GetDesiredProfil
 	if h.announcements != nil {
 		if order := h.announcements.PendingCommand(ctx, request.DeviceId); order != "" {
 			response.Headers.XAnnounce = &order
+		}
+	}
+	if h.playback != nil {
+		if order := h.playback.PendingCommand(ctx, request.DeviceId); order != "" {
+			response.Headers.XPlayback = &order
 		}
 	}
 	return response, nil
@@ -238,6 +244,11 @@ func (h *Server) CreateSession(ctx context.Context, request CreateSessionRequest
 			return resp, nil
 		}
 		claimed = &a
+	}
+	if request.Body != nil && request.Body.Kind != nil && *request.Body.Kind == SessionRequestKindPlayback {
+		if resp := h.joinPlayback(ctx, request, &credentials); resp != nil {
+			return resp, nil
+		}
 	}
 	created, err := h.sessions.Create(ctx, credentials)
 	if err != nil && claimed != nil {
