@@ -250,7 +250,20 @@ func TestAPlaybackSessionJoinsThePlaybackRoomOnlyToListen(t *testing.T) {
 	if created.Listen {
 		t.Fatal("the unit must not open its microphone into a playback")
 	}
-	if store.record.Room != room {
-		t.Fatalf("recorded room = %q", store.record.Room)
+	if store.record.Room != "" {
+		t.Fatalf("a playback join is not a session row: the room is shared by every join (recorded %q)", store.record.Room)
+	}
+}
+
+func TestTheUnitRejoinsThePlaybackRoomAsOftenAsItComesBack(t *testing.T) {
+	store := &fakeStore{device: Device{ID: "e072a1f96ef0", Identity: "e072a1f96ef0", CredentialDigest: DigestSecret("correct")}}
+	service := NewService(store, &fakeLiveKit{}, "ws://livekit:7880", "sebastian", time.Hour)
+	join := Credentials{DeviceID: "e072a1f96ef0", Secret: "correct", Kind: KindPlayback, PlaybackRoom: "sebastian-play-1"}
+	store.recordErr = errors.New("duplicate key value violates unique constraint \"sessions_room_name_key\"")
+
+	for i := range 2 {
+		if _, err := service.Create(context.Background(), join); err != nil {
+			t.Fatalf("join %d: %v", i+1, err)
+		}
 	}
 }
