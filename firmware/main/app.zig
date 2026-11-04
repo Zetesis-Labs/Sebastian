@@ -683,11 +683,35 @@ fn teardownActiveSession() void {
         log.err("HEAP CORRUPTED after session teardown — see the block addresses above", .{});
     }
     xvf_aec.logState(); // post-session: did the AEC converge this session?
-    // Let the speaker's render FIFO drain before re-arming detection — the agent
-    // says its own name and a tail leaking into the mic would immediately re-trigger.
-    c.vTaskDelay(1500);
+    drainAndResetSpeaker();
     logHeap("post-drain");
     c.sebastian_heap_trace_end();
+}
+
+/// Let the speaker's render FIFO drain before re-arming detection — the agent
+/// says its own name and a tail leaking into the mic would immediately
+/// re-trigger — then release the session's decoder and render threads. The
+/// renderer outlives the room and av_render only frees them when the next
+/// stream is added, so left alive between sessions they split the internal-RAM
+/// hole the room leaves behind (heap trace, 2026-11-04).
+fn drainAndResetSpeaker() void {
+    render_peak.store(0, .monotonic);
+    var elapsed: u32 = 0;
+    while (true) {
+        c.vTaskDelay(session_core.DRAIN_STEP_MS);
+        elapsed += session_core.DRAIN_STEP_MS;
+        const playing = render_peak.swap(0, .monotonic) >= reducer.AGENT_AUDIO_LEVEL;
+        if (session_core.speakerDrained(elapsed, playing)) break;
+    }
+    if (speaker_render == null) return;
+    wdgArm(10); // av_render_reset joins the render threads
+    const rc = c.av_render_reset(speaker_render);
+    wdgDisarm();
+    if (rc != 0) {
+        log.err("speaker drained in {d} ms, but av_render_reset failed (rc={d}): the session's render threads may still hold internal RAM", .{ elapsed, rc });
+        return;
+    }
+    log.info("speaker drained in {d} ms, renderer reset", .{elapsed});
 }
 
 fn runWakeCycle(audio: AudioPipeline) void {

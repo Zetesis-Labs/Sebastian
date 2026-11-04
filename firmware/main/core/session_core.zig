@@ -18,6 +18,18 @@ pub var silence_ticks: u32 = SILENCE_TICKS;
 pub const MAX_TICKS: u32 = 600 * 1000 / TICK_MS; // 10min safety cap
 pub const AGENT_AUDIO_HANGOVER_TICKS: u32 = 2500 / TICK_MS; // inter-sentence gaps + echo tail
 
+// After the room closes the render FIFO can still hold seconds of the agent's
+// reply (the model generates faster than realtime). Drain at least the echo
+// tail, keep going while the speaker still plays, and give up at the cap.
+pub const DRAIN_MIN_MS: u32 = 1500;
+pub const DRAIN_MAX_MS: u32 = 10_000;
+pub const DRAIN_STEP_MS: u32 = 100;
+
+pub fn speakerDrained(elapsed_ms: u32, playing: bool) bool {
+    if (elapsed_ms >= DRAIN_MAX_MS) return true;
+    return elapsed_ms >= DRAIN_MIN_MS and !playing;
+}
+
 pub const Timing = struct {
     tick: u32 = 0,
     last_voice_tick: u32 = 0,
