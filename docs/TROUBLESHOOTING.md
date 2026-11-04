@@ -150,3 +150,20 @@ When something fails, **prioritize the datasheet and direct measurement over gue
 **Root cause:** audio **levels** (RMS/peak) are not **intelligibility**.
 
 **Solution:** the agent records the received mic in `/tmp/sebastian_rx.wav` — **LISTEN TO IT** with `afplay` and calculate an approximate spectrum (energy per frequency). For example, a "tinny" voice shows almost no energy above ~2 kHz.
+
+---
+
+## 13. La sesión abre pero el agente no oye nada (`AUD_SRC: Failed to create audio src thread`, `esp-aes: Failed to allocate memory`)
+
+**Síntoma:** tras varias sesiones el anillo pasa a azul y se apaga solo: el micro no llega a publicarse. En el log, antes de esos errores, el bloque libre más grande de RAM interna (`heap[pre-connect] … largest=`) ha ido bajando de una sesión a otra aunque la memoria libre total no baje.
+
+**Causa raíz (2026-11-04):** fragmentación de la RAM interna, no una fuga. Crear la sala pide ~14 KB seguidos (cola de eventos del motor de LiveKit, 32 × 184 B, más la pila de 8 KB de su tarea). Lo que sobrevivía a la sesión en medio de ese hueco impedía que volviera a unirse:
+- el flujo de audio de `av_render` (hilo de descodificación, descodificador Opus y el semáforo de lwip de ese hilo), que nadie cerraba al acabar la sesión;
+- los valores TXT de mDNS, en RAM interna porque `sdkconfig.defaults` pisaba la configuración de PSRAM.
+
+**Solución:** `drainAndResetSpeaker` (`main/app.zig`) resetea el reproductor cuando el altavoz se ha vaciado, y mDNS reserva en PSRAM. Tras cada sesión el estado vuelve a ser idéntico byte a byte.
+
+**Cómo diagnosticarlo otra vez:**
+- Cada línea `heap[...]` lleva `blocks free=` (huecos), `used=`, `min=` (mínimo desde el arranque) y `alloc_fails=`. Huecos que suben con la memoria libre plana es fragmentación; `free` que baja sesión a sesión es una fuga.
+- Una reserva fallida queda registrada y sale en la siguiente línea `heap[...]` como `alloc failed #N size= caps= task= … bt 0x…`. Se descifra con `xtensa-esp32s3-elf-addr2line -pfiaC -e build/sebastian.elf <bt…>`.
+- Para saber QUIÉN deja bloques vivos: `make fw-build-heaptrace`, `SEBASTIAN_BUILD_DIR=build-heaptrace make flash`, unas cuantas sesiones y `python3 tools/heaptrace_decode.py --loki http://<loki>:3100` en el devcontainer. Cada sesión escribe los bloques de RAM interna que la sobreviven con su pila de llamadas. Cuesta ~2 KB de RAM interna: nunca a producción.
