@@ -316,6 +316,11 @@ static void media_stream_task(void *arg)
 
 static engine_err_t media_stream_begin(engine_t *eng)
 {
+    // A room that only subscribes (publish kind NONE, no capturer — Sebastian's
+    // playback rooms) has nothing to stream.
+    if (eng->options.media.capturer == NULL) {
+        return ENGINE_ERR_NONE;
+    }
     if (esp_capture_start(eng->options.media.capturer) != ESP_CAPTURE_ERR_OK) {
         ESP_LOGE(TAG, "Failed to start capture");
         return ENGINE_ERR_MEDIA;
@@ -1125,6 +1130,12 @@ static void engine_task(void *arg)
 
 static engine_err_t enable_capture_sink(engine_t *eng)
 {
+    // livekit_room_create accepts publish kind NONE without a capturer; the
+    // engine must not then set up a sink on a NULL capturer (it failed the
+    // whole room with "Capture sink setup failed").
+    if (eng->options.media.capturer == NULL) {
+        return ENGINE_ERR_NONE;
+    }
     esp_capture_sink_cfg_t sink_cfg = {
         .audio_info = {
             .format_id = capture_audio_codec_type(eng->options.media.audio_info.codec),
