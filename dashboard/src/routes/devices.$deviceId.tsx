@@ -13,12 +13,14 @@ import {
   startMeeting,
   createAnnouncement,
   stopMeeting,
+  stopPlayback,
   type ControlRoomPublic,
   type DeviceDetail,
   type Json,
   type Meeting,
 } from '../lib/api'
 import { ANNOUNCEMENT_MAX, announcementIssue, canAnnounce, deliveryMessage } from '../lib/announcements'
+import { playbackLabel, type Playback } from '../lib/playback'
 import { errorMessage, formatDate, formatDuration } from '../lib/format'
 import { agentSummary, type AgentProfile } from '../lib/agents'
 import { MEETING_STATE_LABEL, MEETING_STATE_TONE, activeMeeting, canRecord, meetingLabel, recordingSince } from '../lib/meetings'
@@ -57,7 +59,7 @@ const FIELD_BY_PATH = new Map<string, FieldMeta>(
 )
 
 function DevicePage() {
-  const { detail: loaded, room, meetings, agents } = Route.useLoaderData() as { detail: DeviceDetail; room: ControlRoomPublic; meetings: Meeting[]; agents: AgentProfile[] }
+  const { detail: loaded, room, meetings, agents, playback } = Route.useLoaderData() as { detail: DeviceDetail; room: ControlRoomPublic; meetings: Meeting[]; agents: AgentProfile[]; playback: Playback | null }
   const detail = loaded
   const router = useRouter()
   const navigate = useNavigate()
@@ -189,6 +191,8 @@ function DevicePage() {
       </section>
 
       <AgentPanel detail={detail} agents={agents} busy={busy} act={act} />
+
+      {playback && <PlaybackPanel detail={detail} playback={playback} busy={busy} now={now} act={act} />}
 
       <AnnouncePanel detail={detail} busy={busy} act={act} />
 
@@ -474,6 +478,31 @@ function AnnouncePanel({ detail, busy, act }: Readonly<{ detail: DeviceDetail; b
           </div>
         </form>
       )}
+    </section>
+  )
+}
+
+// A source (the AirPlay bridge, a test script) plays on the unit; the unit
+// leaves it for the wake word and comes back. From here it can be stopped.
+function PlaybackPanel({ detail, playback, busy, now, act }: Readonly<{ detail: DeviceDetail; playback: Playback; busy: boolean; now: Date | null; act: Act }>) {
+  return (
+    <section className="device-panel">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">Reproducción</p>
+          <h2>{playbackLabel(playback, now)}</h2>
+        </div>
+        <div className="device-actions">
+          <button
+            type="button"
+            className="chip-button"
+            disabled={busy}
+            onClick={() => void act('Parando…', () => stopPlayback({ data: { deviceId: detail.id } }), 'Parada: el altavoz sale de la sala en unos segundos.')}
+          >
+            Parar
+          </button>
+        </div>
+      </div>
     </section>
   )
 }
