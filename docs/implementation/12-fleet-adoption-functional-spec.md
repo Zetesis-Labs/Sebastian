@@ -125,8 +125,8 @@ reintenta en cada poll y mientras tanto aparece como "Registrado · sin
 adoptar".
 
 **RF-04 Firmware compatible.** El botón de flashear del instalador embebido
-instala la versión de firmware empaquetada con ese control room, no la última
-publicada en GitHub Pages. La versión se muestra junto al botón.
+instala la versión de firmware empaquetada con ese control room, la de su misma
+release. La versión se muestra junto al botón.
 
 **RF-05 Contexto seguro.** Web Serial solo funciona en `localhost` o HTTPS. Si
 el control room se sirve por HTTP, el instalador no oculta el botón: explica que

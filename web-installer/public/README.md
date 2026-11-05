@@ -40,10 +40,11 @@ make fw-build
 tools/prepare_web_installer.sh
 ```
 
-El script prepara el binario fusionado y `manifest.json` bajo `docs/installer/`.
-El build público y el del dashboard empaquetan firmware de fábrica desde sus
-workflows. La interfaz consume el manifiesto de su propia base; las antiguas
-instrucciones de parámetros `?manifest`, `?bin` y `?config` no corresponden al
+El script prepara el binario fusionado y `manifest.json` bajo `docs/installer/`
+para probar en local. En CI el firmware se compila una sola vez por release
+(`firmware-publish`) y queda adjunto a la release `firmware-v<versión>`; tanto
+GitHub Pages como la imagen del dashboard lo descargan de ahí. La interfaz
+consume el manifiesto de su propia base; las antiguas instrucciones de parámetros `?manifest`, `?bin` y `?config` no corresponden al
 código actual.
 
 ## Recuperación de conexión

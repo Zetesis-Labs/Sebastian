@@ -7,6 +7,7 @@ name: Release Please
 #
 # Components:
 #   - agent (agent/)          → drives the Python agent image
+#   - firmware (firmware/)    → the image, built once and attached to its release
 #   - server (server/)        → drives the Go server image
 #   - dashboard (dashboard/)  → drives the TanStack Start dashboard image
 #   - helm  (helm/sebastian/) → the chart
@@ -35,6 +36,8 @@ jobs:
       server_version: ${{ steps.release.outputs['server--version'] }}
       dashboard_released: ${{ steps.release.outputs['dashboard--release_created'] }}
       dashboard_version: ${{ steps.release.outputs['dashboard--version'] }}
+      firmware_released: ${{ steps.release.outputs['firmware--release_created'] }}
+      firmware_version: ${{ steps.release.outputs['firmware--version'] }}
       helm_released: ${{ steps.release.outputs['helm/sebastian--release_created'] }}
       helm_version: ${{ steps.release.outputs['helm/sebastian--version'] }}
     steps:
@@ -70,9 +73,36 @@ jobs:
       HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
       HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
 
-  publish-dashboard:
+  # One firmware release → the factory image, built once and attached to it.
+  # The dashboard installer and GitHub Pages download it from there.
+  publish-firmware:
     needs: release-please
-    if: needs.release-please.outputs.dashboard_released == 'true'
+    if: needs.release-please.outputs.firmware_released == 'true'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/firmware-publish.yml
+    with:
+      version: ${{ needs.release-please.outputs.firmware_version }}
+
+  publish-pages:
+    needs: [release-please, publish-firmware]
+    if: needs.release-please.outputs.firmware_released == 'true'
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/pages.yml
+    with:
+      version: ${{ needs.release-please.outputs.firmware_version }}
+
+  publish-dashboard:
+    # Dashboard and firmware share a version (linked-versions); the embedded
+    # installer downloads the image publish-firmware attached.
+    needs: [release-please, publish-firmware]
+    if: |
+      always() &&
+      needs.release-please.outputs.dashboard_released == 'true' &&
+      needs.publish-firmware.result != 'failure'
     permissions:
       contents: read
     uses: ./.github/workflows/dashboard-publish.yml
@@ -95,11 +125,12 @@ jobs:
       HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
 
   bump-mileto:
-    needs: [release-please, publish-images, publish-server, publish-dashboard, publish-helm]
+    needs: [release-please, publish-images, publish-server, publish-firmware, publish-dashboard, publish-helm]
     if: |
       always() &&
       needs.release-please.outputs.releases_created == 'true' &&
       needs.publish-images.result != 'failure' &&
+      needs.publish-firmware.result != 'failure' &&
       needs.publish-server.result != 'failure' &&
       needs.publish-dashboard.result != 'failure' &&
       needs.publish-helm.result != 'failure'

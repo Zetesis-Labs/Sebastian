@@ -44,8 +44,9 @@ jobs:
             "$ZIG" fmt --check main core_test.zig build.zig
 
   esp-idf-build:
-    # Validate the full ESP-IDF build/link on PRs too — pages.yml only builds on
-    # push to main, so a PR could break the link/compile without CI noticing.
+    # Validate the full ESP-IDF build/link on PRs too — otherwise the firmware is
+    # only built at release time (firmware-publish), so a PR could break the
+    # link/compile without CI noticing.
     runs-on: ${{ vars.RUNNER || 'herschel-runners' }}
     steps:
       - uses: actions/checkout@v4

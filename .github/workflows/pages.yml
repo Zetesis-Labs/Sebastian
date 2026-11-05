@@ -1,18 +1,30 @@
 name: Deploy GitHub Pages
 
-# Builds the factory firmware in CI (never a locally-produced binary) and
-# publishes it with the web installer. sdkconfig is gitignored, so the build
-# comes from sdkconfig.defaults — WiFi/token blank, so the merged image carries
-# no credentials.
+# Publishes the public web installer with the factory firmware of a release.
+# It never compiles: firmware-publish built the image once and attached it to
+# the firmware-v<version> release; this workflow downloads it. It runs from
+# the release workflow (with that version) and when the installer app itself
+# changes on main (then it ships the latest released firmware).
 
 on:
   push:
     branches: [main]
     paths:
-      - "firmware/**"
       - "web-installer/**"
       - ".github/workflows/pages.yml"
+  workflow_call:
+    inputs:
+      version:
+        description: "Firmware release to ship (semver, no leading v); empty = the latest firmware-v* release"
+        required: false
+        type: string
+        default: ""
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Firmware release to ship (semver, no leading v); empty = the latest firmware-v* release"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -31,11 +43,11 @@ jobs:
     if: vars.MIRROR_UPSTREAM == ''
     runs-on: ${{ vars.RUNNER || 'herschel-runners' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # Build the React installer in CI (no committed build output). It writes to
       # ../docs/installer (vite outDir) and creates docs/installer/firmware/ via
-      # public/, so the firmware merge below has a place to drop the real .bin.
+      # public/, where the released image is dropped below.
       - name: Set up pnpm
         uses: pnpm/action-setup@v6.1.0
         with:
@@ -54,32 +66,27 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm build
 
-      - name: Build factory firmware + merge image
-        uses: espressif/esp-idf-ci-action@v1
-        with:
-          esp_idf_version: v5.4.4
-          target: esp32s3
-          path: firmware
-          command: >-
-            (idf.py reconfigure || true) &&
-            find managed_components -name sdkconfig.rename -delete &&
-            idf.py build &&
-            python -m esptool --chip esp32s3 merge_bin
-            -o ../docs/installer/firmware/sebastian-esp32s3-merged.bin
-            --flash_mode dio --flash_freq 80m --flash_size 8MB
-            0x0 build/bootloader/bootloader.bin
-            0x8000 build/partition_table/partition-table.bin
-            0x10000 build/sebastian.bin
-
-      - name: Verify the image carries no credentials
+      - name: Download the released firmware image
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
         run: |
+          set -euo pipefail
+          if [ -z "$VERSION" ]; then
+            VERSION="$(gh release list --repo "$GITHUB_REPOSITORY" --limit 200 --json tagName -q '.[].tagName' \
+              | sed -n 's/^firmware-v//p' | sort -V | tail -1)"
+            test -n "$VERSION" || { echo "no firmware-v* release to ship"; exit 1; }
+          fi
+          mkdir -p docs/installer/firmware
+          gh release download "firmware-v$VERSION" --repo "$GITHUB_REPOSITORY" \
+            --pattern sebastian-esp32s3-merged.bin --dir docs/installer/firmware --clobber
           bin=docs/installer/firmware/sebastian-esp32s3-merged.bin
-          test -f "$bin" || { echo "merged bin missing"; exit 1; }
-          echo "merged bin: $(du -h "$bin" | cut -f1)"
-          for s in Pizarro LIVEKIT_API_SECRET; do
-            if grep -aqF "$s" "$bin"; then echo "SECRET '$s' in bin"; exit 1; fi
-          done
-          echo "clean"
+          test -f "$bin" || { echo "release firmware-v$VERSION has no image attached"; exit 1; }
+          magic="$(od -An -tx1 -N1 "$bin" | tr -d ' ')"
+          [ "$magic" = "e9" ] || { echo "$bin is not an ESP image (first byte $magic)"; exit 1; }
+          jq --arg v "$VERSION" '.version = $v' docs/installer/manifest.json > manifest.tmp
+          mv manifest.tmp docs/installer/manifest.json
+          echo "pages ships firmware $VERSION ($(du -h "$bin" | cut -f1))"
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
