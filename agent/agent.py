@@ -63,6 +63,7 @@ from meeting_mode import (
     run_meeting,
     voice_start_asked,
 )
+from playback import stop_playback
 from wake_verify import setup_wake_verify
 from phonic_buffered import BufferedPhonicRealtimeModel
 from model_choice import (
@@ -188,6 +189,10 @@ class Sebastian(Agent):
                 "la ambigüedad: 'enciende la luz para el salón' NO es una orden de "
                 "parar; solo cierra cuando la intención real sea detenerte o "
                 "terminar. "
+                "Si te piden parar, quitar o apagar la MÚSICA ('para la música', "
+                "'quita la música', 'apaga eso que suena'), llama a stop_music y di "
+                "EXACTAMENTE la frase que devuelve; eso no es una orden de cerrar "
+                "la sesión, así que no llames a end_session por ello. "
                 "Si te piden grabar la reunión (grabar esto, empezar a grabar, "
                 "grabar la reunión), llama a start_meeting_recording y di "
                 "EXACTAMENTE la frase que devuelve, nada más; después la sesión "
@@ -210,6 +215,14 @@ class Sebastian(Agent):
             # order waits in its mailbox); leave time for the confirmation.
             _spawn(close_device_session(get_job_context(), reason="meeting", pre_grace_s=GOODBYE_GRACE_S + 3))
         return outcome.say
+
+    @function_tool
+    async def stop_music(self, context: RunContext) -> str:
+        """Para la música o el audio que suena en este altavoz. Llámala cuando
+        el usuario pida parar, quitar o apagar la música. Devuelve la frase
+        exacta que debes decir."""
+        _ = context
+        return await stop_playback(self._device_id)
 
     @function_tool
     async def end_session(self, context: RunContext) -> str:
