@@ -114,11 +114,12 @@ static void populate_media_options(
         // Both peers share audio_info, and the subscriber answers the SFU's
         // offer with its codec. A room that only listens has no publish codec
         // and answered PCMA, which the renderer cannot decode; LiveKit
-        // forwards Opus at 48 kHz.
+        // forwards Opus at 48 kHz. Two channels: a playback is music, and a
+        // mono source decodes to both channels just the same.
         if (!(pub_options->kind & LIVEKIT_MEDIA_TYPE_AUDIO)) {
             media_options->audio_info.codec = ESP_PEER_AUDIO_CODEC_OPUS;
             media_options->audio_info.sample_rate = 48000;
-            media_options->audio_info.channel = 1;
+            media_options->audio_info.channel = 2;
         }
     }
     if (sub_options->kind & LIVEKIT_MEDIA_TYPE_VIDEO) {
