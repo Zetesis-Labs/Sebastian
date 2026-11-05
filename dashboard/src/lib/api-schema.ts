@@ -1941,6 +1941,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+            503: components["responses"]["Unavailable"];
         };
     };
     startMeeting: {
