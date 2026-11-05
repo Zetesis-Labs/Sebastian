@@ -27,6 +27,7 @@
 //! reachable over the network, no replug windows, no button).
 
 const std = @import("std");
+const playback_core = @import("core/playback_core.zig");
 const c = @import("csdk.zig");
 const profile = @import("profile.zig");
 const url_core = @import("core/url_core.zig");
@@ -48,8 +49,9 @@ var hdr_buf: [32]u8 = undefined;
 var meeting_hdr: [48]u8 = undefined;
 var announcement_hdr: [48]u8 = undefined;
 var playback_hdr: [48]u8 = undefined;
-/// Polls that answered without X-Playback since the app last asked
-/// (playback_core: a control room that forgot the playback).
+/// Polls without a usable X-Playback since the last one that had it, or
+/// since the app last asked (playback_core: a control room that forgot the
+/// playback).
 var silent_playback_polls = std.atomic.Value(u32).init(0);
 var cfg_ver: [24]u8 = undefined;
 var dev_secret: [129]u8 = undefined;
@@ -168,22 +170,28 @@ fn relayAnnouncementOrder(header: []const u8) void {
 
 /// The poll's X-Playback header says which playback the unit should be
 /// listening to ("start:<id>") or leaving ("stop:<id>"); same mailbox as the
-/// LAN order. A poll without it is counted for playback_core.
+/// LAN order. The silent count is the polls since the last mention: a header
+/// we do not understand counts as one, so a wish never outlives the control
+/// room's word.
 fn relayPlaybackOrder(header: []const u8) void {
     if (header.len == 0) {
         _ = silent_playback_polls.fetchAdd(1, .monotonic);
         return;
     }
-    const colon = std.mem.indexOfScalar(u8, header, ':') orelse return;
-    const verb = header[0..colon];
-    const id = header[colon + 1 ..];
-    if (id.len == 0 or id.len >= 40 or !c.sebastian_meeting_is_recordable()) return;
-    if (!std.mem.eql(u8, verb, "start") and !std.mem.eql(u8, verb, "stop")) return;
-    var verb_buf: [8]u8 = undefined;
+    if (!c.sebastian_meeting_is_recordable()) return;
+    const order = playback_core.parseOrder(header) orelse {
+        log.warn("X-Playback '{s}' not understood — counted as a poll without playback", .{header});
+        _ = silent_playback_polls.fetchAdd(1, .monotonic);
+        return;
+    };
+    silent_playback_polls.store(0, .monotonic);
+    const verb: [*:0]const u8, const id = switch (order) {
+        .start => |id| .{ "start", id },
+        .stop => |id| .{ "stop", id },
+    };
     var id_buf: [40]u8 = undefined;
-    const verb_z = std.fmt.bufPrintZ(&verb_buf, "{s}", .{verb}) catch return;
-    const id_z2 = std.fmt.bufPrintZ(&id_buf, "{s}", .{id}) catch return;
-    c.sebastian_playback_push(verb_z.ptr, id_z2.ptr);
+    const id_z2 = std.fmt.bufPrintZ(&id_buf, "{s}", .{&id}) catch return;
+    c.sebastian_playback_push(verb, id_z2.ptr);
 }
 
 /// Polls without X-Playback since the last call.

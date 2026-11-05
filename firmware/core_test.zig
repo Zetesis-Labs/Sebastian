@@ -1602,3 +1602,18 @@ test "playback: ids that are not a UUID are ignored" {
     try std.testing.expect(playback.parseId("") == null);
     try std.testing.expect(playback.parseId("019a5e2c") == null);
 }
+
+test "playback: the poll header is start or stop of a UUID, nothing else" {
+    try std.testing.expectEqualDeep(playback.Order{ .start = play_a }, playback.parseOrder("start:019a5e2c-0000-7000-8000-00000000000a").?);
+    try std.testing.expectEqualDeep(playback.Order{ .stop = play_b }, playback.parseOrder("stop:019a5e2c-0000-7000-8000-00000000000b").?);
+    for ([_][]const u8{
+        "",
+        "start",
+        "start:",
+        "pause:019a5e2c-0000-7000-8000-00000000000a",
+        "start:019a5e2c-0000-7000-8000-00000000000",
+        "start:019a5e2c-0000-7000-8000-00000000000aa",
+    }) |bad| {
+        try std.testing.expect(playback.parseOrder(bad) == null);
+    }
+}

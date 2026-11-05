@@ -68,6 +68,7 @@ pub fn fetchPlayback(playback_id: []const u8) (Error || error{Off})!Connection {
 var last_status: c_int = 0;
 
 fn fetchWith(body: ?[*:0]const u8, default_listen: bool) Error!Connection {
+    last_status = 0;
     if (!c.sebastian_get_token_url(&token_server_url, token_server_url.len)) {
         log.err("no control room URL in NVS — device unprovisioned", .{});
         return error.Unprovisioned;
