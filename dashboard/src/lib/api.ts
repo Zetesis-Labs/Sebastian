@@ -3,15 +3,12 @@ import type { Announcement } from './announcements'
 import type { components } from './api-schema'
 import type { AgentProfile, AgentProfileInput } from './agents'
 
-export type Recording = components['schemas']['Recording']
-export type RecordingSummary = components['schemas']['RecordingSummary']
 export type Device = components['schemas']['Device']
 export type DeviceDetail = components['schemas']['DeviceDetail']
 export type AdoptionJob = components['schemas']['AdoptionJob']
 export type DeviceConfig = components['schemas']['DeviceConfig']
 export type ControlRoomInfo = components['schemas']['ControlRoom']
 
-type RecordingList = components['schemas']['RecordingList']
 type DeviceList = components['schemas']['DeviceList']
 
 // Server functions must return serializable values; the free-form config
@@ -77,17 +74,9 @@ async function apiSend<T = void>(path: string, method: string, body?: unknown): 
 const id = (value: string) => encodeURIComponent(value)
 
 export const getDashboard = createServerFn({ method: 'GET' }).handler(async () => {
-  const [recordings, summary, meetings] = await Promise.all([
-    apiGet<RecordingList>('/v1/admin/recordings?limit=50'),
-    apiGet<RecordingSummary>('/v1/admin/recordings/summary'),
-    apiGet<MeetingList>('/v1/admin/meetings?limit=6'),
-  ])
-  return { recordings: recordings.items, summary, meetings: meetings.items }
+  const meetings = await apiGet<MeetingList>('/v1/admin/meetings?limit=6')
+  return { meetings: meetings.items }
 })
-
-export const getRecording = createServerFn({ method: 'GET' })
-  .validator((recordingId: string) => recordingId)
-  .handler(async ({ data }) => apiGet<Recording>(`/v1/admin/recordings/${id(data)}`))
 
 // ── fleet ───────────────────────────────────────────────────────────────────
 

@@ -7,7 +7,6 @@ quién puede utilizarlo.
 
 ## Funcionalidad
 
-- Catálogo `recordings`: resumen, listado y detalle de grabaciones registradas.
 - Flota: descubrimiento/adopción, ficha, perfil, configuración deseada frente a
   ejecutada, eventos, rotación de secreto y olvido.
 - Instalador embebido en `/installer/`, preparado con la organización y el control
@@ -18,8 +17,7 @@ quién puede utilizarlo.
 
 Reuniones B–F está en el PR #50 abierto. El reproductor obtiene el audio por
 `fetch` y `blob:`; su prueba manual sigue pendiente según
-[SESSION.md](../SESSION.md). Las reuniones tienen su propio recorrido y no crean
-una fila duplicada en el catálogo `recordings`.
+[SESSION.md](../SESSION.md).
 
 ## Desarrollo
 

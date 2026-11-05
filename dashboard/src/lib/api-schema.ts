@@ -541,58 +541,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/admin/recordings": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List recent voice recordings */
-        get: operations["listRecordings"];
-        put?: never;
-        /** Register a recording already stored in object storage */
-        post: operations["registerRecording"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/recordings/summary": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Aggregate recording storage and duration metrics */
-        get: operations["getRecordingsSummary"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/recordings/{recordingId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get one voice recording */
-        get: operations["getRecording"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -621,47 +569,6 @@ export interface components {
             detail?: string;
             /** Format: uri-reference */
             instance?: string;
-        };
-        /** @enum {string} */
-        RecordingKind: "model" | "microphone" | "agent" | "composite";
-        Recording: {
-            /** Format: uuid */
-            id: string;
-            /** Format: uuid */
-            sessionId: string;
-            room: string;
-            kind: components["schemas"]["RecordingKind"];
-            fileName: string;
-            /** Format: uri */
-            objectUrl: string;
-            contentType: string;
-            /** Format: int64 */
-            byteSize: number;
-            /** Format: int64 */
-            durationMs: number;
-            /** Format: date-time */
-            capturedAt: string;
-            /** Format: date-time */
-            createdAt: string;
-            transcript?: string;
-        };
-        RecordingRegistration: {
-            room: string;
-            kind: components["schemas"]["RecordingKind"];
-            fileName: string;
-            /** Format: uri */
-            objectUrl: string;
-            contentType: string;
-            /** Format: int64 */
-            byteSize: number;
-            /** Format: int64 */
-            durationMs: number;
-            /** Format: date-time */
-            capturedAt: string;
-            transcript?: string;
-        };
-        RecordingList: {
-            items: components["schemas"]["Recording"][];
         };
         /**
          * @description adopted = bound here and polling; joining = adopted here, waiting for its first contact since the adoption (it is rebooting; up to 3 min); absent = bound here, silent for more than three poll periods and not on the LAN; moved = adopted here but the LAN announces it bound to another control room after its last contact with us (someone took it); leaving = forgotten here, the LAN still carries its old announce; managed_elsewhere = seen on the LAN, bound to another control room; unadopted = seen on the LAN, bound to none; orphan = seen on the LAN, bound to a control room it cannot reach; registered = polled this control room without being adopted (legacy /token units).
@@ -725,8 +632,6 @@ export interface components {
             createdAt: string;
             /** Format: date-time */
             expiresAt: string;
-            /** Format: int64 */
-            recordingCount: number;
         };
         DeviceUpdate: {
             displayName?: string;
@@ -994,16 +899,6 @@ export interface components {
             delivery: "conversation" | "lan" | "poll";
             /** Format: date-time */
             expiresAt: string;
-        };
-        RecordingSummary: {
-            /** Format: int64 */
-            count: number;
-            /** Format: int64 */
-            totalBytes: number;
-            /** Format: int64 */
-            totalDurationMs: number;
-            /** Format: date-time */
-            lastCapturedAt?: string;
         };
     };
     responses: {
@@ -2268,129 +2163,6 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["MeetingNotFound"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    listRecordings: {
-        parameters: {
-            query?: {
-                limit?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Recent recordings ordered by capture time. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RecordingList"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    registerRecording: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RecordingRegistration"];
-            };
-        };
-        responses: {
-            /** @description Recording registered. */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Recording"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            /** @description The associated session does not exist. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description The object URL is already registered. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    getRecordingsSummary: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Recording summary. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RecordingSummary"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            503: components["responses"]["Unavailable"];
-        };
-    };
-    getRecording: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                recordingId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Recording details. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Recording"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            /** @description Recording not found. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
             503: components["responses"]["Unavailable"];
         };
     };
