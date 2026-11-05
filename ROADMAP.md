@@ -77,7 +77,7 @@ permanente #44 siguen abiertos. Ver [procedencia y PRs](docs/history/RECENT_CHAN
 2. **Estabilizar las transiciones entre componentes.** WiFi/LiveKit, reinicios,
    subidas parciales, transcripción, estado persistido y almacenamiento lleno.
    La matriz de [TESTING.md](docs/history/TESTING.md) define las verificaciones.
-3. **Cerrar operación y recuperación.** Acceso al panel/control plane, política
+3. **Cerrar operación y recuperación.** Acceso al panel, política
    efectiva de grabaciones, diagnóstico sin USB y actualización recuperable.
    Los criterios y su estado están en [MILESTONE.md](MILESTONE.md).
 4. **Uso continuado con registro de fallos.** Medir activaciones falsas, cortes,
@@ -342,7 +342,8 @@ Actionable, deduplicated. Deep multi-session efforts link to their design sectio
    finding did not persist in daily use; full-duplex works with the knob
    untouched.* `calibrate_audio` died with the volume actuator (#8, rejected).
 7. **Control-plane `announce(text)` slice** (§9) — *HTTP face SHIPPED +
-   ear-validated (2026-07-08):* `agent/control_plane.py` (`make control`, :8790)
+   ear-validated (2026-07-08):* `agent/control_plane.py` (`make control`, :8790;
+   *retired 2026-11-05: announcements live in the Go server, `internal/announce`*)
    → finds the device's active room → data on `sebastian.announce` → agent
    speaks it. Zero firmware. Two field lessons baked in: (a) data packets are
    NOT queued for future participants — the control plane requires device AND
@@ -627,7 +628,7 @@ write. Bonus: the firmware already detects in-session clipping (`live_echo=32767
 (post-processor dump), `probeDualChannel()` (the path B experiment, ~12 s,
 reversible), `probeOutputGain()` (the probe that discarded `FAR_EXTGAIN` as
 volume). The AEC reference close: commit `2f611f8`, `docs/AEC.md`. Full phased
-plan: `docs/implementation/10-aec-fullduplex-plan.md`.
+plan: `docs/history/implementation/10-aec-fullduplex-plan.md`.
 
 **Agent provider note:** Gemini Live default (`SEBASTIAN_MODEL_PROVIDER=gemini`,
 lower cost), OpenAI fallback. Native-audio models **reject explicit BCP-47 codes**
