@@ -7,9 +7,6 @@ Workloads:
 {{- if .Values.server.enabled }}
   • server        :{{ .Values.server.service.targetPort }}{{ if .Values.server.ingress.host }} → https://{{ .Values.server.ingress.host }}{{ end }}
 {{- end }}
-{{- if .Values.controlPlane.enabled }}
-  • control-plane :{{ .Values.controlPlane.service.targetPort }}{{ if .Values.controlPlane.ingress.host }} → https://{{ .Values.controlPlane.ingress.host }}{{ end }}
-{{- end }}
 {{- if .Values.agent.enabled }}
   • agent         LiveKit worker (endpoint mode: {{ ternary "ON" "off" .Values.agent.endpointMode }})
 {{- end }}

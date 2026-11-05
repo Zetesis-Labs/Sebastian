@@ -139,43 +139,6 @@ spec:
               readOnly: true
           resources:
             {{- toYaml .Values.server.resources | nindent 12 }}
-        {{- if .Values.server.outbox.enabled }}
-        - name: outbox
-          image: "{{ .Values.server.image.repository }}:{{ .Values.server.image.tag }}"
-          imagePullPolicy: {{ .Values.server.image.pullPolicy }}
-          command: ["/usr/local/bin/sebastian-outbox"]
-          securityContext:
-            {{- include "sebastian.containerSecurityContext" . | nindent 12 }}
-          env:
-            - name: DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.server.existingSecret }}
-                  key: DATABASE_URL
-            - name: NATS_URL
-              {{- if .Values.server.outbox.natsURL }}
-              value: {{ .Values.server.outbox.natsURL | quote }}
-              {{- else if .Values.nats.enabled }}
-              value: "nats://{{ include "sebastian.fullname" . }}-nats:4222"
-              {{- else }}
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.server.existingSecret }}
-                  key: NATS_URL
-              {{- end }}
-            - name: SEBASTIAN_NATS_STREAM
-              value: {{ .Values.server.outbox.stream | quote }}
-            - name: SEBASTIAN_NATS_SUBJECTS
-              value: {{ .Values.server.outbox.subjects | quote }}
-            - name: SEBASTIAN_OUTBOX_BATCH_SIZE
-              value: {{ .Values.server.outbox.batchSize | quote }}
-            - name: SEBASTIAN_OUTBOX_POLL_INTERVAL
-              value: {{ .Values.server.outbox.pollInterval | quote }}
-            - name: SEBASTIAN_OUTBOX_PUBLISH_TIMEOUT
-              value: {{ .Values.server.outbox.publishTimeout | quote }}
-          resources:
-            {{- toYaml .Values.server.outbox.resources | nindent 12 }}
-        {{- end }}
 {{- end }}
       volumes:
         - name: agent-profiles

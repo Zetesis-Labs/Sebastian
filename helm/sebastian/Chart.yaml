@@ -1,7 +1,7 @@
 apiVersion: v2
 name: sebastian
-description: Sebastian smart-speaker backend — Go API, NATS JetStream,
-  self-hosted LiveKit SFU, agent worker and transitional control plane
+description: Sebastian smart-speaker backend — Go API, self-hosted LiveKit SFU,
+  agent worker and administration panel
 type: application
 # Chart version — bumped by release-please on chart changes.
 version: 0.1.8

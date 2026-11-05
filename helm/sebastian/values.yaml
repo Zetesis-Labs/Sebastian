@@ -2,13 +2,11 @@
 # Sebastian backend — default values. Mirrors ZetesisPortal's chart shape
 # (per-service blocks, existingSecret env, hardened securityContext, ingress).
 #
-# Six workloads:
+# Four workloads:
 #   - livekit       self-hosted SFU (official image, hostNetwork for LAN media)
-#   - nats          durable JetStream event transport
-#   - server        Go API + device sessions + outbox (:8787)
+#   - server        Go API + device sessions (:8787)
 #   - dashboard     TanStack Start administration panel (:3001)
 #   - agent         LiveKit agent worker (outbound-only, no service)
-#   - controlPlane  HTTP control face — announce, … (:8790)
 #
 # The ESP32 device and LiveKit sit on the SAME LAN, so media (UDP) and signalling
 # reach the node IP directly; only the HTTP faces go through the ingress.
@@ -64,26 +62,6 @@ livekit:
       memory: 1Gi
 
 # ----------------------------------------------------------------------------
-# NATS — JetStream event transport
-# ----------------------------------------------------------------------------
-nats:
-  enabled: true
-  image:
-    repository: nats
-    tag: "2.14.1-alpine3.22"
-    pullPolicy: IfNotPresent
-  persistence:
-    enabled: true
-    size: 1Gi
-    storageClass: ""
-  resources:
-    requests:
-      cpu: 25m
-      memory: 64Mi
-    limits:
-      memory: 256Mi
-
-# ----------------------------------------------------------------------------
 # SEBASTIAN SERVER — Go API :8787
 # ----------------------------------------------------------------------------
 server:
@@ -136,22 +114,6 @@ server:
       enabled: true
       size: 5Gi
       storageClass: ""
-  outbox:
-    enabled: true
-    # Empty uses the NATS service installed by this chart. If nats.enabled=false,
-    # NATS_URL is read from server.existingSecret instead.
-    natsURL: ""
-    stream: SEBASTIAN_EVENTS
-    subjects: "evt.sebastian.v1.>"
-    batchSize: 50
-    pollInterval: 1s
-    publishTimeout: 5s
-    resources:
-      requests:
-        cpu: 20m
-        memory: 32Mi
-      limits:
-        memory: 128Mi
   # hostPort on the node's LAN IP for the ESP32 (off Tailscale, can't reach the
   # ingress). Empty ⇒ no hostPort (ClusterIP/ingress only). Set e.g. 8787 in prod.
   hostPort: ""
@@ -238,33 +200,7 @@ agent:
       memory: 1Gi
 
 # ----------------------------------------------------------------------------
-# CONTROL PLANE — HTTP :8790
-# ----------------------------------------------------------------------------
-controlPlane:
-  enabled: true
-  replicaCount: 1
-  image:
-    repository: gauss.nexolabs.dev/sebastian/control-plane
-    tag: "latest"
-    pullPolicy: IfNotPresent
-  # existingSecret keys: LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET.
-  existingSecret: ""
-  service:
-    port: 80
-    targetPort: 8790
-    annotations: {}
-  ingress:
-    enabled: true
-    host: ""   # e.g. sebastian-control.nexolabs.dev
-  resources:
-    requests:
-      cpu: 50m
-      memory: 64Mi
-    limits:
-      memory: 256Mi
-
-# ----------------------------------------------------------------------------
-# INGRESS (shared) — HTTP faces only (server, dashboard, control plane).
+# INGRESS (shared) — HTTP faces only (server, dashboard).
 # ----------------------------------------------------------------------------
 ingress:
   enabled: true
