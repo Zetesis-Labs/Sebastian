@@ -159,7 +159,10 @@ func (s *Service) Start(ctx context.Context, deviceID string) (Started, error) {
 	}
 
 	s.mu.Lock()
-	if current, raced := s.active[deviceID]; raced && current.ID != p.ID {
+	// The lock was released to mint: another start may have opened another
+	// playback, or a stop may have ended the one we saw. Either way, start
+	// again from what is there now.
+	if current, ok := s.active[deviceID]; (ok && current.ID != p.ID) || (on && !ok) {
 		s.mu.Unlock()
 		return s.Start(ctx, deviceID)
 	}

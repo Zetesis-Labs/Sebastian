@@ -46,11 +46,23 @@ type fakeMeetings struct{ recording bool }
 
 func (f *fakeMeetings) InMeeting(context.Context, string) (bool, error) { return f.recording, nil }
 
-type fakeTokens struct{ minted []string }
+type fakeTokens struct {
+	mu     sync.Mutex
+	minted []string
+	err    error
+	during func() // runs while the token is minted, outside the service lock
+}
 
 func (f *fakeTokens) MintSourceToken(room, identity string, _ time.Duration) (string, error) {
+	f.mu.Lock()
 	f.minted = append(f.minted, room+" "+identity)
-	return "source-jwt", nil
+	during := f.during
+	f.during = nil
+	f.mu.Unlock()
+	if during != nil {
+		during()
+	}
+	return "source-jwt", f.err
 }
 
 func adoptedAgente() device.Detail {
@@ -244,5 +256,92 @@ func TestTheSourceTokenNamesThePlaybackNotTheUnit(t *testing.T) {
 	<-r.cmd.done
 	if strings.Contains(r.tokens.minted[0], "e072a1f96ef0") {
 		t.Fatalf("the source must not take the unit's identity: %v", r.tokens.minted)
+	}
+}
+
+func TestAUnitCannotJoinOrStopAnotherUnitsPlayback(t *testing.T) {
+	r := newRig(reachable(), &fakeMeetings{})
+	a, _ := r.svc.Start(context.Background(), "e072a1f96ef0")
+	<-r.cmd.done
+
+	if _, err := r.svc.Join(context.Background(), "68ee8f4d8dd4", "its-own-secret", a.Playback.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("another unit joined: %v", err)
+	}
+	if h := r.svc.PendingCommand(context.Background(), "68ee8f4d8dd4"); h != "" {
+		t.Fatalf("another unit is ordered into it: %q", h)
+	}
+	if err := r.svc.Stop(context.Background(), "68ee8f4d8dd4"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("another unit stopped it: %v", err)
+	}
+	if _, on := r.svc.Active(context.Background(), "e072a1f96ef0"); !on {
+		t.Fatal("the playback is gone")
+	}
+}
+
+func TestAPlaybackWhoseSourceTokenFailsIsNeverOrdered(t *testing.T) {
+	r := newRig(reachable(), &fakeMeetings{})
+	r.tokens.err = errors.New("signing key unavailable")
+
+	if _, err := r.svc.Start(context.Background(), "e072a1f96ef0"); err == nil {
+		t.Fatal("started without a way for the source to publish")
+	}
+	if _, on := r.svc.Active(context.Background(), "e072a1f96ef0"); on {
+		t.Fatal("a playback with no source is on")
+	}
+	if h := r.svc.PendingCommand(context.Background(), "e072a1f96ef0"); h != "" {
+		t.Fatalf("the unit is ordered into an empty room: %q", h)
+	}
+	r.cmd.mu.Lock()
+	defer r.cmd.mu.Unlock()
+	if len(r.cmd.sent) != 0 {
+		t.Fatalf("LAN orders = %v", r.cmd.sent)
+	}
+}
+
+func TestConcurrentStartsOpenOnePlayback(t *testing.T) {
+	r := newRig(reachable(), &fakeMeetings{})
+	r.cmd.done = nil
+	ids := make(chan uuid.UUID, 8)
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			got, err := r.svc.Start(context.Background(), "e072a1f96ef0")
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			ids <- got.Playback.ID
+		}()
+	}
+	wg.Wait()
+	close(ids)
+	var first uuid.UUID
+	for id := range ids {
+		if first == uuid.Nil {
+			first = id
+		}
+		if id != first {
+			t.Fatalf("two playbacks for one unit: %v and %v", first, id)
+		}
+	}
+}
+
+func TestAStopThatCrossesARepeatedStartIsNotUndone(t *testing.T) {
+	r := newRig(reachable(), &fakeMeetings{})
+	r.cmd.done = nil
+	first, _ := r.svc.Start(context.Background(), "e072a1f96ef0")
+	r.tokens.during = func() { _ = r.svc.Stop(context.Background(), "e072a1f96ef0") }
+
+	again, err := r.svc.Start(context.Background(), "e072a1f96ef0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Playback.ID == first.Playback.ID {
+		t.Fatal("the stopped playback came back to life")
+	}
+	if p, on := r.svc.Active(context.Background(), "e072a1f96ef0"); !on || p.ID != again.Playback.ID {
+		t.Fatalf("active = %+v, %v", p, on)
 	}
 }

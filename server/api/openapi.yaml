@@ -883,6 +883,8 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/Problem"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/admin/devices/{deviceId}/meetings:
     post:
       operationId: startMeeting

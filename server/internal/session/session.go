@@ -142,6 +142,9 @@ func (s *Service) Create(ctx context.Context, credentials Credentials) (Created,
 	now := s.now().UTC()
 	expiresAt := now.Add(s.tokenTTL)
 	if credentials.Kind == KindPlayback {
+		if credentials.PlaybackRoom == "" {
+			return Created{}, fmt.Errorf("playback session without its room: %w", ErrUnavailable)
+		}
 		// Not a session row: no agent is dispatched (the zombie the row guards
 		// against), and the unit rejoins the same room after every
 		// conversation, which the row's unique room would refuse.

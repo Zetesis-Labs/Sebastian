@@ -164,3 +164,36 @@ func TestPollCarriesThePlayback(t *testing.T) {
 		t.Fatal("no playback, no header")
 	}
 }
+
+func TestStopPlaybackDoesNotClaimAStopThatFailed(t *testing.T) {
+	got, _ := playbackHandler(&stubPlayback{stopErr: fmt.Errorf("boom")}, nil).StopPlayback(context.Background(), StopPlaybackRequestObject{DeviceId: "e072a1f96ef0"})
+	if _, ok := got.(StopPlayback503ApplicationProblemPlusJSONResponse); !ok {
+		t.Fatalf("got %#v", got)
+	}
+	unconfigured := NewHandler(&capturingSessions{}, &stubDevices{desired: "agente"}, &stubMeetings{}, stubReadiness{}, testLogger(), time.Second)
+	got, _ = unconfigured.StopPlayback(context.Background(), StopPlaybackRequestObject{DeviceId: "e072a1f96ef0"})
+	if _, ok := got.(StopPlayback503ApplicationProblemPlusJSONResponse); !ok {
+		t.Fatalf("no playback service: got %#v", got)
+	}
+}
+
+func TestAPlaybackSessionWithoutItsPlaybackIsRefused(t *testing.T) {
+	kind := SessionRequestKindPlayback
+	for name, h := range map[string]*Server{
+		"no playback id": playbackHandler(&stubPlayback{}, nil),
+		"no service":     NewHandler(&capturingSessions{}, &stubDevices{desired: "agente"}, &stubMeetings{}, stubReadiness{}, testLogger(), time.Second),
+	} {
+		sessions := &capturingSessions{}
+		h.sessions = sessions
+		got, _ := h.CreateSession(context.Background(), CreateSessionRequestObject{
+			Params: CreateSessionParams{XDeviceId: "e072a1f96ef0", XDeviceSecret: "s"},
+			Body:   &CreateSessionJSONRequestBody{Kind: &kind},
+		})
+		if _, ok := got.(CreateSession404ApplicationProblemPlusJSONResponse); !ok {
+			t.Errorf("%s: got %#v", name, got)
+		}
+		if sessions.got.DeviceID != "" {
+			t.Errorf("%s: a session was created", name)
+		}
+	}
+}

@@ -36,3 +36,15 @@ func TestAdminSecretMiddlewareDoesNotProtectPublicRoutes(t *testing.T) {
 		t.Fatalf("public route status = %d, want 204", recorder.Code)
 	}
 }
+
+func TestThePlaybackOfAUnitNeedsTheAdminSecret(t *testing.T) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	handler := adminSecretMiddleware("correct-secret", next)
+	for _, method := range []string{http.MethodPost, http.MethodGet, http.MethodDelete} {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(method, "/v1/admin/devices/e072a1f96ef0/playback", nil))
+		if recorder.Code != http.StatusUnauthorized {
+			t.Errorf("%s without the secret = %d, want 401", method, recorder.Code)
+		}
+	}
+}
