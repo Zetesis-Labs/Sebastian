@@ -1,0 +1,74 @@
+name: Publish Sebastian Firmware
+
+# Builds the factory firmware ONCE per release and attaches the merged image to
+# the firmware-v<version> GitHub release. Every consumer — the GitHub Pages
+# installer, the installer embedded in the dashboard, a manual flash — downloads
+# that asset instead of compiling again.
+#
+# Trigger manually with a version, or from the release workflow via workflow_call.
+# A mirror fork never runs this: the asset lives in the upstream release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Firmware version to publish (semver, no leading v — the release firmware-v<version> must exist)"
+        required: true
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  BIN: firmware/build/sebastian-esp32s3-merged.bin
+
+jobs:
+  build:
+    runs-on: ${{ vars.RUNNER || 'herschel-runners' }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: firmware-v${{ inputs.version }}
+
+      # sdkconfig is gitignored, so the build comes from sdkconfig.defaults:
+      # WiFi and control room blank, the image carries no credentials.
+      - name: Build factory firmware + merge image
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.4.4
+          target: esp32s3
+          path: firmware
+          command: >-
+            (idf.py reconfigure || true) &&
+            find managed_components -name sdkconfig.rename -delete &&
+            idf.py build &&
+            python -m esptool --chip esp32s3 merge_bin
+            -o build/sebastian-esp32s3-merged.bin
+            --flash_mode dio --flash_freq 80m --flash_size 8MB
+            0x0 build/bootloader/bootloader.bin
+            0x8000 build/partition_table/partition-table.bin
+            0x10000 build/sebastian.bin
+
+      - name: Verify the image is the released version and carries no credentials
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          test -f "$BIN" || { echo "merged bin missing"; exit 1; }
+          built="$(jq -r .project_version firmware/build/project_description.json)"
+          if [ "$built" != "$VERSION" ]; then
+            echo "the image reports $built but the release is $VERSION"; exit 1
+          fi
+          for s in Pizarro LIVEKIT_API_SECRET; do
+            if grep -aqF "$s" "$BIN"; then echo "SECRET '$s' in bin"; exit 1; fi
+          done
+          echo "clean: firmware $built, $(du -h "$BIN" | cut -f1)"
+
+      - name: Attach the image to the firmware release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "firmware-v${{ inputs.version }}" "$BIN" --clobber --repo "${{ github.repository }}"
