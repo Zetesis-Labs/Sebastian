@@ -10,7 +10,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/zetesis-labs/sebastian/server/internal/announce"
 	"github.com/zetesis-labs/sebastian/server/internal/device"
-	"github.com/zetesis-labs/sebastian/server/internal/recording"
 	"github.com/zetesis-labs/sebastian/server/internal/session"
 )
 
@@ -20,13 +19,6 @@ type SessionService interface {
 
 type ReadinessChecker interface {
 	Ping(context.Context) error
-}
-
-type RecordingService interface {
-	List(context.Context, int) ([]recording.Recording, error)
-	Get(context.Context, uuid.UUID) (recording.Recording, error)
-	Register(context.Context, recording.Registration) (recording.Recording, error)
-	Summary(context.Context) (recording.Summary, error)
 }
 
 type DeviceService interface {
@@ -53,7 +45,6 @@ type DeviceService interface {
 
 type Server struct {
 	sessions         SessionService
-	recordings       RecordingService
 	devices          DeviceService
 	meetings         MeetingService
 	announcements    AnnouncementService
@@ -66,7 +57,6 @@ type Server struct {
 
 func NewHandler(
 	sessions SessionService,
-	recordings RecordingService,
 	devices DeviceService,
 	meetings MeetingService,
 	readiness ReadinessChecker,
@@ -75,7 +65,6 @@ func NewHandler(
 ) *Server {
 	return &Server{
 		sessions:         sessions,
-		recordings:       recordings,
 		devices:          devices,
 		meetings:         meetings,
 		readiness:        readiness,
@@ -211,110 +200,6 @@ func optionalUUID(value uuid.UUID) *uuid.UUID {
 		return nil
 	}
 	return &value
-}
-
-func (h *Server) ListRecordings(ctx context.Context, request ListRecordingsRequestObject) (ListRecordingsResponseObject, error) {
-	limit := 50
-	if request.Params.Limit != nil {
-		limit = max(1, min(*request.Params.Limit, 100))
-	}
-	items, err := h.recordings.List(ctx, limit)
-	if err != nil {
-		h.logger.ErrorContext(ctx, "list recordings failed", "error", err)
-		return ListRecordings503ApplicationProblemPlusJSONResponse{
-			UnavailableApplicationProblemPlusJSONResponse: UnavailableApplicationProblemPlusJSONResponse(problem(
-				503, "Recordings unavailable", "The recording catalogue could not be read.",
-			)),
-		}, nil
-	}
-	response := make([]Recording, 0, len(items))
-	for _, item := range items {
-		response = append(response, recordingResponse(item))
-	}
-	return ListRecordings200JSONResponse{Items: response}, nil
-}
-
-func (h *Server) GetRecording(ctx context.Context, request GetRecordingRequestObject) (GetRecordingResponseObject, error) {
-	item, err := h.recordings.Get(ctx, request.RecordingId)
-	if errors.Is(err, recording.ErrNotFound) {
-		return GetRecording404ApplicationProblemPlusJSONResponse(problem(
-			404, "Recording not found", "The requested recording does not exist.",
-		)), nil
-	}
-	if err != nil {
-		h.logger.ErrorContext(ctx, "get recording failed", "recording_id", request.RecordingId, "error", err)
-		return GetRecording503ApplicationProblemPlusJSONResponse{
-			UnavailableApplicationProblemPlusJSONResponse: UnavailableApplicationProblemPlusJSONResponse(problem(
-				503, "Recording unavailable", "The recording could not be read.",
-			)),
-		}, nil
-	}
-	return GetRecording200JSONResponse(recordingResponse(item)), nil
-}
-
-func (h *Server) RegisterRecording(ctx context.Context, request RegisterRecordingRequestObject) (RegisterRecordingResponseObject, error) {
-	if request.Body == nil {
-		return RegisterRecording503ApplicationProblemPlusJSONResponse{
-			UnavailableApplicationProblemPlusJSONResponse: UnavailableApplicationProblemPlusJSONResponse(problem(
-				503, "Recording unavailable", "The recording metadata was not provided.",
-			)),
-		}, nil
-	}
-	created, err := h.recordings.Register(ctx, recording.Registration{
-		Room:        request.Body.Room,
-		Kind:        recording.Kind(request.Body.Kind),
-		FileName:    request.Body.FileName,
-		ObjectURL:   request.Body.ObjectUrl,
-		ContentType: request.Body.ContentType,
-		ByteSize:    request.Body.ByteSize,
-		DurationMs:  request.Body.DurationMs,
-		CapturedAt:  request.Body.CapturedAt,
-		Transcript:  request.Body.Transcript,
-	})
-	if errors.Is(err, recording.ErrNotFound) {
-		return RegisterRecording404ApplicationProblemPlusJSONResponse(problem(
-			404, "Session not found", "The recording room does not match a known session.",
-		)), nil
-	}
-	if errors.Is(err, recording.ErrConflict) {
-		return RegisterRecording409ApplicationProblemPlusJSONResponse(problem(
-			409, "Recording already registered", "The object URL is already present in the catalogue.",
-		)), nil
-	}
-	if err != nil {
-		h.logger.ErrorContext(ctx, "register recording failed", "room", request.Body.Room, "error", err)
-		return RegisterRecording503ApplicationProblemPlusJSONResponse{
-			UnavailableApplicationProblemPlusJSONResponse: UnavailableApplicationProblemPlusJSONResponse(problem(
-				503, "Recording unavailable", "The recording could not be registered.",
-			)),
-		}, nil
-	}
-	return RegisterRecording201JSONResponse(recordingResponse(created)), nil
-}
-
-func (h *Server) GetRecordingsSummary(ctx context.Context, _ GetRecordingsSummaryRequestObject) (GetRecordingsSummaryResponseObject, error) {
-	summary, err := h.recordings.Summary(ctx)
-	if err != nil {
-		h.logger.ErrorContext(ctx, "summarize recordings failed", "error", err)
-		return GetRecordingsSummary503ApplicationProblemPlusJSONResponse{
-			UnavailableApplicationProblemPlusJSONResponse: UnavailableApplicationProblemPlusJSONResponse(problem(
-				503, "Recordings unavailable", "The recording summary could not be calculated.",
-			)),
-		}, nil
-	}
-	return GetRecordingsSummary200JSONResponse{
-		Count: summary.Count, TotalBytes: summary.TotalBytes,
-		TotalDurationMs: summary.TotalDurationMs, LastCapturedAt: summary.LastCapturedAt,
-	}, nil
-}
-
-func recordingResponse(item recording.Recording) Recording {
-	return Recording{
-		Id: item.ID, SessionId: item.SessionID, Room: item.Room,
-		Kind: RecordingKind(item.Kind), FileName: item.FileName, ObjectUrl: item.ObjectURL,
-		ContentType: item.ContentType, ByteSize: item.ByteSize, DurationMs: item.DurationMs,
-		CapturedAt: item.CapturedAt, CreatedAt: item.CreatedAt, Transcript: item.Transcript,
-	}
 }
 
 func (h *Server) GetLiveness(context.Context, GetLivenessRequestObject) (GetLivenessResponseObject, error) {

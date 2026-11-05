@@ -52,7 +52,7 @@ func announceHandler(a *stubAnnouncements, sessions SessionService) *Server {
 	if sessions == nil {
 		sessions = &capturingSessions{}
 	}
-	return NewHandler(sessions, nil, &stubDevices{desired: "agente"}, &stubMeetings{}, stubReadiness{}, testLogger(), time.Second).WithAnnouncements(a)
+	return NewHandler(sessions, &stubDevices{desired: "agente"}, &stubMeetings{}, stubReadiness{}, testLogger(), time.Second).WithAnnouncements(a)
 }
 
 func TestCreateAnnouncementAnswersHowItWillBeDelivered(t *testing.T) {

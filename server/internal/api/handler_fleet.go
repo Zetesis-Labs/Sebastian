@@ -48,7 +48,7 @@ func (h *Server) GetDevice(ctx context.Context, request GetDeviceRequestObject) 
 	}
 	sessions := make([]DeviceSession, 0, len(detail.Sessions))
 	for _, s := range detail.Sessions {
-		sessions = append(sessions, DeviceSession{Id: s.ID, Room: s.Room, CreatedAt: s.CreatedAt, ExpiresAt: s.ExpiresAt, RecordingCount: s.RecordingCount})
+		sessions = append(sessions, DeviceSession{Id: s.ID, Room: s.Room, CreatedAt: s.CreatedAt, ExpiresAt: s.ExpiresAt})
 	}
 	base := deviceResponse(detail.Device)
 	response := DeviceDetail{

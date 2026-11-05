@@ -90,7 +90,7 @@ func (s *stubMeetings) Resummarize(context.Context, uuid.UUID) (meeting.Meeting,
 }
 
 func meetingsHandler(m *stubMeetings) *Server {
-	return NewHandler(nil, nil, &stubDevices{}, m, stubReadiness{}, testLogger(), time.Second)
+	return NewHandler(nil, &stubDevices{}, m, stubReadiness{}, testLogger(), time.Second)
 }
 
 // T-A2 at the edge: the service's refusals become the spec's HTTP answers.
@@ -155,13 +155,13 @@ func TestReportMeetingForwardsTheSecretAndMapsAuth(t *testing.T) {
 
 // T-A4 at the edge: the poll carries the pending order.
 func TestPollCarriesThePendingMeetingOrder(t *testing.T) {
-	h := NewHandler(nil, nil, &stubDevices{desired: "agente"}, &stubMeetings{pending: "start:abc"}, stubReadiness{}, testLogger(), time.Second)
+	h := NewHandler(nil, &stubDevices{desired: "agente"}, &stubMeetings{pending: "start:abc"}, stubReadiness{}, testLogger(), time.Second)
 	got, _ := h.GetDesiredProfile(context.Background(), GetDesiredProfileRequestObject{DeviceId: "68ee"})
 	text := got.(GetDesiredProfile200TextResponse)
 	if text.Headers.XMeeting == nil || *text.Headers.XMeeting != "start:abc" {
 		t.Fatalf("X-Meeting = %v", text.Headers.XMeeting)
 	}
-	h = NewHandler(nil, nil, &stubDevices{desired: "agente"}, &stubMeetings{}, stubReadiness{}, testLogger(), time.Second)
+	h = NewHandler(nil, &stubDevices{desired: "agente"}, &stubMeetings{}, stubReadiness{}, testLogger(), time.Second)
 	got, _ = h.GetDesiredProfile(context.Background(), GetDesiredProfileRequestObject{DeviceId: "68ee"})
 	if text := got.(GetDesiredProfile200TextResponse); text.Headers.XMeeting != nil {
 		t.Fatal("no order, no header")

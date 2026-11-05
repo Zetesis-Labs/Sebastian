@@ -91,11 +91,10 @@ type Device struct {
 }
 
 type Session struct {
-	ID             uuid.UUID
-	Room           string
-	CreatedAt      time.Time
-	ExpiresAt      time.Time
-	RecordingCount int64
+	ID        uuid.UUID
+	Room      string
+	CreatedAt time.Time
+	ExpiresAt time.Time
 }
 
 type Detail struct {

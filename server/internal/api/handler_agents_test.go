@@ -40,7 +40,7 @@ func (s *stubAgents) Credentials(context.Context, uuid.UUID) (agentprofile.Crede
 func (s *stubAgents) SecretsKeyConfigured() bool { return s.secret }
 
 func agentsHandler(agents AgentProfileService, devices DeviceService) *Server {
-	return NewHandler(nil, nil, devices, nil, stubReadiness{}, testLogger(), time.Second).WithAgentProfiles(agents)
+	return NewHandler(nil, devices, nil, stubReadiness{}, testLogger(), time.Second).WithAgentProfiles(agents)
 }
 
 func TestListAgentProfilesReportsTheSecretsKeyAndNeverTheKey(t *testing.T) {

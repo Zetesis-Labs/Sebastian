@@ -156,15 +156,13 @@ func (s *Store) Get(ctx context.Context, id string) (device.Device, error) {
 
 func (s *Store) Sessions(ctx context.Context, id string) ([]device.Session, error) {
 	var rows []struct {
-		ID             uuid.UUID `bun:"id"`
-		Room           string    `bun:"room_name"`
-		CreatedAt      time.Time `bun:"created_at"`
-		ExpiresAt      time.Time `bun:"expires_at"`
-		RecordingCount int64     `bun:"recording_count"`
+		ID        uuid.UUID `bun:"id"`
+		Room      string    `bun:"room_name"`
+		CreatedAt time.Time `bun:"created_at"`
+		ExpiresAt time.Time `bun:"expires_at"`
 	}
 	err := s.db.NewRaw(`
-		SELECT s.id, s.room_name, s.created_at, s.expires_at,
-		       (SELECT COUNT(*) FROM recordings r WHERE r.session_id = s.id) AS recording_count
+		SELECT s.id, s.room_name, s.created_at, s.expires_at
 		FROM sessions s
 		WHERE s.device_id = ?
 		ORDER BY s.created_at DESC
@@ -174,7 +172,7 @@ func (s *Store) Sessions(ctx context.Context, id string) ([]device.Session, erro
 	}
 	out := make([]device.Session, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, device.Session{ID: r.ID, Room: r.Room, CreatedAt: r.CreatedAt, ExpiresAt: r.ExpiresAt, RecordingCount: r.RecordingCount})
+		out = append(out, device.Session{ID: r.ID, Room: r.Room, CreatedAt: r.CreatedAt, ExpiresAt: r.ExpiresAt})
 	}
 	return out, nil
 }
@@ -360,7 +358,7 @@ func (s *Store) ConfirmSecret(ctx context.Context, id string, digest []byte) err
 }
 
 // Forget hides the unit from the inventory and drops its credentials; its
-// sessions and recordings stay (history).
+// sessions stay (history).
 func (s *Store) Forget(ctx context.Context, id string) error {
 	now := time.Now().UTC()
 	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {

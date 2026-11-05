@@ -16,7 +16,6 @@ import (
 	"github.com/zetesis-labs/sebastian/server/internal/database/migrations"
 	"github.com/zetesis-labs/sebastian/server/internal/device"
 	"github.com/zetesis-labs/sebastian/server/internal/meeting"
-	"github.com/zetesis-labs/sebastian/server/internal/recording"
 	"github.com/zetesis-labs/sebastian/server/internal/session"
 )
 
@@ -77,75 +76,6 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-func TestRecordingCatalogueRoundTrip(t *testing.T) {
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("DATABASE_URL is not set")
-	}
-	ctx := context.Background()
-	db, err := database.Open(databaseURL)
-	if err != nil {
-		t.Fatalf("open database: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	store := NewStore(db)
-	device, err := store.FindDevice(ctx, "esp32-respeaker")
-	if err != nil {
-		t.Fatalf("find seeded device: %v", err)
-	}
-
-	sessionRecord := session.Record{
-		SessionID: uuid.New(), DeviceID: device.ID, ProfileID: device.ProfileID,
-		Room: "recording-catalogue-" + uuid.NewString(), ExpiresAt: time.Now().UTC().Add(time.Hour),
-		EventID: uuid.New(), OccurredAt: time.Now().UTC(),
-	}
-	if err := store.RecordSession(ctx, sessionRecord); err != nil {
-		t.Fatalf("RecordSession: %v", err)
-	}
-	recordingID, recordingEventID := uuid.New(), uuid.New()
-	created, err := store.CreateRecording(ctx, recording.CreateRecord{
-		ID: recordingID, EventID: recordingEventID, Now: time.Now().UTC(),
-		Input: recording.Registration{
-			Room: sessionRecord.Room, Kind: recording.KindModel, FileName: "model.wav",
-			ObjectURL:   "https://storage.example/" + recordingID.String() + ".wav",
-			ContentType: "audio/wav", ByteSize: 4096, DurationMs: 2500,
-			CapturedAt: time.Now().UTC(),
-		},
-	})
-	if err != nil {
-		t.Fatalf("CreateRecording: %v", err)
-	}
-	t.Cleanup(func() {
-		cleanupSession(context.Background(), db, sessionRecord.SessionID, recordingEventID, sessionRecord.EventID)
-	})
-
-	if created.ID != recordingID || created.Room != sessionRecord.Room {
-		t.Fatalf("unexpected created recording: %#v", created)
-	}
-	got, err := store.GetRecording(ctx, recordingID)
-	if err != nil || got.ObjectURL != created.ObjectURL {
-		t.Fatalf("GetRecording() = %#v, %v", got, err)
-	}
-	items, err := store.ListRecordings(ctx, 100)
-	if err != nil {
-		t.Fatalf("ListRecordings: %v", err)
-	}
-	found := false
-	for _, item := range items {
-		found = found || item.ID == recordingID
-	}
-	if !found {
-		t.Fatalf("recording %s was not listed", recordingID)
-	}
-	summary, err := store.RecordingsSummary(ctx)
-	if err != nil || summary.Count < 1 || summary.TotalBytes < 4096 {
-		t.Fatalf("RecordingsSummary() = %#v, %v", summary, err)
-	}
-	if !eventExists(ctx, db, recordingEventID) {
-		t.Fatal("recording event is missing")
-	}
-}
-
 func TestRecordSessionPersistsTheSessionAndItsEvent(t *testing.T) {
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
@@ -190,7 +120,6 @@ func cleanupSession(ctx context.Context, db *bun.DB, sessionID uuid.UUID, eventI
 	for _, eventID := range eventIDs {
 		_, _ = db.ExecContext(ctx, "DELETE FROM domain_events WHERE id = ?", eventID)
 	}
-	_, _ = db.ExecContext(ctx, "DELETE FROM recordings WHERE session_id = ?", sessionID)
 	_, _ = db.ExecContext(ctx, "DELETE FROM sessions WHERE id = ?", sessionID)
 }
 
