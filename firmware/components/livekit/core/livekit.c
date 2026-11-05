@@ -111,6 +111,15 @@ static void populate_media_options(
     }
     if (sub_options->kind & LIVEKIT_MEDIA_TYPE_AUDIO) {
         media_options->audio_dir |= ESP_PEER_MEDIA_DIR_RECV_ONLY;
+        // Both peers share audio_info, and the subscriber answers the SFU's
+        // offer with its codec. A room that only listens has no publish codec
+        // and answered PCMA, which the renderer cannot decode; LiveKit
+        // forwards Opus at 48 kHz.
+        if (!(pub_options->kind & LIVEKIT_MEDIA_TYPE_AUDIO)) {
+            media_options->audio_info.codec = ESP_PEER_AUDIO_CODEC_OPUS;
+            media_options->audio_info.sample_rate = 48000;
+            media_options->audio_info.channel = 1;
+        }
     }
     if (sub_options->kind & LIVEKIT_MEDIA_TYPE_VIDEO) {
         media_options->video_dir |= ESP_PEER_MEDIA_DIR_RECV_ONLY;
