@@ -121,6 +121,13 @@ void sebastian_meeting_set_active(bool active);
 bool sebastian_meeting_is_active(void);
 void sebastian_meeting_set_recordable(bool recordable); // agente profile (RM-54)
 bool sebastian_meeting_is_recordable(void);
+// CPU per task since the previous call (cpu_diag.c); a no-op unless the
+// cpustats diagnostic build enabled FreeRTOS run-time stats.
+void sebastian_cpu_report(const char *label);
+// Arrival of the playback audio and the speaker's peak since the last call;
+// same diagnostic build only.
+void sebastian_playback_diag(uint32_t render_peak, void *render);
+
 // ── playback orders (server internal/playback) ──────────────────────────────
 // The control room wants this unit listening to a playback room. The LAN
 // command ({"cmd":"play-start"|"play-stop"}) and the poll's X-Playback header

@@ -60,6 +60,8 @@ var wake_seq: u32 = 0;
 var playback = playback_core.State{};
 var playback_heap_log_ms: u64 = 0;
 const PLAYBACK_HEAP_LOG_MS: u64 = 60_000;
+var cpu_report_ms: u64 = 0;
+const CPU_REPORT_MS: u64 = 5_000;
 // The meeting the idle loop was told to record (design 14 §3.2, block B).
 var meeting_id_z: [40]u8 = undefined;
 var announcement_id_z: [40]u8 = undefined;
@@ -196,6 +198,33 @@ fn renderRefCb(data: ?[*]u8, size: c_int, _: ?*anyopaque) callconv(.c) c_int {
 // handle from a C callback that has no access to the AudioPipeline.
 var speaker_render: c.av_render_handle_t = null;
 
+// Speaker buffers. A conversation renders as soon as audio arrives (latency is
+// the agent's reply time). A playback is continuous music over WiFi, where the
+// packets come in bursts with gaps of up to ~280 ms (measured 2026-11-05): it
+// gathers ~500 ms before it sounds, and gathers again if it nearly runs dry,
+// instead of stuttering. Sized for decoded 32-bit stereo at 48 kHz (384 KB/s);
+// anything over 16 KB is allocated in PSRAM (SPIRAM_MALLOC_ALWAYSINTERNAL).
+// av_render caps the prebuffer at half the fifo and does not count the frame
+// it holds; four times leaves room for the bursts on top of it.
+const RAW_FIFO_BYTES: u32 = 4 * 4096;
+const TALK_RENDER_FIFO_BYTES: u32 = 24 * 1024;
+const PLAYBACK_PREBUFFER_BYTES: u32 = 192 * 1024;
+const PLAYBACK_RENDER_FIFO_BYTES: u32 = 4 * PLAYBACK_PREBUFFER_BYTES;
+
+/// Takes effect on the next audio stream the renderer creates, i.e. the room
+/// about to open (the previous one reset it).
+fn configureSpeakerBuffer(mode: RoomMode) void {
+    const render = speaker_render orelse return;
+    var fifo = c.av_render_fifo_cfg_t{
+        .raw_fifo_size = RAW_FIFO_BYTES,
+        .render_fifo_size = if (mode == .listen_only) PLAYBACK_RENDER_FIFO_BYTES else TALK_RENDER_FIFO_BYTES,
+    };
+    if (c.av_render_config_audio_fifo(render, &fifo) != 0) log.warn("speaker fifo not configured for {s}", .{@tagName(mode)});
+    if (c.av_render_set_audio_threshold(render, if (mode == .listen_only) PLAYBACK_PREBUFFER_BYTES else 0) != 0) {
+        log.warn("speaker prebuffer not configured for {s}", .{@tagName(mode)});
+    }
+}
+
 fn buildRenderer() AppError!RenderHandle {
     var i2s_cfg = std.mem.zeroes(c.i2s_render_cfg_t);
     i2s_cfg.play_handle = board.playbackHandle();
@@ -209,9 +238,13 @@ fn buildRenderer() AppError!RenderHandle {
 
     var cfg_rend = std.mem.zeroes(c.av_render_cfg_t);
     cfg_rend.audio_render = audio_render;
-    cfg_rend.audio_raw_fifo_size = 4 * 4096;
-    cfg_rend.audio_render_fifo_size = 24 * 1024;
-    cfg_rend.allow_drop_data = true;
+    cfg_rend.audio_raw_fifo_size = RAW_FIFO_BYTES;
+    cfg_rend.audio_render_fifo_size = TALK_RENDER_FIFO_BYTES;
+    // No dropping: av_render skips every frame once 200 ms are queued. A
+    // conversation's 24 KB fifo never holds that much (the decoder waits on a
+    // full fifo), but the playback prebuffer does, and with dropping on it
+    // either played nothing or clicked through the bursts.
+    cfg_rend.allow_drop_data = false;
     const handle = c.av_render_open(&cfg_rend);
     if (handle == null) {
         log.err("av_render_open failed", .{});
@@ -307,6 +340,7 @@ fn openSession(audio: AudioPipeline, conn: token.Connection) AppError!void {
 }
 
 fn openRoom(audio: AudioPipeline, conn: token.Connection, mode: RoomMode) AppError!void {
+    configureSpeakerBuffer(mode);
     var opts = std.mem.zeroes(c.livekit_room_options_t);
     opts.subscribe.kind = c.LIVEKIT_MEDIA_TYPE_AUDIO;
     opts.subscribe.renderer = audio.speaker;
@@ -796,6 +830,11 @@ fn takePlaybackOrders() void {
 /// or close it as playback_core says.
 fn stepPlayback(audio: AudioPipeline) void {
     takePlaybackOrders();
+    if (nowMs() >= cpu_report_ms) {
+        cpu_report_ms = nowMs() + CPU_REPORT_MS;
+        c.sebastian_cpu_report(if (playback.open != null) "playback" else "idle");
+        if (playback.open != null) c.sebastian_playback_diag(render_peak.swap(0, .monotonic), speaker_render);
+    }
     if (playback.open != null) {
         const state = c.livekit_room_get_state(room);
         if (classifyConnection(state) == .ended) {

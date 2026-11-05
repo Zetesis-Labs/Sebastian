@@ -53,6 +53,10 @@ fw-build:
 # (sdkconfig.heaptrace; cuesta ~2 KB de RAM interna). Flashear con
 # `SEBASTIAN_BUILD_DIR=build-heaptrace make flash` y decodificar con
 # tools/heaptrace_decode.py.
+fw-build-cpustats:
+	cd firmware && idf.py -B build-cpustats -D SDKCONFIG=build-cpustats/sdkconfig \
+		-D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.cpustats" build
+
 fw-build-heaptrace:
 	cd firmware && idf.py -B build-heaptrace -D SDKCONFIG=build-heaptrace/sdkconfig \
 		-D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.heaptrace" build

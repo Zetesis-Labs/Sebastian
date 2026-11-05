@@ -247,6 +247,13 @@ pub extern fn av_render_open(cfg: *av_render_cfg_t) av_render_handle_t;
 pub extern fn av_render_set_fixed_frame_info(render: av_render_handle_t, info: *av_render_audio_frame_info_t) c_int;
 pub extern fn av_render_flush(render: av_render_handle_t) c_int;
 pub extern fn av_render_reset(render: av_render_handle_t) c_int;
+
+pub const av_render_fifo_cfg_t = extern struct {
+    raw_fifo_size: u32,
+    render_fifo_size: u32,
+};
+pub extern fn av_render_config_audio_fifo(render: av_render_handle_t, cfg: *av_render_fifo_cfg_t) c_int;
+pub extern fn av_render_set_audio_threshold(render: av_render_handle_t, threshold: u32) c_int;
 pub extern fn esp_audio_dec_register_default() c_int;
 pub extern fn esp_audio_enc_register_default() c_int;
 
@@ -456,6 +463,8 @@ pub extern fn esp_reset_reason() c_int;
 // main/coredump_report.c.
 pub extern fn sebastian_coredump_report() void;
 pub extern fn sebastian_heap_diag_start() void;
+pub extern fn sebastian_cpu_report(label: [*:0]const u8) void;
+pub extern fn sebastian_playback_diag(render_peak: u32, render: ?*anyopaque) void;
 pub extern fn sebastian_heap_log(label: [*:0]const u8) void;
 pub extern fn sebastian_heap_trace_begin() void;
 pub extern fn sebastian_heap_trace_end() void;
