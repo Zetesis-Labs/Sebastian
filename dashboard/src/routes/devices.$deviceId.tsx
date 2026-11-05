@@ -306,7 +306,7 @@ function DevicePage() {
               <article key={s.id} className="device-row">
                 <div>
                   <p className="mono device-name">{s.room}</p>
-                  <p className="device-meta">{formatDate(s.createdAt)} · {s.recordingCount} grabaciones</p>
+                  <p className="device-meta">{formatDate(s.createdAt)}</p>
                 </div>
               </article>
             ))}
