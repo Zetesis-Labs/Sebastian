@@ -8,18 +8,15 @@ Repositorio: `github.com/Zetesis-Labs/Sebastian`.
 
 ## Estado actual
 
-Referencia documental: **2026-09-19**, código hasta `84f278b6` en
-`feat/meetings-b`. Esta referencia incluye cambios de reuniones aún separados de
-`main`; no certifica qué versión está desplegada.
+`main` incluye conversación, micrófono USB, flota (adopción, configuración
+deseada frente a ejecutada), reuniones (captura, subida reanudable,
+transcripción, resumen y consulta desde el panel), perfiles de agente con clave
+por perfil y anuncios al altavoz. [ROADMAP.md](ROADMAP.md) fija lo próximo y
+[MILESTONE.md](MILESTONE.md) los criterios de operación autónoma.
 
-La conversación, el micrófono USB y la gestión de flota tienen implementación.
-La rama añade el recorrido de reuniones: captura, subida reanudable, transcripción
-por hablantes, resumen y consulta desde el panel. Las notas de sesión registran
-pruebas en placa de captura y en navegador del panel; quedan pendientes la prueba
-en placa de las órdenes por voz y la reproducción manual del audio.
-
-[Estado y pendientes](docs/STATUS.md) distingue código, evidencia de pruebas y
-trabajo abierto. [ROADMAP.md](ROADMAP.md) fija las prioridades de estabilización.
+Las instantáneas documentales de septiembre de 2026 (estado, pruebas, sesión de
+campo, procedencia) y las exploraciones de julio viven en
+[docs/history/](docs/history/). Describen el código de entonces, no el actual.
 
 ## Componentes
 
@@ -71,18 +68,16 @@ aprovisionamiento y la verificación. No se guardan credenciales reales en Git.
 
 | Documento | Uso |
 |---|---|
-| [docs/STATUS.md](docs/STATUS.md) | Estado actual y evidencia disponible. |
-| [docs/RECENT_CHANGES.md](docs/RECENT_CHANGES.md) | PRs, commits, integración y publicación desde julio. |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Componentes, flujos y límites del sistema implementado. |
 | [ROADMAP.md](ROADMAP.md) | Prioridades actuales y propuestas históricas identificadas como tales. |
 | [MILESTONE.md](MILESTONE.md) | Criterios pendientes para operación autónoma y recuperación. |
-| [TESTING.md](TESTING.md) | Pruebas existentes, comandos y validación pendiente en hardware. |
 | [docs/FIRMWARE.md](docs/FIRMWARE.md) | Módulos, ABI y restricciones de firmware. |
 | [docs/HARDWARE.md](docs/HARDWARE.md) | Placa, buses y conexiones. |
 | [docs/PROFILES.md](docs/PROFILES.md) / [docs/USB_MIC.md](docs/USB_MIC.md) | Perfiles locales y convivencia del micrófono USB. |
 | [Flota](docs/implementation/12-fleet-adoption-functional-spec.md) | Requisitos de adopción y administración. |
-| [Reuniones](docs/implementation/13-meeting-recordings-functional-spec.md) / [diseño](docs/implementation/14-meeting-recordings-technical-design.md) | Requisitos y diseño de reuniones; consultar STATUS para su ejecución real. |
-| [SESSION.md](SESSION.md) | Registro cronológico de pruebas e incidencias, con su contexto de fecha. |
+| [Reuniones](docs/implementation/13-meeting-recordings-functional-spec.md) / [diseño](docs/implementation/14-meeting-recordings-technical-design.md) | Requisitos y diseño de reuniones. |
+| [Agentes](docs/implementation/15-agent-profiles.md) | Perfiles de agente: proveedor, modelo, voz y clave por perfil. |
+| [docs/history/](docs/history/) | Instantáneas de septiembre de 2026 y exploraciones de julio. Históricas. |
 
 ## Licencia
 

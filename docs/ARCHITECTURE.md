@@ -1,7 +1,9 @@
 # Arquitectura de Sebastian
 
-Referencia: código hasta `84f278b6`, 2026-09-19. Consultar
-[STATUS.md](STATUS.md) para distinguir implementación y validación.
+Referencia: código hasta `84f278b6` (2026-09-19), con las secciones de
+persistencia, anuncios, reuniones y despliegue puestas al día el 2026-11-05 al
+retirar NATS, el control plane y el catálogo `recordings`. La instantánea de
+estado de septiembre está en [history/STATUS.md](history/STATUS.md).
 
 ## Componentes y responsabilidades
 

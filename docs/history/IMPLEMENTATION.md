@@ -2,19 +2,19 @@
 
 > Archivo de diseño de julio de 2026. Las decisiones «normativas» y los
 > estados de implementación de este informe pertenecen a esa exploración.
-> Para el código actual, consultar [STATUS](docs/STATUS.md),
-> [ARCHITECTURE](docs/ARCHITECTURE.md) y [cambios recientes](docs/RECENT_CHANGES.md).
+> Para el código actual, consultar [STATUS](STATUS.md),
+> [ARCHITECTURE](../ARCHITECTURE.md) y [cambios recientes](RECENT_CHANGES.md).
 
 Normative synthesis of the multi-agent technical exploration from **2026-07-02**
 (8 areas investigated in parallel against the real repo code, the
 vendored components and the official docs/tags from July 2026, plus a
 cross-check that detected 10 contradictions and 10 gaps). Develops the
-[ROADMAP.md](ROADMAP.md) to an executable level.
+[ROADMAP.md](../../ROADMAP.md) to an executable level.
 
 **How to read this:** this document resolves conflicts and sets the
 decisions; the full detail of each area (designs ≤120 lines, snippets
 ready to paste, risks, sources) lives in the annexes of
-[`docs/implementation/`](docs/implementation/). Where an annex contradicts the
+[`docs/implementation/`](implementation/). Where an annex contradicts the
 Frozen Decisions (§2), this report prevails.
 
 ---
@@ -27,15 +27,15 @@ condition everything else.
 
 | # | Area | Verdict | Effort | Annex |
 |---|------|-----------|----------|-------|
-| 1 | microWakeWord + LiveKit in S3 (spike) | viable with risks — memory fits comfortably (all PSRAM-able); the only unknown is the CPU p95 coexisting with WiFi/DTLS bursts | M (spike 2 d, +3–4 d integration) | [01](docs/implementation/01-fw-wakeword-spike.md) |
-| 2 | Gate + pre-roll + device↔agent protocol | viable with risks — all the API exists and is **verified in the vendored code**; pre-roll per track inviable → goes via data stream | M (6–8 d) | [02](docs/implementation/02-fw-gate-preroll-protocol.md) |
-| 3 | Wake word training "Sebastián" es | viable — the repo's trainer already covers the full pipeline; missing 2 datasets and the adversarial negatives | M (3–5 d) | [03](docs/implementation/03-wakeword-training.md) |
-| 4 | Agent in livekit-agents 1.6.4 | viable — all APIs verified against the 1.6.4 tag; adaptive interruption/preemptive DO NOT apply to S2S (honesty) | M (4–5 d) | [04](docs/implementation/04-agent-modernization.md) |
-| 5 | XVF3800 AEC Reference | viable with risks — architecture confirmed with XMOS quote; the decisive test takes **10 minutes** | M (2–3 d) | [05](docs/implementation/05-aec-verification.md) |
-| 6 | Voice model matrix + costs | viable — Gemini/Nova S2S are the price floor (~$10–38/month); the pipeline is NOT the cheap path (TTS dominates) | S (1.5–2 d) | [06](docs/implementation/06-model-cost-matrix.md) |
-| 7 | DDSD Gate (LINGER) + speaker ID | viable with risks — exact primitives in 1.6.4 (`turn_detection="manual"` + `commit/clear_user_turn`); +0.5–0.9 s latency on follow-ups | L (13–15 d + 2 passive weeks) | [07](docs/implementation/07-ddsd-speaker-id.md) |
-| 8 | Infra: self-host LiveKit + deploy in cortes | viable with risks — fits with existing GitOps; BVC is Cloud-only and hostNetwork on single node | M (3.5–5 d) | [08](docs/implementation/08-infra-selfhost.md) |
-| — | Cross-check (contradictions/gaps/order) | — | — | [09](docs/implementation/09-cross-check.md) |
+| 1 | microWakeWord + LiveKit in S3 (spike) | viable with risks — memory fits comfortably (all PSRAM-able); the only unknown is the CPU p95 coexisting with WiFi/DTLS bursts | M (spike 2 d, +3–4 d integration) | [01](implementation/01-fw-wakeword-spike.md) |
+| 2 | Gate + pre-roll + device↔agent protocol | viable with risks — all the API exists and is **verified in the vendored code**; pre-roll per track inviable → goes via data stream | M (6–8 d) | [02](implementation/02-fw-gate-preroll-protocol.md) |
+| 3 | Wake word training "Sebastián" es | viable — the repo's trainer already covers the full pipeline; missing 2 datasets and the adversarial negatives | M (3–5 d) | [03](implementation/03-wakeword-training.md) |
+| 4 | Agent in livekit-agents 1.6.4 | viable — all APIs verified against the 1.6.4 tag; adaptive interruption/preemptive DO NOT apply to S2S (honesty) | M (4–5 d) | [04](implementation/04-agent-modernization.md) |
+| 5 | XVF3800 AEC Reference | viable with risks — architecture confirmed with XMOS quote; the decisive test takes **10 minutes** | M (2–3 d) | [05](implementation/05-aec-verification.md) |
+| 6 | Voice model matrix + costs | viable — Gemini/Nova S2S are the price floor (~$10–38/month); the pipeline is NOT the cheap path (TTS dominates) | S (1.5–2 d) | [06](implementation/06-model-cost-matrix.md) |
+| 7 | DDSD Gate (LINGER) + speaker ID | viable with risks — exact primitives in 1.6.4 (`turn_detection="manual"` + `commit/clear_user_turn`); +0.5–0.9 s latency on follow-ups | L (13–15 d + 2 passive weeks) | [07](implementation/07-ddsd-speaker-id.md) |
+| 8 | Infra: self-host LiveKit + deploy in cortes | viable with risks — fits with existing GitOps; BVC is Cloud-only and hostNetwork on single node | M (3.5–5 d) | [08](implementation/08-infra-selfhost.md) |
+| — | Cross-check (contradictions/gaps/order) | — | — | [09](implementation/09-cross-check.md) |
 
 ---
 

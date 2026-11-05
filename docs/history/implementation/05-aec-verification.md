@@ -1,6 +1,6 @@
-> **✅ RESOLVED 2026-07-02 — see [`docs/AEC.md`](../AEC.md).** Test 0 (mux far-end passthrough) confirmed the live reference; the root cause was factory `AEC_FAR_EXTGAIN=0.0` (AEC never adapted). Fix on boot with readback (`xvf_aec.applyConfig`), `AECCONVERGED=1` verified, software volume rebuilt (the noop set_vol nullified it, as this annex already pointed out).
+> **✅ RESOLVED 2026-07-02 — see [`docs/AEC.md`](../../AEC.md).** Test 0 (mux far-end passthrough) confirmed the live reference; the root cause was factory `AEC_FAR_EXTGAIN=0.0` (AEC never adapted). Fix on boot with readback (`xvf_aec.applyConfig`), `AECCONVERGED=1` verified, software volume rebuilt (the noop set_vol nullified it, as this annex already pointed out).
 
-> **Annex of the implementation report** ([`IMPLEMENTATION.md`](../../IMPLEMENTATION.md)). Full text of the multi-agent exploration from 2026-07-02 (8 agents in parallel + cross-checking). Where this annex contradicts the **Frozen decisions** of the main report, the report prevails.
+> **Annex of the implementation report** ([`IMPLEMENTATION.md`](../IMPLEMENTATION.md)). Full text of the multi-agent exploration from 2026-07-02 (8 agents in parallel + cross-checking). Where this annex contradicts the **Frozen decisions** of the main report, the report prevails.
 
 # aec-verification — Verification and closure of the XVF3800 AEC reference (ROADMAP finding #2: volume capped at 35/100, unreliable barge-in)
 

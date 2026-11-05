@@ -1,4 +1,4 @@
-> **Implementation report annex** ([`IMPLEMENTATION.md`](../../IMPLEMENTATION.md)). Full text of the multi-agent exploration from 2026-07-02 (8 agents in parallel + cross-check). Where this annex contradicts the **Frozen decisions** of the main report, the main report prevails.
+> **Implementation report annex** ([`IMPLEMENTATION.md`](../IMPLEMENTATION.md)). Full text of the multi-agent exploration from 2026-07-02 (8 agents in parallel + cross-check). Where this annex contradicts the **Frozen decisions** of the main report, the main report prevails.
 
 # fw-gate-preroll-protocol — Publish gate + pre-roll + invocation state machine in Zig firmware, and device↔agent protocol over LiveKit C SDK 0.3.10
 

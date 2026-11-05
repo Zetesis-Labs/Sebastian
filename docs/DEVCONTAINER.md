@@ -80,4 +80,4 @@ mapearse el dispositivo USB directamente al contenedor mediante `devices:`.
 
 La imagen normal incorpora `okay_nabu.tflite`; el entrenamiento de una palabra
 personalizada no es un prerrequisito del entorno. Las suites y sus límites están
-en [TESTING.md](../TESTING.md).
+en [TESTING.md](history/TESTING.md).

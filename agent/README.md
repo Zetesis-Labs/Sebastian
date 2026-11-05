@@ -68,7 +68,7 @@ uvx ruff==0.14.0 check .
 ```
 
 El workflow de Python actual ejecuta Ruff; pytest requiere ejecución explícita.
-Las pruebas de reuniones necesitan ffmpeg. El [plan de pruebas](../TESTING.md)
+Las pruebas de reuniones necesitan ffmpeg. El [plan de pruebas](../docs/history/TESTING.md)
 cubre las comprobaciones de hardware y recuperación.
 
 El chart [helm/sebastian](../helm/sebastian/) despliega el worker; la API Go es

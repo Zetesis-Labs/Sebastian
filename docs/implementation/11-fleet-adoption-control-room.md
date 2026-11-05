@@ -13,7 +13,7 @@ La flota se integró mediante #46–48. Este documento conserva la estructura de
 diseño y sus estimaciones; los contratos corregidos a continuación reflejan el
 código hasta `84f278b6`. Los requisitos de aceptación están en
 [la especificación 12](12-fleet-adoption-functional-spec.md), y la evidencia
-registrada en [RECENT_CHANGES](../RECENT_CHANGES.md).
+registrada en [RECENT_CHANGES](../history/RECENT_CHANGES.md).
 
 ## 1. Goal
 
@@ -264,7 +264,7 @@ bloque 0.
 
 Esta tabla recoge las estimaciones y el orden del plan original. No acredita
 pruebas en dos unidades por bloque: la evidencia registrada y sus límites se
-describen en [STATUS.md](../STATUS.md).
+describen en [STATUS.md](../history/STATUS.md).
 
 ## 9. Decisions taken in the conversation (so they are not re-litigated)
 

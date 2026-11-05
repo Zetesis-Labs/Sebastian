@@ -1,7 +1,7 @@
 # Compilar, configurar y ejecutar Sebastian
 
 Guía del código hasta `84f278b6` (2026-09-19). El estado de integración está en
-[RECENT_CHANGES.md](RECENT_CHANGES.md); reuniones B–F pertenece al PR #50 abierto.
+[RECENT_CHANGES.md](history/RECENT_CHANGES.md); reuniones B–F pertenece al PR #50 abierto.
 
 ## Entorno
 
@@ -142,7 +142,7 @@ configuración ejecutada frente a deseada. Ver
   ambos sentidos, interrupción y vuelta a escucha local al cerrar.
 - USB: seleccionar `Sebastian Mic`, comenzar captura y comprobar cesión y retorno
   del micrófono al detenerla.
-- Reuniones: seguir la matriz de [TESTING.md](../TESTING.md), incluyendo parada,
+- Reuniones: seguir la matriz de [TESTING.md](history/TESTING.md), incluyendo parada,
   audio, transcripción y órdenes por voz en el firmware de esta rama.
 - Logs: syslog del dispositivo si está configurado, OTel del agente y logs de
   API/LiveKit. El resumen de un pánico se emite al siguiente arranque.

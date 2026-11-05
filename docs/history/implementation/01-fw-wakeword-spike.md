@@ -1,4 +1,4 @@
-> **Implementation Report Appendix** ([`IMPLEMENTATION.md`](../../IMPLEMENTATION.md)). Full text of the multi-agent exploration from 2026-07-02 (8 agents in parallel + cross-checking). Where this appendix contradicts the **Frozen Decisions** of the main report, the report prevails.
+> **Implementation Report Appendix** ([`IMPLEMENTATION.md`](../IMPLEMENTATION.md)). Full text of the multi-agent exploration from 2026-07-02 (8 agents in parallel + cross-checking). Where this appendix contradicts the **Frozen Decisions** of the main report, the report prevails.
 
 # fw-wakeword-spike — ESP32-S3 Firmware — feasibility of microWakeWord coexisting with LiveKit/WebRTC (P0 spike of the invocation model)
 

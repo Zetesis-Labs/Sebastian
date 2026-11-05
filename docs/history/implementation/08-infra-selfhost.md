@@ -1,4 +1,4 @@
-> **Annex to the implementation report** ([`IMPLEMENTATION.md`](../../IMPLEMENTATION.md)). Full text of the multi-agent exploration from 2026-07-02 (8 agents in parallel + cross-checking). Where this annex contradicts the **Frozen decisions** of the main report, the report prevails.
+> **Annex to the implementation report** ([`IMPLEMENTATION.md`](../IMPLEMENTATION.md)). Full text of the multi-agent exploration from 2026-07-02 (8 agents in parallel + cross-checking). Where this annex contradicts the **Frozen decisions** of the main report, the report prevails.
 
 # infra-selfhost — Productive deployment: LiveKit self-hosted + token service + Sebastian agent in cortes (Talos/GitOps), with cloud vs self-host decision
 

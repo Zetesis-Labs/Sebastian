@@ -1,4 +1,4 @@
-> **Implementation report annex** ([`IMPLEMENTATION.md`](../../IMPLEMENTATION.md)). Full text of the multi-agent exploration from 2026-07-02 (8 parallel agents + cross-checking). Where this annex contradicts the **Frozen Decisions** of the main report, the main report prevails.
+> **Implementation report annex** ([`IMPLEMENTATION.md`](../IMPLEMENTATION.md)). Full text of the multi-agent exploration from 2026-07-02 (8 parallel agents + cross-checking). Where this annex contradicts the **Frozen Decisions** of the main report, the main report prevails.
 
 # wakeword-training — Wake word "Sebastián" (es) — microWakeWord training up to embeddable .tflite with the repo's trainer
 

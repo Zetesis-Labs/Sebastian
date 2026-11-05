@@ -29,7 +29,7 @@ convergencia se comprueban en hardware, no a partir de un valor de registro aisl
 Se conserva el informe siguiente como historial de la investigación, **incluida
 la hipótesis de FAR_EXTGAIN que se descartó**. No usar sus valores como receta de
 configuración actual. Los probes y el método de medición siguen siendo útiles;
-consultar el código y [TESTING.md](../TESTING.md) antes de reproducirlos.
+consultar el código y [TESTING.md](history/TESTING.md) antes de reproducirlos.
 
 
 **Resolved 2026-07-02.** The XVF3800 AEC never worked in this project —

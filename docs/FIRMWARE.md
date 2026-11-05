@@ -101,5 +101,5 @@ make flash
 ```
 
 [BUILD_AND_RUN.md](BUILD_AND_RUN.md) cubre recuperación USB y conversión de
-familia del firmware XVF. [TESTING.md](../TESTING.md) distingue pruebas lógicas,
+familia del firmware XVF. [TESTING.md](history/TESTING.md) distingue pruebas lógicas,
 compilación y comprobaciones en placa.

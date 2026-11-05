@@ -17,7 +17,7 @@ quién puede utilizarlo.
 
 Reuniones B–F está en el PR #50 abierto. El reproductor obtiene el audio por
 `fetch` y `blob:`; su prueba manual sigue pendiente según
-[SESSION.md](../SESSION.md).
+[SESSION.md](../docs/history/SESSION.md).
 
 ## Desarrollo
 

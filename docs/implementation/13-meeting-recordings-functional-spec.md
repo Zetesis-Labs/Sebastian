@@ -14,7 +14,7 @@
 
 > Seguimiento 2026-09-19: A integrado en #49; B–F implementados en #50 abierto.
 > La prueba en placa de voz y la reproducción manual siguen pendientes.
-> Consultar [STATUS](../STATUS.md) para evidencia y límites; esta nota no
+> Consultar [STATUS](../history/STATUS.md) para evidencia y límites; esta nota no
 > declara aceptados todos los requisitos ni modifica su aprobación funcional.
 
 ## 1. Propósito y alcance

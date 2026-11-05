@@ -1,4 +1,4 @@
-> **Implementation report annex** ([`IMPLEMENTATION.md`](../../IMPLEMENTATION.md)). Full text of the multi-agent exploration from 2026-07-02 (8 agents in parallel + cross-checking). Where this annex contradicts the **Frozen decisions** of the main report, the main report prevails.
+> **Implementation report annex** ([`IMPLEMENTATION.md`](../IMPLEMENTATION.md)). Full text of the multi-agent exploration from 2026-07-02 (8 agents in parallel + cross-checking). Where this annex contradicts the **Frozen decisions** of the main report, the main report prevails.
 
 # ddsd-speaker-id — DDSD (device-directed speech detection) gate for the LINGER window + Speaker ID per household (ROADMAP signals 3 and 7, phases P1/P2)
 

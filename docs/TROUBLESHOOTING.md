@@ -12,7 +12,7 @@
 | Desaparece el puerto serie tras arrancar | TinyUSB toma el USB para micrófono; reconectar y aprovechar la ventana inicial. Leer configuración la amplía a 120 s. |
 
 Usar [BUILD_AND_RUN.md](BUILD_AND_RUN.md) para los comandos actuales y
-[SESSION.md](../SESSION.md) para reproducciones y evidencia. Conservar el ELF de
+[SESSION.md](history/SESSION.md) para reproducciones y evidencia. Conservar el ELF de
 la versión afectada para interpretar los core dumps reportados por syslog.
 
 ## Archivo del bring-up inicial

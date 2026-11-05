@@ -1,4 +1,4 @@
-> **Implementation report annex** ([`IMPLEMENTATION.md`](../../IMPLEMENTATION.md)). Full text of the multi-agent exploration from 2026-07-02 (8 agents in parallel + cross-checking). Where this annex contradicts the **Frozen decisions** of the main report, the report prevails.
+> **Implementation report annex** ([`IMPLEMENTATION.md`](../IMPLEMENTATION.md)). Full text of the multi-agent exploration from 2026-07-02 (8 agents in parallel + cross-checking). Where this annex contradicts the **Frozen decisions** of the main report, the report prevails.
 
 # model-cost-matrix — Voice model decision matrix (S2S vs pipeline) for Sebastian: real costs for home use and compatibility with livekit-agents 1.6.x
 
