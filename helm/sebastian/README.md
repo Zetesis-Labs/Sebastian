@@ -9,11 +9,9 @@ acredita su despliegue. Estado de integración y release:
 | Componente | Función | Red |
 |---|---|---|
 | `livekit` | SFU propio | `hostNetwork`; señalización 7880, medios UDP 7882 y fallback TCP 7881. |
-| `nats` | JetStream para eventos | Servicio interno. |
-| `server` | API Go, migraciones y contenedor outbox | Servicio 8787; `hostPort` configurable para la LAN. |
+| `server` | API Go y migraciones | Servicio 8787; `hostPort` configurable para la LAN. |
 | `dashboard` | Panel SSR e instalador | Servicio 3001 e ingress configurable. |
 | `agent` | Worker de conversación o captura | Conecta al SFU; sin servicio HTTP propio. |
-| `control-plane` | Anuncios sobre salas activas | Servicio 8790 e ingress configurable. |
 
 La configuración de producción vive en
 `Mileto-Infra-GitOps/px-platon/cortes/helm/sebastian-values*.yaml` y las versiones
@@ -32,9 +30,6 @@ en `px-platon/cortes/sebastian/envs/prod/env.json` del mismo repositorio.
   `SEBASTIAN_HA_MCP_URL`/`SEBASTIAN_HA_TOKEN`. El chart configura la URL interna
   del servidor para reuniones.
 - Dashboard: `SEBASTIAN_ADMIN_SECRET`, por defecto desde el secreto del servidor.
-- Control plane: credenciales LiveKit.
-- Outbox: usa NATS del chart o `server.outbox.natsURL`; si ambos faltan con NATS
-  desactivado, requiere `NATS_URL` en el secreto del servidor.
 
 No guardar valores reales en `values.yaml`. El panel no tiene login propio;
 proteger su acceso y el del instalador desde la red/ingress.

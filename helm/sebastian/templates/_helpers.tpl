@@ -36,7 +36,7 @@ app.kubernetes.io/instance: {{ .ctx.Release.Name }}
 app.kubernetes.io/component: {{ .component }}
 {{- end }}
 
-{{/* Hardened pod security context (non-root), shared by the Python services */}}
+{{/* Hardened pod security context (non-root), shared by the application pods */}}
 {{- define "sebastian.appSecurityContext" -}}
 runAsNonRoot: true
 runAsUser: 1001
@@ -46,7 +46,7 @@ seccompProfile:
   type: RuntimeDefault
 {{- end }}
 
-{{/* Hardened container security context, shared by the Python services */}}
+{{/* Hardened container security context, shared by the application containers */}}
 {{- define "sebastian.containerSecurityContext" -}}
 allowPrivilegeEscalation: false
 readOnlyRootFilesystem: true
@@ -54,7 +54,7 @@ capabilities:
   drop: [ALL]
 {{- end }}
 
-{{/* Shared LiveKit connection env (URL + key + secret) for the Python services */}}
+{{/* Shared LiveKit connection env (URL + key + secret) for server and agent */}}
 {{- define "sebastian.livekitEnv" -}}
 {{- $secret := required "existingSecret must be set (keys: LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET)" .existingSecret }}
 - name: LIVEKIT_URL
