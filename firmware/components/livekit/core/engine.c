@@ -23,6 +23,7 @@
 #include <inttypes.h>
 #include <stdlib.h>
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "url.h"
 #include "signaling.h"
 #include "peer.h"
@@ -229,15 +230,36 @@ static void on_peer_sub_audio_info(esp_peer_audio_stream_info_t* info, void *ctx
     eng->session.sub_audio_stream_added = true;
 }
 
+// Arrival of the subscribed audio, for Sebastian's diagnostics (livekit_rx_stats):
+// frames, frames the renderer refused, and the longest gap between two.
+static uint32_t rx_frames, rx_refused, rx_max_gap_us;
+static int64_t rx_last_us;
+
+void livekit_rx_stats(uint32_t *frames, uint32_t *refused, uint32_t *max_gap_ms)
+{
+    *frames = rx_frames;
+    *refused = rx_refused;
+    *max_gap_ms = rx_max_gap_us / 1000;
+    rx_frames = rx_refused = rx_max_gap_us = 0;
+}
+
 static void on_peer_sub_audio_frame(esp_peer_audio_frame_t* frame, void *ctx)
 {
     engine_t *eng = (engine_t *)ctx;
+    const int64_t now_us = esp_timer_get_time();
+    if (rx_last_us != 0 && now_us - rx_last_us > (int64_t)rx_max_gap_us) {
+        rx_max_gap_us = (uint32_t)(now_us - rx_last_us);
+    }
+    rx_last_us = now_us;
+    rx_frames++;
     av_render_audio_data_t audio_data = {
         .pts = frame->pts,
         .data = frame->data,
         .size = (uint32_t)frame->size,
     };
-    av_render_add_audio_data(eng->renderer_handle, &audio_data);
+    if (av_render_add_audio_data(eng->renderer_handle, &audio_data) != ESP_MEDIA_ERR_OK) {
+        rx_refused++;
+    }
 }
 
 // MARK: - Published media

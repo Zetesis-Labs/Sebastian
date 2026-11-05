@@ -1,0 +1,6 @@
+# Diagnostic overlay, never for production: CPU per task every 5 s from the
+# idle loop (main/cpu_diag.c). Build with `make fw-build-cpustats`.
+CONFIG_FREERTOS_USE_TRACE_FACILITY=y
+CONFIG_FREERTOS_USE_STATS_FORMATTING_FUNCTIONS=y
+CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID=y
+CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
