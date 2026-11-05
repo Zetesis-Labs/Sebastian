@@ -104,6 +104,7 @@ func run(logger *slog.Logger) error {
 		httpserver.Raw{Pattern: "HEAD /v1/meetings/{id}/audio", Handler: apihttp.MeetingAudioOffset(meetings)(cfg.AgentSecret)},
 		httpserver.Raw{Pattern: "POST /v1/meetings", Handler: apihttp.MeetingAgentStart(meetings, cfg.AgentSecret)},
 		httpserver.Raw{Pattern: "POST /v1/meetings/{id}/stop", Handler: apihttp.MeetingAgentStop(meetings, cfg.AgentSecret)},
+		httpserver.Raw{Pattern: "POST /v1/playback/stop", Handler: apihttp.PlaybackAgentStop(playbacks, cfg.AgentSecret)},
 		httpserver.Raw{Pattern: "POST /v1/meetings/{id}/warn", Handler: apihttp.MeetingAgentWarn(meetings, cfg.AgentSecret)},
 		httpserver.Raw{Pattern: "GET /v1/admin/meetings/{id}/audio", Handler: apihttp.MeetingAudioDownload(meetings)},
 		httpserver.Raw{Pattern: "GET /v1/agent-profiles/{id}/credentials", Handler: apihttp.AgentProfileCredentials(agents, cfg.AgentSecret, logger)},
