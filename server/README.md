@@ -40,10 +40,6 @@ persistencia usa Bun con consultas SQL-first escritas en
 - `GET /readyz`: disponibilidad de PostgreSQL.
 - `GET /openapi.json`: contrato OpenAPI embebido generado desde el documento
   fuente.
-- `GET /v1/admin/recordings`: catálogo de grabaciones recientes.
-- `GET /v1/admin/recordings/summary`: duración y almacenamiento agregados.
-- `GET /v1/admin/recordings/{id}`: detalle reproducible de una grabación.
-- `POST /v1/admin/recordings`: registra audio ya depositado en object storage.
 - `POST /v1/sessions`: autentica un dispositivo, realiza el dispatch explícito
   del agente y devuelve la conexión LiveKit en JSON.
 - `GET /v1/devices/{id}/desired-profile?current=&cfg=&fw=`: poll de
@@ -81,7 +77,6 @@ El agente usa `HEAD …/audio` para recuperar el offset y `…/stop`/`…/warn` 
 El worker de transcripción vive en el proceso API. Recupera reuniones en
 `transcribing` al arrancar, corta Ogg con ffmpeg y llama al proveedor. El audio
 reside en `SEBASTIAN_MEETINGS_DIR`, no en PostgreSQL ni en object storage.
-Las reuniones no crean automáticamente filas en el catálogo `recordings`.
 La recuperación de una reunión `cut` requiere validación específica: el worker
 solo procesa `transcribing`; el panel permite solicitar otra transcripción.
 
@@ -122,7 +117,7 @@ El esquema deseado se define en `db/schema.sql`. Atlas lo compara con el
 historial SQL y crea una migración versionada y revisable:
 
 ```bash
-make migration name=add_recordings
+make migration name=add_device_notes
 ```
 
 Atlas mantiene `atlas.sum` para detectar cambios accidentales del historial. Las

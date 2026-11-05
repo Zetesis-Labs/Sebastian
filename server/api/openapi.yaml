@@ -1142,116 +1142,6 @@ paths:
           $ref: "#/components/responses/MeetingNotFound"
         "503":
           $ref: "#/components/responses/Unavailable"
-  /v1/admin/recordings:
-    get:
-      operationId: listRecordings
-      summary: List recent voice recordings
-      tags: [administration, recordings]
-      security:
-        - AdminSecret: []
-      parameters:
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 100
-            default: 50
-      responses:
-        "200":
-          description: Recent recordings ordered by capture time.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/RecordingList"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "503":
-          $ref: "#/components/responses/Unavailable"
-    post:
-      operationId: registerRecording
-      summary: Register a recording already stored in object storage
-      tags: [administration, recordings]
-      security:
-        - AdminSecret: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/RecordingRegistration"
-      responses:
-        "201":
-          description: Recording registered.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Recording"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "404":
-          description: The associated session does not exist.
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/Problem"
-        "409":
-          description: The object URL is already registered.
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/Problem"
-        "503":
-          $ref: "#/components/responses/Unavailable"
-  /v1/admin/recordings/summary:
-    get:
-      operationId: getRecordingsSummary
-      summary: Aggregate recording storage and duration metrics
-      tags: [administration, recordings]
-      security:
-        - AdminSecret: []
-      responses:
-        "200":
-          description: Recording summary.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/RecordingSummary"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "503":
-          $ref: "#/components/responses/Unavailable"
-  /v1/admin/recordings/{recordingId}:
-    get:
-      operationId: getRecording
-      summary: Get one voice recording
-      tags: [administration, recordings]
-      security:
-        - AdminSecret: []
-      parameters:
-        - name: recordingId
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
-        "200":
-          description: Recording details.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Recording"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "404":
-          description: Recording not found.
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/Problem"
-        "503":
-          $ref: "#/components/responses/Unavailable"
 components:
   securitySchemes:
     DeviceSecret:
@@ -1371,88 +1261,6 @@ components:
         instance:
           type: string
           format: uri-reference
-    RecordingKind:
-      type: string
-      enum: [model, microphone, agent, composite]
-    Recording:
-      type: object
-      additionalProperties: false
-      required: [id, sessionId, room, kind, fileName, objectUrl, contentType, byteSize, durationMs, capturedAt, createdAt]
-      properties:
-        id:
-          type: string
-          format: uuid
-        sessionId:
-          type: string
-          format: uuid
-        room:
-          type: string
-        kind:
-          $ref: "#/components/schemas/RecordingKind"
-        fileName:
-          type: string
-        objectUrl:
-          type: string
-          format: uri
-        contentType:
-          type: string
-        byteSize:
-          type: integer
-          format: int64
-          minimum: 0
-        durationMs:
-          type: integer
-          format: int64
-          minimum: 0
-        capturedAt:
-          type: string
-          format: date-time
-        createdAt:
-          type: string
-          format: date-time
-        transcript:
-          type: string
-    RecordingRegistration:
-      type: object
-      additionalProperties: false
-      required: [room, kind, fileName, objectUrl, contentType, byteSize, durationMs, capturedAt]
-      properties:
-        room:
-          type: string
-          minLength: 1
-        kind:
-          $ref: "#/components/schemas/RecordingKind"
-        fileName:
-          type: string
-          minLength: 1
-        objectUrl:
-          type: string
-          format: uri
-        contentType:
-          type: string
-          minLength: 1
-        byteSize:
-          type: integer
-          format: int64
-          minimum: 0
-        durationMs:
-          type: integer
-          format: int64
-          minimum: 0
-        capturedAt:
-          type: string
-          format: date-time
-        transcript:
-          type: string
-    RecordingList:
-      type: object
-      additionalProperties: false
-      required: [items]
-      properties:
-        items:
-          type: array
-          items:
-            $ref: "#/components/schemas/Recording"
     DeviceState:
       type: string
       description: >-
@@ -1555,7 +1363,7 @@ components:
     DeviceSession:
       type: object
       additionalProperties: false
-      required: [id, room, createdAt, expiresAt, recordingCount]
+      required: [id, room, createdAt, expiresAt]
       properties:
         id:
           type: string
@@ -1568,10 +1376,6 @@ components:
         expiresAt:
           type: string
           format: date-time
-        recordingCount:
-          type: integer
-          format: int64
-          minimum: 0
     DeviceUpdate:
       type: object
       additionalProperties: false
@@ -2026,25 +1830,5 @@ components:
             over the LAN (the poll carries it too); poll = waits for the next
             poll (up to 30 s).
         expiresAt:
-          type: string
-          format: date-time
-    RecordingSummary:
-      type: object
-      additionalProperties: false
-      required: [count, totalBytes, totalDurationMs]
-      properties:
-        count:
-          type: integer
-          format: int64
-          minimum: 0
-        totalBytes:
-          type: integer
-          format: int64
-          minimum: 0
-        totalDurationMs:
-          type: integer
-          format: int64
-          minimum: 0
-        lastCapturedAt:
           type: string
           format: date-time

@@ -23,7 +23,6 @@ import (
 	livekitgateway "github.com/zetesis-labs/sebastian/server/internal/livekit"
 	"github.com/zetesis-labs/sebastian/server/internal/meeting"
 	postgresstore "github.com/zetesis-labs/sebastian/server/internal/postgres"
-	"github.com/zetesis-labs/sebastian/server/internal/recording"
 	"github.com/zetesis-labs/sebastian/server/internal/secretbox"
 	"github.com/zetesis-labs/sebastian/server/internal/session"
 	"github.com/zetesis-labs/sebastian/server/internal/transcribe"
@@ -58,7 +57,6 @@ func run(logger *slog.Logger) error {
 	store := postgresstore.NewStore(db)
 	livekit := livekitgateway.NewGateway(cfg.LiveKitURL, cfg.LiveKitAPIKey, cfg.LiveKitAPISecret)
 	sessions := session.NewService(store, livekit, cfg.LiveKitURL, cfg.RoomPrefix, cfg.TokenTTL)
-	recordings := recording.NewService(store)
 	var lan discovery.Browser = discovery.Static{}
 	if cfg.DiscoveryEnabled {
 		browser := discovery.NewMDNS(logger)
@@ -94,7 +92,7 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	announcements := announce.NewService(devices, lanClient, busyUnits{livekit: livekit, meetings: meetings}, logger)
-	handler := apihttp.NewHandler(sessions, recordings, devices, meetings, store, logger, cfg.DatabasePingTimeout).
+	handler := apihttp.NewHandler(sessions, devices, meetings, store, logger, cfg.DatabasePingTimeout).
 		WithAgentProfiles(agents).
 		WithAnnouncements(announcements)
 	server, err := httpserver.New(cfg.Address, handler, logger, cfg.AdminSecret,

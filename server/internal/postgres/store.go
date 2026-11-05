@@ -11,7 +11,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/uptrace/bun"
-	"github.com/zetesis-labs/sebastian/server/internal/recording"
 	"github.com/zetesis-labs/sebastian/server/internal/session"
 )
 
@@ -47,22 +46,6 @@ type domainEventModel struct {
 	EventVersion  int64
 	Payload       json.RawMessage `bun:"type:jsonb"`
 	OccurredAt    time.Time
-}
-
-type recordingModel struct {
-	bun.BaseModel `bun:"table:recordings"`
-
-	ID          uuid.UUID `bun:",pk"`
-	Kind        string
-	FileName    string
-	ObjectURL   string
-	ContentType string
-	ByteSize    int64
-	DurationMs  int64
-	CapturedAt  time.Time
-	CreatedAt   time.Time
-	Transcript  *string
-	SessionID   uuid.UUID
 }
 
 type deviceRow struct {
@@ -177,147 +160,7 @@ func (s *Store) Ping(ctx context.Context) error {
 	return s.db.PingContext(ctx)
 }
 
-type recordingRow struct {
-	ID          uuid.UUID `bun:"id"`
-	SessionID   uuid.UUID `bun:"session_id"`
-	Room        string    `bun:"room"`
-	Kind        string    `bun:"kind"`
-	FileName    string    `bun:"file_name"`
-	ObjectURL   string    `bun:"object_url"`
-	ContentType string    `bun:"content_type"`
-	ByteSize    int64     `bun:"byte_size"`
-	DurationMs  int64     `bun:"duration_ms"`
-	CapturedAt  time.Time `bun:"captured_at"`
-	CreatedAt   time.Time `bun:"created_at"`
-	Transcript  *string   `bun:"transcript"`
-}
-
-func (s *Store) ListRecordings(ctx context.Context, limit int) ([]recording.Recording, error) {
-	var rows []recordingRow
-	if err := s.recordingsQuery(s.db.NewSelect()).Limit(limit).Scan(ctx, &rows); err != nil {
-		return nil, fmt.Errorf("query recordings: %w", err)
-	}
-	result := make([]recording.Recording, 0, len(rows))
-	for _, row := range rows {
-		result = append(result, mapRecording(row))
-	}
-	return result, nil
-}
-
-func (s *Store) GetRecording(ctx context.Context, id uuid.UUID) (recording.Recording, error) {
-	var row recordingRow
-	if err := s.recordingsQuery(s.db.NewSelect()).Where("r.id = ?", id).Scan(ctx, &row); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return recording.Recording{}, recording.ErrNotFound
-		}
-		return recording.Recording{}, fmt.Errorf("query recording: %w", err)
-	}
-	return mapRecording(row), nil
-}
-
-func (s *Store) recordingsQuery(query *bun.SelectQuery) *bun.SelectQuery {
-	return query.
-		TableExpr("recordings AS r").
-		ColumnExpr("r.id, r.session_id, s.room_name AS room, r.kind, r.file_name, r.object_url, r.content_type, r.byte_size, r.duration_ms, r.captured_at, r.created_at, r.transcript").
-		Join("JOIN sessions AS s ON s.id = r.session_id").
-		OrderExpr("r.captured_at DESC, r.id DESC")
-}
-
-func (s *Store) CreateRecording(ctx context.Context, record recording.CreateRecord) (recording.Recording, error) {
-	var created recordingRow
-	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		var sessionRow struct {
-			ID       uuid.UUID `bun:"id"`
-			RoomName string    `bun:"room_name"`
-		}
-		if err := tx.NewSelect().
-			TableExpr("sessions").
-			ColumnExpr("id, room_name").
-			Where("room_name = ?", record.Input.Room).
-			Scan(ctx, &sessionRow); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return recording.ErrNotFound
-			}
-			return fmt.Errorf("query recording session: %w", err)
-		}
-		model := recordingModel{
-			ID:          record.ID,
-			SessionID:   sessionRow.ID,
-			Kind:        string(record.Input.Kind),
-			FileName:    record.Input.FileName,
-			ObjectURL:   record.Input.ObjectURL,
-			ContentType: record.Input.ContentType,
-			ByteSize:    record.Input.ByteSize,
-			DurationMs:  record.Input.DurationMs,
-			CapturedAt:  record.Input.CapturedAt.UTC(),
-			CreatedAt:   record.Now,
-			Transcript:  record.Input.Transcript,
-		}
-		if _, err := tx.NewInsert().Model(&model).Exec(ctx); err != nil {
-			if isUniqueViolation(err) {
-				return recording.ErrConflict
-			}
-			return fmt.Errorf("insert recording: %w", err)
-		}
-		payload, err := json.Marshal(map[string]any{
-			"recording_id": record.ID,
-			"session_id":   sessionRow.ID,
-			"room":         sessionRow.RoomName,
-			"kind":         record.Input.Kind,
-			"object_url":   record.Input.ObjectURL,
-			"byte_size":    record.Input.ByteSize,
-			"duration_ms":  record.Input.DurationMs,
-			"captured_at":  record.Input.CapturedAt.UTC(),
-		})
-		if err != nil {
-			return fmt.Errorf("encode recording event: %w", err)
-		}
-		if err := appendEvent(ctx, tx, domainEvent{
-			ID: record.EventID, AggregateType: "recording", AggregateID: record.ID.String(),
-			Type: "recording.registered", Payload: payload, At: record.Now,
-		}); err != nil {
-			return err
-		}
-		created = recordingRow{
-			ID: record.ID, SessionID: sessionRow.ID, Room: sessionRow.RoomName,
-			Kind: model.Kind, FileName: model.FileName, ObjectURL: model.ObjectURL,
-			ContentType: model.ContentType, ByteSize: model.ByteSize, DurationMs: model.DurationMs,
-			CapturedAt: model.CapturedAt, CreatedAt: model.CreatedAt, Transcript: model.Transcript,
-		}
-		return nil
-	})
-	if err != nil {
-		return recording.Recording{}, err
-	}
-	return mapRecording(created), nil
-}
-
-func (s *Store) RecordingsSummary(ctx context.Context) (recording.Summary, error) {
-	var summary recording.Summary
-	var lastCapturedAt sql.NullTime
-	if err := s.db.QueryRowContext(ctx, `
-		SELECT count(*), coalesce(sum(byte_size), 0), coalesce(sum(duration_ms), 0), max(captured_at)
-		FROM recordings
-	`).Scan(&summary.Count, &summary.TotalBytes, &summary.TotalDurationMs, &lastCapturedAt); err != nil {
-		return recording.Summary{}, fmt.Errorf("aggregate recordings: %w", err)
-	}
-	if lastCapturedAt.Valid {
-		value := lastCapturedAt.Time.UTC()
-		summary.LastCapturedAt = &value
-	}
-	return summary, nil
-}
-
 func isUniqueViolation(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == "23505"
-}
-
-func mapRecording(row recordingRow) recording.Recording {
-	return recording.Recording{
-		ID: row.ID, SessionID: row.SessionID, Room: row.Room, Kind: recording.Kind(row.Kind),
-		FileName: row.FileName, ObjectURL: row.ObjectURL, ContentType: row.ContentType,
-		ByteSize: row.ByteSize, DurationMs: row.DurationMs, CapturedAt: row.CapturedAt,
-		CreatedAt: row.CreatedAt, Transcript: row.Transcript,
-	}
 }

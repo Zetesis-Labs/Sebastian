@@ -134,24 +134,3 @@ CREATE TABLE meetings (
 
 CREATE INDEX meetings_device_started ON meetings (device_id, started_at DESC);
 CREATE INDEX meetings_in_progress ON meetings (state) WHERE state IN ('requested', 'recording', 'closing');
-
-CREATE TABLE recordings (
-  id uuid PRIMARY KEY,
-  session_id uuid NOT NULL,
-  kind varchar NOT NULL,
-  file_name varchar NOT NULL,
-  object_url varchar NOT NULL,
-  content_type varchar NOT NULL DEFAULT 'audio/wav',
-  byte_size bigint NOT NULL,
-  duration_ms bigint NOT NULL,
-  captured_at timestamptz NOT NULL,
-  created_at timestamptz NOT NULL,
-  transcript varchar,
-  CONSTRAINT recordings_sessions_recordings
-    FOREIGN KEY (session_id) REFERENCES sessions(id)
-);
-
-CREATE UNIQUE INDEX recordings_object_url_key ON recordings (object_url);
-
-CREATE INDEX recording_captured_at_id ON recordings (captured_at, id);
-CREATE INDEX recording_session_id_kind ON recordings (session_id, kind);
