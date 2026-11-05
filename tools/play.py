@@ -25,6 +25,7 @@ from livekit import rtc
 RATE = 48000
 FRAME = RATE // 50  # 20 ms per channel
 JOIN_WAIT_S = 40
+SUBSCRIBE_WAIT_S = 15
 
 
 def admin(method: str, url: str, secret: str) -> dict:
@@ -48,6 +49,8 @@ async def wait_for_unit(room: rtc.Room, device: str) -> bool:
 
 async def publish(path: str, server_url: str, token: str, device: str, channels: int, bitrate: int) -> None:
     room = rtc.Room()
+    subscribed = asyncio.Event()
+    room.on("local_track_subscribed", lambda _track: subscribed.set())
     await room.connect(server_url, token)
     try:
         print(f"waiting for {device} to join (up to {JOIN_WAIT_S} s)…")
@@ -58,6 +61,12 @@ async def publish(path: str, server_url: str, token: str, device: str, channels:
         options = rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_MICROPHONE, dtx=False)
         options.audio_encoding.max_bitrate = bitrate
         await room.local_participant.publish_track(track, options)
+        # The unit is in the room seconds before its media path is up: start
+        # the file once it listens, or its first seconds are lost.
+        try:
+            await asyncio.wait_for(subscribed.wait(), SUBSCRIBE_WAIT_S)
+        except TimeoutError:
+            print("the unit did not subscribe: playing anyway", file=sys.stderr)
         decoder = subprocess.Popen(
             ["ffmpeg", "-loglevel", "error", "-i", path, "-f", "s16le", "-ac", str(channels), "-ar", str(RATE), "-"],
             stdout=subprocess.PIPE,
