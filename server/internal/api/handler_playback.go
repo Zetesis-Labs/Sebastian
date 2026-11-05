@@ -2,7 +2,12 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -97,4 +102,34 @@ func (h *Server) joinPlayback(ctx context.Context, request CreateSessionRequestO
 	credentials.Kind = session.KindPlayback
 	credentials.PlaybackRoom = p.Room
 	return nil
+}
+
+// PlaybackAgentStop lets the agent stop the music of the unit it talks with
+// ("para la música"). POST /v1/playback/stop {"deviceId":"<unit>"} with
+// X-Agent-Secret; outside the OpenAPI router like the other agent routes.
+func PlaybackAgentStop(p PlaybackService, agentSecret string) http.Handler {
+	expected := sha256.Sum256([]byte(agentSecret))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		provided := sha256.Sum256([]byte(r.Header.Get("X-Agent-Secret")))
+		if agentSecret == "" || subtle.ConstantTimeCompare(expected[:], provided[:]) != 1 {
+			writeProblem(w, 401, "Unauthorized", "Invalid agent credentials.")
+			return
+		}
+		var body struct {
+			DeviceID string `json:"deviceId"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&body); err != nil || strings.TrimSpace(body.DeviceID) == "" {
+			writeProblem(w, 400, "Bad request", `Send {"deviceId":"<unit>"}.`)
+			return
+		}
+		err := p.Stop(r.Context(), strings.TrimSpace(body.DeviceID))
+		switch {
+		case errors.Is(err, playback.ErrNotFound):
+			writeProblem(w, 404, "Nothing playing", "The unit has no playback on.")
+		case err != nil:
+			writeProblem(w, 503, "Unavailable", err.Error())
+		default:
+			w.WriteHeader(http.StatusNoContent)
+		}
+	})
 }
