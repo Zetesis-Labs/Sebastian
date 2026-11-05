@@ -13,7 +13,7 @@
 
 A está integrado en #49; B–F están implementados en #50, con el código revisado
 hasta `84f278b6`, que incorpora las órdenes por voz del bloque F.
-[STATUS](../STATUS.md) y [RECENT_CHANGES](../RECENT_CHANGES.md) identifican las
+[STATUS](../history/STATUS.md) y [RECENT_CHANGES](../history/RECENT_CHANGES.md) identifican las
 pruebas registradas; voz en placa y reproducción manual siguen pendientes.
 
 Diferencias respecto al plan inicial:

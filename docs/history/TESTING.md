@@ -2,8 +2,8 @@
 
 Referencia: **2026-09-19**, `84f278b6`. Describe las suites y workflows presentes,
 no una ejecución nueva. La evidencia de placa y navegador está en
-[SESSION.md](SESSION.md), [STATUS](docs/STATUS.md) y
-[PRs recientes](docs/RECENT_CHANGES.md).
+[SESSION.md](SESSION.md), [STATUS](STATUS.md) y
+[PRs recientes](RECENT_CHANGES.md).
 
 ## Cobertura existente
 
@@ -22,14 +22,14 @@ el simulador no reemplaza las comprobaciones de esas implementaciones en placa.
 
 ## Qué ejecuta CI
 
-- [Firmware](.github/workflows/firmware-tests.yml): pruebas Zig nativas y formato,
+- [Firmware](../../.github/workflows/firmware-tests.yml): pruebas Zig nativas y formato,
   más build ESP-IDF **5.4.4**. Zig usa el fork fijado `0.16.0-xtensa`.
-- [Servidor](.github/workflows/server-ci.yml): generación OpenAPI, validación de
+- [Servidor](../../.github/workflows/server-ci.yml): generación OpenAPI, validación de
   migraciones, formato, migración aplicada dos veces, `go test -race`, integración
   PostgreSQL/NATS, vet, build y análisis de vulnerabilidades.
-- [Dashboard](.github/workflows/dashboard-ci.yml): generación de tipos sin diff,
+- [Dashboard](../../.github/workflows/dashboard-ci.yml): generación de tipos sin diff,
   typecheck, Vitest, build con instalador y auditoría de dependencias.
-- [Agente](.github/workflows/lint.yml): **Ruff 0.14.0**. El workflow actual no
+- [Agente](../../.github/workflows/lint.yml): **Ruff 0.14.0**. El workflow actual no
   ejecuta pytest; disponer de tests en `agent/tests` no implica cobertura en CI.
 
 El `make check` de la raíz ejecuta **solo `fw-test`**. No agrega las suites de los
@@ -58,7 +58,7 @@ uvx ruff==0.14.0 check .
 ```
 
 `make dashboard-check` también construye el instalador. Instalar antes sus
-dependencias según [DEVCONTAINER.md](docs/DEVCONTAINER.md).
+dependencias según [DEVCONTAINER.md](../DEVCONTAINER.md).
 El build de firmware puede reescribir la ruta de LiveKit en
 `firmware/dependencies.lock`; revisar ese diff y conservar la ruta relativa.
 
@@ -113,7 +113,7 @@ una suite lógica verde no acreditan inteligibilidad.
 
 HIL en runner, reproducción de trazas reales y banco acústico siguen siendo
 posibles ampliaciones. La prioridad actual es cerrar la matriz de aceptación y
-el uso continuado de [MILESTONE.md](MILESTONE.md).
+el uso continuado de [MILESTONE.md](../../MILESTONE.md).
 
 ## Registro de resultados
 

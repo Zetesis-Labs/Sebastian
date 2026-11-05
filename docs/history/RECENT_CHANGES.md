@@ -34,7 +34,7 @@ de flota:
 | `c6651a7c`, `fc267e08` | Documentan unidades con firmware XVF de familia USB y la conversión inicial a `inthost` por USB DFU. |
 | `f48aea91`, `c3428d28` | Leer configuración desde la unidad, conservar la contraseña WiFi sin devolverla y mantener abierta 120 s la ventana WebSerial. |
 
-[SESSION.md](../SESSION.md) conserva la reproducción de fallos y las pruebas de
+[SESSION.md](SESSION.md) conserva la reproducción de fallos y las pruebas de
 campo. La corrección del driver evita el pánico del ESP32; no prueba que el XVF
 responda correctamente bajo cualquier condición acústica.
 
@@ -89,8 +89,8 @@ Ruff, no pytest. Un check verde no sustituye las pruebas de aceptación en placa
 
 ## Cómo interpretar la documentación
 
-[STATUS.md](STATUS.md) y [ARCHITECTURE.md](ARCHITECTURE.md) describen este código.
+[STATUS.md](STATUS.md) y [ARCHITECTURE.md](../ARCHITECTURE.md) describen este código.
 Las especificaciones 12–14 conservan requisitos y decisiones, incluidas partes
-que requieren aceptación. [ROADMAP.md](../ROADMAP.md) separa prioridades actuales
+que requieren aceptación. [ROADMAP.md](../../ROADMAP.md) separa prioridades actuales
 del material histórico. Las evidencias deben incluir fecha, commit, unidad y
 entorno para no trasladar una prueba de julio a un recorrido añadido en septiembre.

@@ -5,8 +5,8 @@ ya existen API Go autenticada, flota, perfiles, syslog y reuniones. Este documen
 conserva los identificadores A–E usados en el historial y distingue implementación
 de aceptación operativa. Una fila implementada no implica criterio cerrado.
 
-Estado y procedencia: [STATUS](docs/STATUS.md) y
-[PRs/commits recientes](docs/RECENT_CHANGES.md).
+Estado y procedencia: [STATUS](docs/history/STATUS.md) y
+[PRs/commits recientes](docs/history/RECENT_CHANGES.md).
 
 ## A. Acceso y credenciales
 
@@ -66,7 +66,7 @@ reuniones marcadas para conservar deben formar parte de la prueba operativa.
 | E2 | Reuniones A integrado; B–F en #50 abierto. | Validar captura, parada, recuperación, reproducción y transcripción, incluidas órdenes por voz en la placa. |
 | E3 | Pruebas puntuales y registro de incidencias disponibles. | Una semana de uso sin USB con fallos explicables, métricas de uso y recuperación documentada. |
 
-La matriz de [TESTING.md](TESTING.md) concreta las interrupciones y transiciones
+La matriz de [TESTING.md](docs/history/TESTING.md) concreta las interrupciones y transiciones
 que deben ejercitarse. Cada aceptación debe anotar commit, imagen, placa,
 configuración, fecha y resultado.
 

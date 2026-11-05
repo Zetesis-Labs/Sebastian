@@ -1,4 +1,4 @@
-> **Implementation Report Annex** ([`IMPLEMENTATION.md`](../../IMPLEMENTATION.md)). Full text of the multi-agent exploration from 2026-07-02 (8 parallel agents + cross-checking). Where this annex contradicts the **Frozen Decisions** of the main report, the main report prevails.
+> **Implementation Report Annex** ([`IMPLEMENTATION.md`](../IMPLEMENTATION.md)). Full text of the multi-agent exploration from 2026-07-02 (8 parallel agents + cross-checking). Where this annex contradicts the **Frozen Decisions** of the main report, the main report prevails.
 
 # agent-modernization — Python Agent — migration to livekit-agents 1.6.4: AgentSession/Realtime, turn handling, MCP, explicit dispatch + token server, and agent-side invocation protocol (IDLE/ARMED/ATTENDING/ENGAGED/LINGER)
 

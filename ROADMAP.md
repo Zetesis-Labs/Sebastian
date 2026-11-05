@@ -69,14 +69,14 @@
 
 Referencia: `84f278b6`, rama `feat/meetings-b`. La flota y el bloque A de reuniones
 están integrados; B–F están en el PR #50 abierto. La release #45 y el endpoint
-permanente #44 siguen abiertos. Ver [procedencia y PRs](docs/RECENT_CHANGES.md),
-[estado actual](docs/STATUS.md) y [arquitectura](docs/ARCHITECTURE.md).
+permanente #44 siguen abiertos. Ver [procedencia y PRs](docs/history/RECENT_CHANGES.md),
+[estado actual](docs/history/STATUS.md) y [arquitectura](docs/ARCHITECTURE.md).
 
 1. **Cerrar reuniones en placa y navegador.** Probar las dos órdenes por voz,
    reproducción y seek, gesto/mute, indicadores y límites por unidad.
 2. **Estabilizar las transiciones entre componentes.** WiFi/LiveKit, reinicios,
    subidas parciales, transcripción, estado persistido y almacenamiento lleno.
-   La matriz de [TESTING.md](TESTING.md) define las verificaciones.
+   La matriz de [TESTING.md](docs/history/TESTING.md) define las verificaciones.
 3. **Cerrar operación y recuperación.** Acceso al panel/control plane, política
    efectiva de grabaciones, diagnóstico sin USB y actualización recuperable.
    Los criterios y su estado están en [MILESTONE.md](MILESTONE.md).

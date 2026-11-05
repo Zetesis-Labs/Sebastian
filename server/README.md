@@ -145,5 +145,5 @@ mecanismo separado.
 
 A 2026-09-19, la flota (#46–48) y reuniones A (#49) están integradas. El resto de
 reuniones, incluido voz, está en #50. La release #45 sigue abierta. Ver
-[procedencia](../docs/RECENT_CHANGES.md), [estado](../docs/STATUS.md) y
-[aceptación pendiente](../TESTING.md).
+[procedencia](../docs/history/RECENT_CHANGES.md), [estado](../docs/history/STATUS.md) y
+[aceptación pendiente](../docs/history/TESTING.md).

@@ -8,8 +8,8 @@
 > los tests verticales se escriban contra ellos antes de implementar.
 
 > Seguimiento 2026-09-19: implementación integrada en #46–48. Las pruebas y
-> diferencias actuales se recogen en [STATUS](../STATUS.md) y
-> [RECENT_CHANGES](../RECENT_CHANGES.md). Implementado no equivale a aceptación
+> diferencias actuales se recogen en [STATUS](../history/STATUS.md) y
+> [RECENT_CHANGES](../history/RECENT_CHANGES.md). Implementado no equivale a aceptación
 > completa de todos los criterios de esta especificación.
 
 ## 1. Propósito y alcance

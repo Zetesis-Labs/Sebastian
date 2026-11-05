@@ -2,7 +2,7 @@
 
 Chart del backend para Cortes/ArgoCD. La presencia del chart en una rama no
 acredita su despliegue. Estado de integración y release:
-[RECENT_CHANGES.md](../../docs/RECENT_CHANGES.md).
+[RECENT_CHANGES.md](../../docs/history/RECENT_CHANGES.md).
 
 ## Componentes
 

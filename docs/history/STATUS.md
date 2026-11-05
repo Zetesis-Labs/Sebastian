@@ -2,7 +2,7 @@
 
 Actualizado el **2026-09-19** contra `84f278b6` (`feat/meetings-b`). Describe este
 árbol de código; no acredita el estado del despliegue. La evidencia de hardware y
-navegador citada procede de [SESSION.md](../SESSION.md), no de nuevas pruebas
+navegador citada procede de [SESSION.md](SESSION.md), no de nuevas pruebas
 realizadas durante esta actualización documental.
 
 ## Integración y publicación
@@ -73,11 +73,11 @@ máximo volumen. Una compilación correcta no cierra esa comprobación acústica
    cubiertos estos casos por una prueba del recorrido normal.
 3. **Cerrar los criterios de operación autónoma:** actualización y recuperación,
    acceso administrativo, retención y diagnóstico. Los criterios concretos están
-   en [MILESTONE.md](../MILESTONE.md).
+   en [MILESTONE.md](../../MILESTONE.md).
 4. **Uso continuado:** mantener un registro de activaciones falsas, cierres
    inesperados, interrupciones y reuniones incompletas para priorizar sobre
    evidencia de uso.
 
-El [plan de pruebas](../TESTING.md) convierte estas prioridades en verificaciones.
+El [plan de pruebas](TESTING.md) convierte estas prioridades en verificaciones.
 Los documentos de diseño expresan requisitos; una casilla histórica o un bloque
 implementado no certifican su aceptación ni su despliegue.
