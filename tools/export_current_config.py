@@ -75,7 +75,6 @@ def build_config() -> dict[str, Any]:
     secrets = read_text("firmware/main/secrets.zig")
     firmware_config = read_text("firmware/main/config.zig")
     app = read_text("firmware/main/app.zig")
-    token_server = read_text("agent/token_server.py")
     bridge = read_text("tools/telemetry/bridge.py")
 
     otlp = parse_py_constant(bridge, "OTLP", "http://localhost:4318")
@@ -97,9 +96,9 @@ def build_config() -> dict[str, Any]:
         },
         "livekit": {
             "tokenServerUrl": parse_zig_string(secrets, "token_server_url"),
-            "deviceIdentity": parse_py_constant(token_server, "IDENTITY", "esp32-respeaker"),
-            "room": parse_py_constant(token_server, "ROOM", "sebastian"),
-            "agentName": parse_py_constant(token_server, "AGENT_NAME", "sebastian"),
+            "deviceIdentity": "esp32-respeaker",
+            "room": "sebastian",
+            "agentName": "sebastian",
         },
         "telemetry": {
             "otlpEndpoint": otlp,

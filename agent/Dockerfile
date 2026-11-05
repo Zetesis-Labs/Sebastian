@@ -1,14 +1,7 @@
 # syntax=docker/dockerfile:1.7
 #
-# One image, three services. The Sebastian backend is a single uv package
-# (this `agent/` dir) with three entrypoints — token server, LiveKit agent
-# worker, control plane. We publish three images (sebastian/token-server,
-# sebastian/agent, sebastian/control-plane) that differ ONLY in their default
-# service, selected at build time via `--build-arg SERVICE=…`. Same code, same
-# layers up to the final ARG — mirrors ZetesisPortal's per-service images while
-# staying DRY (the code really is one package).
-#
-# Build context = this `agent/` directory.
+# The LiveKit agent worker (sebastian/agent). Build context = this `agent/`
+# directory.
 
 ARG BASE_IMAGE=ghcr.io/astral-sh/uv:python3.13-bookworm-slim
 
@@ -46,18 +39,11 @@ RUN apt-get update \
 
 COPY --from=builder /app /app
 
-# Which service this image runs by default. Overridable at build time, and the
-# entrypoint also honours a SEBASTIAN_SERVICE env override at run time.
-ARG SERVICE=agent
-ENV SEBASTIAN_SERVICE=${SERVICE}
-
 RUN groupadd --system --gid 1001 sebastian \
  && useradd  --system --uid 1001 --gid sebastian sebastian \
  && chown -R sebastian:sebastian /app
 
 USER sebastian
 
-# token server :8787, control plane :8790 (agent worker has no inbound port).
-EXPOSE 8787 8790
-
-ENTRYPOINT ["/app/docker-entrypoint.sh"]
+# The worker is outbound-only: it registers with the SFU and has no port.
+CMD ["python", "agent.py", "start"]

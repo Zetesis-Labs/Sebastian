@@ -135,7 +135,7 @@ jobs:
           cd gitops
           tmp=$(mktemp)
           jq --arg agent "$AGENT" --arg server "$SERVER" --arg dashboard "$DASHBOARD" --arg helm "$HELM" '
-            (if $agent     != "" then .agentImageTag = "v\($agent)" | .controlPlaneImageTag = "v\($agent)" else . end) |
+            (if $agent     != "" then .agentImageTag = "v\($agent)" else . end) |
             (if $server    != "" then .serverImageTag = "v\($server)" else . end) |
             (if $dashboard != "" then .dashboardImageTag = "v\($dashboard)" else . end) |
             (if $helm      != "" then .chartVersion = $helm else . end)

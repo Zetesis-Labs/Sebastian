@@ -6,7 +6,7 @@ name: Release Please
 # pipeline as ZetesisPortal.
 #
 # Components:
-#   - agent (agent/)          → drives the Python agent/control-plane images
+#   - agent (agent/)          → drives the Python agent image
 #   - server (server/)        → drives the Go server image
 #   - dashboard (dashboard/)  → drives the TanStack Start dashboard image
 #   - helm  (helm/sebastian/) → the chart
@@ -132,7 +132,7 @@ jobs:
             --arg dashboard_released "$DASHBOARD_RELEASED" --arg dashboard "v$DASHBOARD_VERSION" \
             --arg helm_released "$HELM_RELEASED"  --arg helm "$HELM_VERSION" \
             '
-            (if $agent_released == "true" then .agentImageTag = $agent | .controlPlaneImageTag = $agent else . end) |
+            (if $agent_released == "true" then .agentImageTag = $agent else . end) |
             (if $server_released == "true" then .serverImageTag = $server else . end) |
             (if $dashboard_released == "true" then .dashboardImageTag = $dashboard else . end) |
             (if $helm_released  == "true" then .chartVersion        = $helm  else . end)

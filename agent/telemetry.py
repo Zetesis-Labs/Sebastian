@@ -1,7 +1,7 @@
 """OTel wiring for the Python services — logs + metrics to the local LGTM stack.
 
 Python-side mirror of tools/telemetry/bridge.py. Each service calls setup() with
-its own service.name (agent, token-server, control-plane) so Grafana shows every
+its own service.name so Grafana shows every
 half of a conversation side by side under a distinct service_name — matching prod,
 where promtail ships the same per-component streams.
 
