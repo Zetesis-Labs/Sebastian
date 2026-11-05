@@ -39,6 +39,7 @@ type fakeLiveKit struct {
 	err        error
 	mintErr    error
 	listenRoom string
+	minted     int
 }
 
 func (f *fakeLiveKit) Dispatch(_ context.Context, _, _ string, metadata []byte) error {
@@ -48,6 +49,7 @@ func (f *fakeLiveKit) Dispatch(_ context.Context, _, _ string, metadata []byte) 
 }
 
 func (f *fakeLiveKit) MintToken(_, _ string, _ time.Duration) (string, error) {
+	f.minted++
 	return "jwt", f.mintErr
 }
 
@@ -265,5 +267,38 @@ func TestTheUnitRejoinsThePlaybackRoomAsOftenAsItComesBack(t *testing.T) {
 		if _, err := service.Create(context.Background(), join); err != nil {
 			t.Fatalf("join %d: %v", i+1, err)
 		}
+	}
+}
+
+func TestAPlaybackJoinWithAWrongSecretGetsNoToken(t *testing.T) {
+	store := &fakeStore{device: Device{ID: "e072a1f96ef0", Identity: "e072a1f96ef0", CredentialDigest: DigestSecret("correct")}}
+	livekit := &fakeLiveKit{}
+	service := NewService(store, livekit, "ws://livekit:7880", "sebastian", time.Hour)
+
+	_, err := service.Create(context.Background(), Credentials{DeviceID: "e072a1f96ef0", Secret: "wrong", Kind: KindPlayback, PlaybackRoom: "sebastian-play-1"})
+	if !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("err = %v", err)
+	}
+	if livekit.listenRoom != "" || livekit.minted != 0 {
+		t.Fatalf("a token was minted: listen %q, publish-capable %d", livekit.listenRoom, livekit.minted)
+	}
+}
+
+func TestAPlaybackJoinNeverGetsAPublishingTokenNorAnEmptyRoom(t *testing.T) {
+	store := &fakeStore{device: Device{ID: "e072a1f96ef0", Identity: "e072a1f96ef0", CredentialDigest: DigestSecret("correct")}}
+	livekit := &fakeLiveKit{}
+	service := NewService(store, livekit, "ws://livekit:7880", "sebastian", time.Hour)
+
+	if _, err := service.Create(context.Background(), Credentials{DeviceID: "e072a1f96ef0", Secret: "correct", Kind: KindPlayback}); err == nil {
+		t.Fatal("a playback join without its room was accepted")
+	}
+	if livekit.listenRoom != "" {
+		t.Fatalf("a token was minted for room %q", livekit.listenRoom)
+	}
+	if _, err := service.Create(context.Background(), Credentials{DeviceID: "e072a1f96ef0", Secret: "correct", Kind: KindPlayback, PlaybackRoom: "sebastian-play-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if livekit.minted != 0 {
+		t.Fatalf("the unit got a token that can publish into the playback (%d)", livekit.minted)
 	}
 }

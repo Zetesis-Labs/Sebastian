@@ -63,8 +63,15 @@ func (h *Server) GetPlayback(ctx context.Context, request GetPlaybackRequestObje
 }
 
 func (h *Server) StopPlayback(ctx context.Context, request StopPlaybackRequestObject) (StopPlaybackResponseObject, error) {
-	if h.playback == nil || errors.Is(h.playback.Stop(ctx, request.DeviceId), playback.ErrNotFound) {
+	if h.playback == nil {
+		return StopPlayback503ApplicationProblemPlusJSONResponse{UnavailableApplicationProblemPlusJSONResponse: h.unavailable(ctx, "playback not configured", errors.New("no playback service"))}, nil
+	}
+	err := h.playback.Stop(ctx, request.DeviceId)
+	switch {
+	case errors.Is(err, playback.ErrNotFound):
 		return StopPlayback404ApplicationProblemPlusJSONResponse(problem(404, "Nothing playing", "The unit has no playback on.")), nil
+	case err != nil:
+		return StopPlayback503ApplicationProblemPlusJSONResponse{UnavailableApplicationProblemPlusJSONResponse: h.unavailable(ctx, "stop playback failed", err, "device_id", request.DeviceId)}, nil
 	}
 	return StopPlayback204Response{}, nil
 }
