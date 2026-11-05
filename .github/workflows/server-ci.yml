@@ -35,7 +35,6 @@ jobs:
     env:
       DATABASE_URL: postgres://sebastian:sebastian@localhost:5432/sebastian?sslmode=disable
       ATLAS_DEV_DATABASE_URL: postgres://sebastian:sebastian@localhost:5432/sebastian?sslmode=disable
-      NATS_URL: nats://localhost:4222
     defaults:
       run:
         working-directory: server
@@ -57,18 +56,6 @@ jobs:
         run: make fmt-check
       - name: Apply migrations twice
         run: go run ./cmd/migrate && go run ./cmd/migrate
-      - name: Start NATS JetStream
-        run: |
-          docker run --detach --name nats --publish 4222:4222 --publish 8222:8222 \
-            nats:2.14.1-alpine3.22 --jetstream --http_port 8222
-          for attempt in {1..20}; do
-            if curl --fail --silent http://127.0.0.1:8222/healthz >/dev/null; then
-              exit 0
-            fi
-            sleep 1
-          done
-          docker logs nats
-          exit 1
       - name: Test with race detector
         run: make test
       - name: Integration tests

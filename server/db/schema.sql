@@ -83,26 +83,6 @@ CREATE TABLE domain_events (
 CREATE INDEX domain_events_aggregate_idx
   ON domain_events (aggregate_type, aggregate_id, occurred_at);
 
-CREATE TABLE outbox_events (
-  id uuid PRIMARY KEY,
-  event_id uuid NOT NULL,
-  subject varchar NOT NULL,
-  payload jsonb NOT NULL,
-  created_at timestamptz NOT NULL,
-  published_at timestamptz,
-  attempts bigint NOT NULL DEFAULT 0,
-  last_error varchar,
-  next_attempt_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT outbox_events_domain_events_outbox_event
-    FOREIGN KEY (event_id) REFERENCES domain_events(id)
-);
-
-CREATE UNIQUE INDEX outbox_events_event_id_key ON outbox_events (event_id);
-
-CREATE INDEX outbox_events_pending_idx
-  ON outbox_events (next_attempt_at, created_at)
-  WHERE published_at IS NULL;
-
 CREATE TABLE sessions (
   id uuid PRIMARY KEY,
   room_name varchar NOT NULL,

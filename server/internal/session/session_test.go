@@ -50,7 +50,7 @@ func (f *fakeLiveKit) MintToken(_, _ string, _ time.Duration) (string, error) {
 	return "jwt", f.mintErr
 }
 
-func TestCreateDispatchesAndRecordsOutboxEvent(t *testing.T) {
+func TestCreateDispatchesAndRecordsTheSession(t *testing.T) {
 	profileID := uuid.MustParse("018f08d8-3f5d-7d5d-bd61-9b2ba12b58b8")
 	store := &fakeStore{device: Device{
 		ID: "esp32-respeaker", Identity: "esp32-respeaker",

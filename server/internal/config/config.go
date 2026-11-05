@@ -40,16 +40,6 @@ type Config struct {
 	DatabasePingTimeout time.Duration
 }
 
-type OutboxConfig struct {
-	DatabaseURL    string
-	NATSURL        string
-	NATSStream     string
-	NATSSubjects   string
-	PollInterval   time.Duration
-	PublishTimeout time.Duration
-	BatchSize      int
-}
-
 func Load() (Config, error) {
 	cfg := Config{
 		Address:             envOr("SEBASTIAN_SERVER_ADDRESS", ":8787"),
@@ -128,49 +118,6 @@ func Load() (Config, error) {
 		return Config{}, errors.New("SEBASTIAN_TOKEN_TTL must be positive")
 	}
 
-	return cfg, nil
-}
-
-func LoadOutbox() (OutboxConfig, error) {
-	cfg := OutboxConfig{
-		DatabaseURL:    strings.TrimSpace(os.Getenv("DATABASE_URL")),
-		NATSURL:        strings.TrimSpace(os.Getenv("NATS_URL")),
-		NATSStream:     envOr("SEBASTIAN_NATS_STREAM", "SEBASTIAN_EVENTS"),
-		NATSSubjects:   envOr("SEBASTIAN_NATS_SUBJECTS", "evt.sebastian.v1.>"),
-		PollInterval:   time.Second,
-		PublishTimeout: 5 * time.Second,
-		BatchSize:      50,
-	}
-
-	var err error
-	if cfg.PollInterval, err = duration("SEBASTIAN_OUTBOX_POLL_INTERVAL", cfg.PollInterval); err != nil {
-		return OutboxConfig{}, err
-	}
-	if cfg.PublishTimeout, err = duration("SEBASTIAN_OUTBOX_PUBLISH_TIMEOUT", cfg.PublishTimeout); err != nil {
-		return OutboxConfig{}, err
-	}
-	if cfg.BatchSize, err = integer("SEBASTIAN_OUTBOX_BATCH_SIZE", cfg.BatchSize); err != nil {
-		return OutboxConfig{}, err
-	}
-
-	var missing []string
-	for name, value := range map[string]string{
-		"DATABASE_URL": cfg.DatabaseURL,
-		"NATS_URL":     cfg.NATSURL,
-	} {
-		if value == "" {
-			missing = append(missing, name)
-		}
-	}
-	if len(missing) > 0 {
-		return OutboxConfig{}, fmt.Errorf("missing required environment variables: %s", strings.Join(missing, ", "))
-	}
-	if cfg.PollInterval <= 0 || cfg.PublishTimeout <= 0 {
-		return OutboxConfig{}, errors.New("outbox durations must be positive")
-	}
-	if cfg.BatchSize <= 0 || cfg.BatchSize > 1000 {
-		return OutboxConfig{}, errors.New("SEBASTIAN_OUTBOX_BATCH_SIZE must be between 1 and 1000")
-	}
 	return cfg, nil
 }
 

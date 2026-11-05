@@ -16,15 +16,9 @@ import (
 	"github.com/zetesis-labs/sebastian/server/internal/database/migrations"
 	"github.com/zetesis-labs/sebastian/server/internal/device"
 	"github.com/zetesis-labs/sebastian/server/internal/meeting"
-	"github.com/zetesis-labs/sebastian/server/internal/outbox"
 	"github.com/zetesis-labs/sebastian/server/internal/recording"
 	"github.com/zetesis-labs/sebastian/server/internal/session"
 )
-
-type recordingPublisher struct {
-	events []outbox.Event
-	err    error
-}
 
 func TestMain(m *testing.M) {
 	sourceURL := os.Getenv("DATABASE_URL")
@@ -147,17 +141,12 @@ func TestRecordingCatalogueRoundTrip(t *testing.T) {
 	if err != nil || summary.Count < 1 || summary.TotalBytes < 4096 {
 		t.Fatalf("RecordingsSummary() = %#v, %v", summary, err)
 	}
-	if !eventExists(ctx, db, recordingEventID) || !outboxEventExists(ctx, db, recordingEventID) {
-		t.Fatal("recording event or outbox event is missing")
+	if !eventExists(ctx, db, recordingEventID) {
+		t.Fatal("recording event is missing")
 	}
 }
 
-func (p *recordingPublisher) Publish(_ context.Context, event outbox.Event) error {
-	p.events = append(p.events, event)
-	return p.err
-}
-
-func TestRecordSessionPersistsEventAndOutboxAtomically(t *testing.T) {
+func TestRecordSessionPersistsTheSessionAndItsEvent(t *testing.T) {
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("DATABASE_URL is not set")
@@ -191,95 +180,14 @@ func TestRecordSessionPersistsEventAndOutboxAtomically(t *testing.T) {
 	if !sessionExists(ctx, db, record.SessionID) || !eventExists(ctx, db, record.EventID) {
 		t.Fatal("session or domain event is missing")
 	}
-	outbox, err := getOutboxEvent(ctx, db, record.EventID)
-	if err != nil {
-		t.Fatalf("get outbox event: %v", err)
+	var eventType string
+	if err := db.QueryRowContext(ctx, "SELECT event_type FROM domain_events WHERE id = ?", record.EventID).Scan(&eventType); err != nil || eventType != "session.created" {
+		t.Fatalf("domain event = %q, %v", eventType, err)
 	}
-	if outbox.Subject != "evt.sebastian.v1.session.created" || outbox.EventID != record.EventID {
-		t.Fatalf("unexpected outbox event: %#v", outbox)
-	}
-}
-
-func TestProcessPendingPublishesAndSchedulesRetries(t *testing.T) {
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("DATABASE_URL is not set")
-	}
-	ctx := context.Background()
-	db, err := database.Open(databaseURL)
-	if err != nil {
-		t.Fatalf("open database: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-
-	store := NewStore(db)
-	device, err := store.FindDevice(ctx, "esp32-respeaker")
-	if err != nil {
-		t.Fatalf("find seeded device: %v", err)
-	}
-	record := session.Record{
-		SessionID:  uuid.New(),
-		DeviceID:   device.ID,
-		ProfileID:  device.ProfileID,
-		Room:       "outbox-test-" + uuid.NewString(),
-		ExpiresAt:  time.Now().UTC().Add(time.Hour),
-		EventID:    uuid.New(),
-		OccurredAt: time.Now().UTC().Add(-100 * 365 * 24 * time.Hour),
-	}
-	if err := store.RecordSession(ctx, record); err != nil {
-		t.Fatalf("RecordSession: %v", err)
-	}
-	t.Cleanup(func() { cleanupSession(context.Background(), db, record.SessionID, record.EventID) })
-
-	failing := &recordingPublisher{err: errors.New("nats unavailable")}
-	now := time.Now().UTC()
-	result, err := store.ProcessPending(ctx, now, 1, failing)
-	if err != nil {
-		t.Fatalf("ProcessPending(failure): %v", err)
-	}
-	if result.Failed != 1 || len(failing.events) != 1 || failing.events[0].ID != record.EventID {
-		t.Fatalf("unexpected failed batch: result=%#v events=%#v", result, failing.events)
-	}
-	entity, err := getOutboxEvent(ctx, db, record.EventID)
-	if err != nil {
-		t.Fatalf("get failed outbox event: %v", err)
-	}
-	if entity.Attempts != 1 || entity.LastError == nil || !entity.NextAttemptAt.After(now) {
-		t.Fatalf("retry was not scheduled: %#v", entity)
-	}
-
-	if _, err := db.ExecContext(ctx, "UPDATE outbox_events SET next_attempt_at = ? WHERE event_id = ?", now, record.EventID); err != nil {
-		t.Fatalf("make event eligible: %v", err)
-	}
-	successful := &recordingPublisher{}
-	result, err = store.ProcessPending(ctx, now, 1, successful)
-	if err != nil {
-		t.Fatalf("ProcessPending(success): %v", err)
-	}
-	if result.Published != 1 || len(successful.events) != 1 {
-		t.Fatalf("unexpected successful batch: result=%#v events=%#v", result, successful.events)
-	}
-	entity, err = getOutboxEvent(ctx, db, record.EventID)
-	if err != nil {
-		t.Fatalf("get published outbox event: %v", err)
-	}
-	if entity.PublishedAt == nil || entity.Attempts != 2 || entity.LastError != nil {
-		t.Fatalf("event was not marked published: %#v", entity)
-	}
-}
-
-type outboxEventState struct {
-	Subject       string
-	EventID       uuid.UUID
-	Attempts      int64
-	LastError     *string
-	NextAttemptAt time.Time
-	PublishedAt   *time.Time
 }
 
 func cleanupSession(ctx context.Context, db *bun.DB, sessionID uuid.UUID, eventIDs ...uuid.UUID) {
 	for _, eventID := range eventIDs {
-		_, _ = db.ExecContext(ctx, "DELETE FROM outbox_events WHERE event_id = ?", eventID)
 		_, _ = db.ExecContext(ctx, "DELETE FROM domain_events WHERE id = ?", eventID)
 	}
 	_, _ = db.ExecContext(ctx, "DELETE FROM recordings WHERE session_id = ?", sessionID)
@@ -294,34 +202,13 @@ func eventExists(ctx context.Context, db *bun.DB, id uuid.UUID) bool {
 	return rowExists(ctx, db, "SELECT EXISTS (SELECT 1 FROM domain_events WHERE id = ?)", id)
 }
 
-func outboxEventExists(ctx context.Context, db *bun.DB, id uuid.UUID) bool {
-	return rowExists(ctx, db, "SELECT EXISTS (SELECT 1 FROM outbox_events WHERE event_id = ?)", id)
-}
-
 func rowExists(ctx context.Context, db *bun.DB, query string, id uuid.UUID) bool {
 	var exists bool
 	return db.QueryRowContext(ctx, query, id).Scan(&exists) == nil && exists
 }
 
-func getOutboxEvent(ctx context.Context, db *bun.DB, eventID uuid.UUID) (outboxEventState, error) {
-	var event outboxEventState
-	err := db.QueryRowContext(ctx, `
-		SELECT subject, event_id, attempts, last_error, next_attempt_at, published_at
-		FROM outbox_events
-		WHERE event_id = ?
-	`, eventID).Scan(
-		&event.Subject,
-		&event.EventID,
-		&event.Attempts,
-		&event.LastError,
-		&event.NextAttemptAt,
-		&event.PublishedAt,
-	)
-	return event, err
-}
-
 // Spec 12 §12 observability: adoption, forget, secret regeneration and a new
-// desired config each leave a domain event in the outbox; RF-36/42: the event
+// desired config each leave a domain event; RF-36/42: the event
 // a unit reports in its poll is kept with the time it was first seen.
 func TestDeviceLifecycleLeavesDomainEventsAndKeepsTheLastEvent(t *testing.T) {
 	databaseURL := os.Getenv("DATABASE_URL")
@@ -337,7 +224,6 @@ func TestDeviceLifecycleLeavesDomainEventsAndKeepsTheLastEvent(t *testing.T) {
 	store := NewStore(db)
 	id := "test" + strings.ReplaceAll(uuid.NewString(), "-", "")[:8]
 	t.Cleanup(func() {
-		_, _ = db.ExecContext(ctx, `DELETE FROM outbox_events WHERE event_id IN (SELECT id FROM domain_events WHERE aggregate_type = 'device' AND aggregate_id = ?)`, id)
 		_, _ = db.ExecContext(ctx, `DELETE FROM domain_events WHERE aggregate_type = 'device' AND aggregate_id = ?`, id)
 		_, _ = db.ExecContext(ctx, `DELETE FROM devices WHERE id = ?`, id)
 	})
@@ -383,19 +269,19 @@ func TestDeviceLifecycleLeavesDomainEventsAndKeepsTheLastEvent(t *testing.T) {
 	if err := store.Forget(ctx, id); err != nil {
 		t.Fatalf("Forget: %v", err)
 	}
-	var subjects []string
+	var events []string
 	if err := db.NewRaw(`
-		SELECT o.subject FROM outbox_events o JOIN domain_events d ON d.id = o.event_id
-		WHERE d.aggregate_type = 'device' AND d.aggregate_id = ? ORDER BY d.occurred_at, o.subject`, id).Scan(ctx, &subjects); err != nil {
+		SELECT event_type FROM domain_events
+		WHERE aggregate_type = 'device' AND aggregate_id = ? ORDER BY occurred_at, event_type`, id).Scan(ctx, &events); err != nil {
 		t.Fatalf("list events: %v", err)
 	}
-	want := "evt.sebastian.v1.device.adopted,evt.sebastian.v1.device.config_desired,evt.sebastian.v1.device.secret_regenerated,evt.sebastian.v1.device.forgotten"
-	if strings.Join(subjects, ",") != want {
-		t.Fatalf("outbox subjects = %v", subjects)
+	want := "device.adopted,device.config_desired,device.secret_regenerated,device.forgotten"
+	if strings.Join(events, ",") != want {
+		t.Fatalf("domain events = %v", events)
 	}
 }
 
-// T-A7: a meeting's life leaves its events in the outbox atomically, the
+// T-A7: a meeting's life leaves its domain events atomically, the
 // active-per-unit lookup honours RM-05, and delete keeps the trace (RM-46).
 func TestMeetingLifecycleLeavesDomainEventsAndKeepsTheTrace(t *testing.T) {
 	databaseURL := os.Getenv("DATABASE_URL")
@@ -417,7 +303,6 @@ func TestMeetingLifecycleLeavesDomainEventsAndKeepsTheTrace(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	m := meeting.Meeting{ID: uuid.Must(uuid.NewV7()), DeviceID: deviceID, State: meeting.StateRequested, RequestedBy: meeting.OriginDashboard, RequestedAt: now, CreatedAt: now, UpdatedAt: now}
 	t.Cleanup(func() {
-		_, _ = db.ExecContext(ctx, `DELETE FROM outbox_events WHERE event_id IN (SELECT id FROM domain_events WHERE aggregate_type IN ('meeting','device') AND aggregate_id IN (?, ?))`, m.ID.String(), deviceID)
 		_, _ = db.ExecContext(ctx, `DELETE FROM domain_events WHERE aggregate_type IN ('meeting','device') AND aggregate_id IN (?, ?)`, m.ID.String(), deviceID)
 		_, _ = db.ExecContext(ctx, `DELETE FROM meetings WHERE id = ?`, m.ID)
 		_, _ = db.ExecContext(ctx, `DELETE FROM devices WHERE id = ?`, deviceID)
@@ -485,15 +370,15 @@ func TestMeetingLifecycleLeavesDomainEventsAndKeepsTheTrace(t *testing.T) {
 	if err := meetings.Delete(ctx, uuid.New(), now); !errors.Is(err, meeting.ErrNotFound) {
 		t.Fatalf("deleting an unknown meeting: %v", err)
 	}
-	var subjects []string
+	var events []string
 	if err := db.NewRaw(`
-		SELECT o.subject FROM outbox_events o JOIN domain_events d ON d.id = o.event_id
-		WHERE d.aggregate_type = 'meeting' AND d.aggregate_id = ? ORDER BY d.occurred_at, o.subject`, m.ID.String()).Scan(ctx, &subjects); err != nil {
+		SELECT event_type FROM domain_events
+		WHERE aggregate_type = 'meeting' AND aggregate_id = ? ORDER BY occurred_at, event_type`, m.ID.String()).Scan(ctx, &events); err != nil {
 		t.Fatalf("list events: %v", err)
 	}
-	want := "evt.sebastian.v1.meeting.requested,evt.sebastian.v1.meeting.started,evt.sebastian.v1.meeting.ended,evt.sebastian.v1.meeting.transcribed,evt.sebastian.v1.meeting.deleted"
-	if strings.Join(subjects, ",") != want {
-		t.Fatalf("outbox subjects = %v", subjects)
+	want := "meeting.requested,meeting.started,meeting.ended,meeting.transcribed,meeting.deleted"
+	if strings.Join(events, ",") != want {
+		t.Fatalf("domain events = %v", events)
 	}
 	if err := meetings.Drop(ctx, m.ID); err != nil {
 		t.Fatalf("Drop: %v", err)

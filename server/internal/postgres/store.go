@@ -11,7 +11,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/uptrace/bun"
-	"github.com/zetesis-labs/sebastian/server/internal/outbox"
 	"github.com/zetesis-labs/sebastian/server/internal/recording"
 	"github.com/zetesis-labs/sebastian/server/internal/session"
 )
@@ -48,20 +47,6 @@ type domainEventModel struct {
 	EventVersion  int64
 	Payload       json.RawMessage `bun:"type:jsonb"`
 	OccurredAt    time.Time
-}
-
-type outboxEventModel struct {
-	bun.BaseModel `bun:"table:outbox_events"`
-
-	ID            uuid.UUID `bun:",pk"`
-	Subject       string
-	Payload       json.RawMessage `bun:"type:jsonb"`
-	CreatedAt     time.Time
-	PublishedAt   *time.Time
-	Attempts      int64
-	LastError     *string
-	EventID       uuid.UUID
-	NextAttemptAt time.Time
 }
 
 type recordingModel struct {
@@ -150,8 +135,8 @@ func (s *Store) RecordSession(ctx context.Context, record session.Record) error 
 }
 
 // domainEvent is what every state change of interest leaves behind (spec 12
-// §12 observability): a row in domain_events and its copy in the outbox that
-// cmd/outbox publishes to NATS as evt.sebastian.v1.<type>.
+// §12 observability): a row in domain_events, the audit trail of the control
+// room, written in the same transaction as the change.
 type domainEvent struct {
 	ID            uuid.UUID // zero = generated
 	AggregateType string
@@ -185,104 +170,11 @@ func appendEvent(ctx context.Context, db bun.IDB, e domainEvent) error {
 	}).Exec(ctx); err != nil {
 		return fmt.Errorf("insert domain event %s: %w", e.Type, err)
 	}
-	if _, err := db.NewInsert().Model(&outboxEventModel{
-		ID: e.ID, EventID: e.ID, Subject: "evt.sebastian.v1." + e.Type,
-		Payload: e.Payload, CreatedAt: e.At, NextAttemptAt: e.At,
-	}).Exec(ctx); err != nil {
-		return fmt.Errorf("insert outbox event %s: %w", e.Type, err)
-	}
 	return nil
 }
 
 func (s *Store) Ping(ctx context.Context) error {
 	return s.db.PingContext(ctx)
-}
-
-type claimedOutboxEvent struct {
-	ID            uuid.UUID       `bun:"id"`
-	EventID       uuid.UUID       `bun:"event_id"`
-	Subject       string          `bun:"subject"`
-	Payload       json.RawMessage `bun:"payload"`
-	Attempts      int64           `bun:"attempts"`
-	EventType     string          `bun:"event_type"`
-	AggregateType string          `bun:"aggregate_type"`
-	AggregateID   string          `bun:"aggregate_id"`
-	OccurredAt    time.Time       `bun:"occurred_at"`
-}
-
-func (s *Store) ProcessPending(
-	ctx context.Context,
-	now time.Time,
-	limit int,
-	publisher outbox.Publisher,
-) (outbox.BatchResult, error) {
-	var result outbox.BatchResult
-	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		var claimed []claimedOutboxEvent
-		if err := tx.NewSelect().
-			TableExpr("outbox_events AS o").
-			ColumnExpr("o.id, o.event_id, o.subject, o.payload, o.attempts, d.event_type, d.aggregate_type, d.aggregate_id, d.occurred_at").
-			Join("JOIN domain_events AS d ON d.id = o.event_id").
-			Where("o.published_at IS NULL").
-			Where("o.next_attempt_at <= ?", now).
-			OrderExpr("o.created_at ASC").
-			Limit(limit).
-			For("UPDATE SKIP LOCKED").
-			Scan(ctx, &claimed); err != nil {
-			return fmt.Errorf("claim outbox events: %w", err)
-		}
-
-		result.Attempted = len(claimed)
-		for _, item := range claimed {
-			event := outbox.Event{
-				ID:            item.EventID,
-				Type:          item.EventType,
-				AggregateType: item.AggregateType,
-				AggregateID:   item.AggregateID,
-				Subject:       item.Subject,
-				OccurredAt:    item.OccurredAt,
-				Data:          item.Payload,
-			}
-			attempts := item.Attempts + 1
-			if err := publisher.Publish(ctx, event); err != nil {
-				if _, updateErr := tx.NewUpdate().
-					TableExpr("outbox_events").
-					Set("attempts = ?", attempts).
-					Set("last_error = ?", truncateError(err)).
-					Set("next_attempt_at = ?", now.Add(outbox.RetryDelay(int(attempts)))).
-					Where("id = ?", item.ID).
-					Exec(ctx); updateErr != nil {
-					return fmt.Errorf("record outbox failure %s: %w", item.ID, updateErr)
-				}
-				result.Failed++
-				continue
-			}
-			if _, err := tx.NewUpdate().
-				TableExpr("outbox_events").
-				Set("attempts = ?", attempts).
-				Set("published_at = ?", now).
-				Set("last_error = NULL").
-				Where("id = ?", item.ID).
-				Exec(ctx); err != nil {
-				return fmt.Errorf("mark outbox event %s published: %w", item.ID, err)
-			}
-			result.Published++
-		}
-		return nil
-	})
-	if err != nil {
-		return result, err
-	}
-	return result, nil
-}
-
-func truncateError(err error) string {
-	const maxRunes = 2048
-	message := []rune(err.Error())
-	if len(message) > maxRunes {
-		message = message[:maxRunes]
-	}
-	return string(message)
 }
 
 type recordingRow struct {

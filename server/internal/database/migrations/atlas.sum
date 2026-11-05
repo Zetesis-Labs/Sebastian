@@ -1,4 +1,4 @@
-h1:ki+gP9J9Dz9i2uM7Lm7LJlM9VPRd2rJzt1HcJfESW7A=
+h1:6LRTaHhAZIu1eUXYCuhuiFwU7xAjAju32JvBY9i+hz8=
 20260713232307_initial.sql h1:mqRg1oxbRmb38XLhlCVwBLI5pGx5xCK3pQ5kTswQlvU=
 20260713234301_outbox_retry_schedule.sql h1:VYS+YYRUGt5KkiQk5c3/zmolpzSHiMjukvm7RPxVc/k=
 20260714001624_recordings.sql h1:/6Lc6rcHhsvjOGq9Ex0waiDBWPxBADADtW+/TFeotnk=
@@ -10,3 +10,4 @@ h1:ki+gP9J9Dz9i2uM7Lm7LJlM9VPRd2rJzt1HcJfESW7A=
 20260918223744_meeting_limits.sql h1:guBfHIQPg4/loC+8En+MLImyc6yXFyeDoIavoTAj2O8=
 20261103192158_agent_profile_source_api_key.sql h1:Z65xpNgyTvFd0n1uiCgAAhbL7iqHqR7VYeRUYBsc5Z8=
 20261104163448_device_last_ip.sql h1:OZ1SzNTeAxNiJAuC0i3SScnai4gIsnkbbnhN5EfT98U=
+20261105004246_drop_outbox_events.sql h1:Uie5U7wyyGqu1Aw5v4/FFeK09njqL17nNsNjOybhkuI=
