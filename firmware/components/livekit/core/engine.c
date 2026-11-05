@@ -405,7 +405,10 @@ static engine_err_t send_add_video_track(engine_t *eng)
 ///
 static engine_err_t send_add_track_requests(engine_t *eng)
 {
-    if (eng->options.media.audio_info.codec != ESP_PEER_AUDIO_CODEC_NONE &&
+    // audio_info also describes what a room that only listens receives; with
+    // no capturer there is no track to announce.
+    if (eng->options.media.capturer != NULL &&
+        eng->options.media.audio_info.codec != ESP_PEER_AUDIO_CODEC_NONE &&
         send_add_audio_track(eng) != ENGINE_ERR_NONE) {
         return ENGINE_ERR_SIGNALING;
     }
