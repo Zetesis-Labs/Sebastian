@@ -9,7 +9,7 @@ Usar el [devcontainer](DEVCONTAINER.md) para compilar, instalar dependencias,
 ejecutar servicios y pasar pruebas. El host macOS solo necesita acceso USB y
 `uv` para el flasheo/bridge. No necesita compilar ESP-IDF.
 
-El Compose levanta PostgreSQL, base auxiliar de Atlas, NATS, LiveKit y
+El Compose levanta PostgreSQL, base auxiliar de Atlas, LiveKit y
 observabilidad. Antes de abrirlo, definir en `.devcontainer/.env` (ignorado por Git):
 
 ```dotenv
@@ -22,7 +22,7 @@ El SFU anuncia esa IP para medios. La placa debe poder alcanzar señalización
 
 ## Configuración de servicios
 
-El Compose proporciona las conexiones a PostgreSQL/NATS/LiveKit y secretos de
+El Compose proporciona las conexiones a PostgreSQL/LiveKit y secretos de
 administración/agente **de desarrollo**. Para adopción, configurar además en el
 proceso Go:
 
@@ -62,10 +62,6 @@ make server-run
 ```
 
 ```bash
-make server-outbox
-```
-
-```bash
 make agent
 ```
 
@@ -73,16 +69,13 @@ make agent
 make dashboard-dev
 ```
 
-La migración se ejecuta antes de usar la API. NATS puede estar temporalmente
-inaccesible sin perder los eventos ya guardados en el outbox. Comprobar
+La migración se ejecuta antes de usar la API. Comprobar
 `/healthz` y `/readyz` de la API; readiness verifica PostgreSQL, no todo el
 recorrido de audio.
 
 Mantener identificado el worker local para evitar procesos de desarrollo
 olvidados conectados al mismo entorno. El servidor hace **dispatch explícito por
 sesión**: no hace falta borrar salas ni resetear la placa para cada conversación.
-`make token` y `agent/token_server.py` son utilidades antiguas, no el recorrido
-actual de firmware/Go.
 
 ## Compilación y flasheo
 

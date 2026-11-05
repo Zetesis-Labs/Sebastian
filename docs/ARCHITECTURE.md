@@ -11,8 +11,7 @@ Referencia: código hasta `84f278b6`, 2026-09-19. Consultar
 | LiveKit | Transporte de audio WebRTC y mensajes entre dispositivo y agente. | [chart](../helm/sebastian/) |
 | Agente Python | Conversación y herramientas, o captura dedicada según el modo de la sesión. | [agent.py](../agent/agent.py) |
 | API Go | Flota, sesiones, reuniones y coordinación con LiveKit. | [cmd/api](../server/cmd/api/) |
-| PostgreSQL | Estado actual, transcripciones, auditoría y outbox transaccional. | [schema.sql](../server/db/schema.sql) |
-| Worker outbox + NATS | Publicación durable de eventos CloudEvents. | [cmd/outbox](../server/cmd/outbox/) |
+| PostgreSQL | Estado actual, transcripciones y eventos de dominio (auditoría). | [schema.sql](../server/db/schema.sql) |
 | Dashboard | Interfaz SSR y llamadas administrativas al servidor. | [dashboard](../dashboard/) |
 | Instalador | Firmware de fábrica y configuración por WebSerial. | [web-installer](../web-installer/) |
 
@@ -97,9 +96,9 @@ elige automáticamente para LiveKit Cloud salvo override; no está disponible po
 defecto en el SFU propio. La verificación remota y la grabación de diagnóstico
 son funcionalidades separadas de las reuniones.
 
-`control_plane.py` mantiene la operación `announce`: busca una sala activa con
-unidad y agente, publica el texto y el agente espera un periodo de reposo para
-hablar. Este recorrido necesita una sesión existente.
+El servidor Go gobierna los anuncios (`internal/announce`): si el altavoz está
+en conversación, publica el texto en esa sala; si está en reposo, le ordena abrir
+una sesión `announce` y el agente lo dice en la voz de su perfil.
 
 ## Perfiles y USB
 
@@ -168,10 +167,9 @@ Fuentes: [meeting](../server/internal/meeting/),
 
 ## Persistencia, acceso y despliegue
 
-PostgreSQL es la fuente de verdad. Cada operación que publica hechos guarda su
-outbox en la misma transacción. El publicador espera ACK de JetStream antes de
-marcar entrega; reintenta con backoff y deduplica por identificador del evento.
-NATS no sustituye el estado persistido ni transporta el audio de reuniones.
+PostgreSQL es la fuente de verdad. Cada operación que cambia el estado deja su
+evento en `domain_events` en la misma transacción; es el rastro de auditoría de
+la sala de control y no tiene consumidores externos.
 
 El contrato fuente es [openapi.yaml](../server/api/openapi.yaml), del que se generan
 los tipos Go y TypeScript. Atlas genera migraciones desde el esquema SQL; las
@@ -183,7 +181,7 @@ el acceso al panel depende de la protección de su red/ingress. El instalador
 embebido entrega datos de aprovisionamiento al navegador y comparte ese límite
 de confianza.
 
-El chart incluye LiveKit, NATS, API/outbox, dashboard, agente y control plane.
+El chart incluye LiveKit, API, dashboard y agente.
 Mileto configura ArgoCD, secretos e imágenes. La configuración versionada no
 acredita que esta rama esté desplegada. El audio de reuniones requiere su volumen
 persistente además de PostgreSQL; respaldar solo la base no conserva el audio.

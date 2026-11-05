@@ -27,7 +27,7 @@ trabajo abierto. [ROADMAP.md](ROADMAP.md) fija las prioridades de estabilizació
 |---|---|
 | [firmware/](firmware/) | Zig sobre ESP-IDF y SDK LiveKit C: hardware, audio, activación local, sesiones, USB y configuración persistente. |
 | [agent/](agent/) | Python con LiveKit Agents: conversación Gemini/OpenAI, Home Assistant por MCP y captura de reuniones. |
-| [server/](server/) | Go/OpenAPI: flota, sesiones, reuniones, transcripción, PostgreSQL y outbox hacia NATS JetStream. |
+| [server/](server/) | Go/OpenAPI: flota, sesiones, reuniones, transcripción y PostgreSQL. |
 | [dashboard/](dashboard/) | React/TanStack Start: administración SSR de dispositivos, grabaciones y reuniones. |
 | [web-installer/](web-installer/) | Instalación y configuración por WebSerial; disponible también dentro del dashboard. |
 | [helm/sebastian/](helm/sebastian/) | Chart del backend; configuración de despliegue en Mileto. |
@@ -58,7 +58,7 @@ en el contenedor.
 
 1. Preparar las variables y abrir el entorno según [DEVCONTAINER.md](docs/DEVCONTAINER.md).
 2. Dentro del contenedor, aplicar migraciones con `make server-migrate` y arrancar
-   `make server-run`, `make server-outbox`, `make agent` y `make dashboard-dev` en
+   `make server-run`, `make agent` y `make dashboard-dev` en
    terminales separados.
 3. Compilar con `make fw-build`; desde el host, flashear con `make flash`.
 4. Configurar/adoptar la unidad desde el instalador y el panel. Las sesiones usan
