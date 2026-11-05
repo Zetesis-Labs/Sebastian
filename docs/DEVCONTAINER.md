@@ -1,8 +1,8 @@
 # Entorno de desarrollo
 
 El devcontainer reúne compilación de firmware, agente Python, API Go y dashboard.
-El Compose añade PostgreSQL 18, una base separada para Atlas, NATS JetStream,
-LiveKit y observabilidad LGTM/Promtail. En macOS, el USB se controla desde el host.
+El Compose añade PostgreSQL 18, una base separada para Atlas, LiveKit y
+observabilidad LGTM/Promtail. En macOS, el USB se controla desde el host.
 
 ## Preparación
 
@@ -36,7 +36,6 @@ Desde `/workspace`, dentro del contenedor:
 |---|---|
 | `make server-migrate` | Aplica migraciones antes de arrancar la API. |
 | `make server-run` | API Go, publicada al host en `:8787`. |
-| `make server-outbox` | Publica el outbox a NATS. |
 | `make agent` | Worker LiveKit en modo desarrollo. |
 | `make dashboard-dev` | Panel, publicado en `:3001`. |
 | `make fw-test` / `make fw-build` | Pruebas lógicas y compilación del firmware. |
@@ -46,16 +45,13 @@ Los servicios se ejecutan en terminales separados. LiveKit expone `:7880`,
 `:7881` y UDP `:7882`; LGTM expone Grafana y OTLP según el Compose. El agente usa
 `http://lgtm:4318` para OTel dentro de la red de contenedores.
 
-`make token` queda como utilidad Python antigua. El flujo activo usa el servidor
-Go y sesiones autenticadas; no arrancar ambos en el mismo puerto.
-
 ## Volúmenes y artefactos
 
 - El código se monta en `/workspace`.
 - El venv Python vive en `agent_venv`, que cubre `/workspace/agent/.venv`: un
   intérprete instalado dentro del contenedor no debe depender de symlinks a un
   Python del host.
-- Las cachés de Go y los datos de PostgreSQL/NATS usan volúmenes separados.
+- Las cachés de Go y los datos de PostgreSQL usan volúmenes separados.
 - La base `postgres-schema` es auxiliar de Atlas; no sustituye a la base de datos
   de desarrollo.
 - `firmware/build` contiene los artefactos que luego flashea el host. No reutilizar

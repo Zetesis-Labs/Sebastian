@@ -4,7 +4,6 @@
 #   make fw-build     compila el firmware (ESP-IDF + Zig, todo en el contenedor)
 #   make fw-build-heaptrace  firmware de diagnóstico de memoria (nunca a producción)
 #   make agent        agente LiveKit en dev (hot-reload)
-#   make token        token server Python legado (:8787, publicado a la LAN)
 #   make provision    (re)carga el dashboard de Grafana
 #
 # En el HOST macOS (lo único que necesita el USB):
@@ -16,7 +15,7 @@
 #   make fw-flash                                  flashea vía rfc2217
 #   SEBASTIAN_SERIAL_URL=rfc2217://$IP:4000 make bridge
 
-.PHONY: check dashboard-check dashboard-dev fw-test fw-build fw-build-heaptrace fw-flash agent token provision flash bridge serial-share server-check server-generate server-migrate server-outbox server-run
+.PHONY: check dashboard-check dashboard-dev fw-test fw-build fw-build-heaptrace fw-flash agent provision flash bridge serial-share server-check server-generate server-migrate server-run
 
 check: fw-test
 
@@ -34,9 +33,6 @@ server-generate:
 
 server-migrate:
 	$(MAKE) -C server migrate
-
-server-outbox:
-	$(MAKE) -C server outbox
 
 server-run:
 	$(MAKE) -C server run
@@ -77,14 +73,6 @@ serial-share:
 
 agent:
 	cd agent && uv run agent.py dev
-
-token: # Compatibilidad temporal; el servicio activo es `make server-run`.
-	cd agent && uv run token_server.py
-
-# Control plane (§9): announce(text) + future modes. Bind to the Mac LAN IP so
-# Grafana/HA on the network can reach it (same reason as the token server).
-control:
-	cd agent && SEBASTIAN_CONTROL_HOST=$${SEBASTIAN_CONTROL_HOST:-127.0.0.1} uv run control_plane.py
 
 provision:
 	tools/telemetry/provision.sh
