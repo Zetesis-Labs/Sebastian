@@ -136,7 +136,7 @@ Fuentes: [device](../server/internal/device/), [adoption](../server/internal/ado
 
 ## Reuniones
 
-El servidor gobierna una entidad `meetings`, separada de `recordings`.
+El servidor gobierna la entidad `meetings`.
 El inicio llega desde panel, gesto o herramienta de voz. La orden se envía por
 UDP firmado y puede recuperarse mediante la cabecera `X-Meeting` del sondeo.
 La placa abre una sesión con `mode=meeting`; Python entra en `meeting_mode.py`

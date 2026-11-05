@@ -52,8 +52,7 @@ XVF. Elegir OpenAI como proveedor es configuración explícita, no failover auto
 Al habilitarlo, `SEBASTIAN_RECORD_DIR` (por defecto `recordings`) recibe
 `_model.wav` y `_agent.wav`; `SEBASTIAN_RECORD_TRACK=1` añade `_mic.wav`.
 El audio de entrada al modelo incluye pre-roll; la pista cruda empieza después.
-Estos archivos no se registran automáticamente en el catálogo ni reciben la
-retención de reuniones.
+Estos archivos no son reuniones ni reciben su retención.
 
 OTel exporta logs y métricas si se configura `OTEL_EXPORTER_OTLP_ENDPOINT`.
 Los anuncios llegan desde el servidor Go: por la sala abierta si hay
