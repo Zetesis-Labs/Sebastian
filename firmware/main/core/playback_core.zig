@@ -32,6 +32,17 @@ pub const Order = union(enum) {
     stop: Id,
 };
 
+/// The poll's X-Playback header: "start:<id>" or "stop:<id>"; null for
+/// anything else.
+pub fn parseOrder(header: []const u8) ?Order {
+    const colon = std.mem.indexOfScalar(u8, header, ':') orelse return null;
+    const id = parseId(header[colon + 1 ..]) orelse return null;
+    const verb = header[0..colon];
+    if (std.mem.eql(u8, verb, "start")) return .{ .start = id };
+    if (std.mem.eql(u8, verb, "stop")) return .{ .stop = id };
+    return null;
+}
+
 pub const Action = union(enum) {
     none,
     open: Id,
