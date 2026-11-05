@@ -2,8 +2,10 @@
 
 The test source of roadmap 2a: it asks the control room for a playback on
 the unit, waits for the unit to join the room and publishes the file there
-(anything ffmpeg can read, resampled to 48 kHz mono). Ctrl+C or the end of
-the file stops the playback; --keep leaves it on.
+(anything ffmpeg can read, resampled to 48 kHz). Music settings by default:
+stereo Opus at 128 kbps without DTX (DTX cuts quiet passages); --mono and
+--bitrate to compare. Ctrl+C or the end of the file stops the playback;
+--keep leaves it on.
 
     SEBASTIAN_ADMIN_SECRET=… uv run --project agent python tools/play.py \\
         --api http://localhost:18787 --device e072a1f96ef0 cancion.mp3
@@ -21,7 +23,7 @@ import urllib.request
 from livekit import rtc
 
 RATE = 48000
-FRAME = RATE // 50  # 20 ms
+FRAME = RATE // 50  # 20 ms per channel
 JOIN_WAIT_S = 40
 
 
@@ -44,27 +46,30 @@ async def wait_for_unit(room: rtc.Room, device: str) -> bool:
     return False
 
 
-async def publish(path: str, server_url: str, token: str, device: str) -> None:
+async def publish(path: str, server_url: str, token: str, device: str, channels: int, bitrate: int) -> None:
     room = rtc.Room()
     await room.connect(server_url, token)
     try:
         print(f"waiting for {device} to join (up to {JOIN_WAIT_S} s)…")
         if not await wait_for_unit(room, device):
             print("the unit did not join: publishing anyway", file=sys.stderr)
-        source = rtc.AudioSource(RATE, 1)
+        source = rtc.AudioSource(RATE, channels)
         track = rtc.LocalAudioTrack.create_audio_track("playback", source)
-        await room.local_participant.publish_track(track, rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_MICROPHONE))
+        options = rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_MICROPHONE, dtx=False)
+        options.audio_encoding.max_bitrate = bitrate
+        await room.local_participant.publish_track(track, options)
         decoder = subprocess.Popen(
-            ["ffmpeg", "-loglevel", "error", "-i", path, "-f", "s16le", "-ac", "1", "-ar", str(RATE), "-"],
+            ["ffmpeg", "-loglevel", "error", "-i", path, "-f", "s16le", "-ac", str(channels), "-ar", str(RATE), "-"],
             stdout=subprocess.PIPE,
         )
         assert decoder.stdout is not None
-        print(f"playing {path}")
+        frame_bytes = FRAME * channels * 2
+        print(f"playing {path} ({'stereo' if channels == 2 else 'mono'}, {bitrate // 1000} kbps)")
         try:
-            while chunk := decoder.stdout.read(FRAME * 2):
-                if len(chunk) < FRAME * 2:
-                    chunk += bytes(FRAME * 2 - len(chunk))
-                await source.capture_frame(rtc.AudioFrame(chunk, RATE, 1, FRAME))
+            while chunk := decoder.stdout.read(frame_bytes):
+                if len(chunk) < frame_bytes:
+                    chunk += bytes(frame_bytes - len(chunk))
+                await source.capture_frame(rtc.AudioFrame(chunk, RATE, channels, FRAME))
             await source.wait_for_playout()
         finally:
             decoder.kill()
@@ -78,6 +83,8 @@ def main() -> None:
     parser.add_argument("--api", default=os.environ.get("SEBASTIAN_API_URL", "http://localhost:8787"))
     parser.add_argument("--device", required=True)
     parser.add_argument("--keep", action="store_true", help="leave the playback on when the file ends")
+    parser.add_argument("--mono", action="store_true", help="publish one channel instead of two")
+    parser.add_argument("--bitrate", type=int, default=128_000, help="Opus bitrate in bit/s (default 128000)")
     args = parser.parse_args()
     secret = os.environ.get("SEBASTIAN_ADMIN_SECRET") or sys.exit("SEBASTIAN_ADMIN_SECRET is not set")
     base = f"{args.api.rstrip('/')}/v1/admin/devices/{args.device}/playback"
@@ -85,7 +92,7 @@ def main() -> None:
     started = admin("POST", base, secret)
     print(f"playback {started['id']} on {args.device} (order: {started['delivery']})")
     try:
-        asyncio.run(publish(args.file, started["serverUrl"], started["sourceToken"], args.device))
+        asyncio.run(publish(args.file, started["serverUrl"], started["sourceToken"], args.device, 1 if args.mono else 2, args.bitrate))
     except KeyboardInterrupt:
         pass
     finally:
