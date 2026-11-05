@@ -16,17 +16,6 @@
       "justMyCode": true
     },
     {
-      "name": "Debug: token server",
-      "type": "debugpy",
-      "request": "launch",
-      "program": "${workspaceFolder}/agent/token_server.py",
-      "cwd": "${workspaceFolder}/agent",
-      "console": "integratedTerminal",
-      "envFile": "${workspaceFolder}/agent/.env",
-      "python": "${workspaceFolder}/agent/.venv/bin/python",
-      "preLaunchTask": "uv sync (agent)"
-    },
-    {
       "name": "Firmware",
       "type": "node",
       "request": "launch",
@@ -93,13 +82,6 @@
       "description": "Telemetría & servicios",
       "options": ["Bridge (telemetría)", "Provision dashboard"],
       "default": "Bridge (telemetría)"
-    }
-  ],
-  "compounds": [
-    {
-      "name": "🚀 Launch All (token + agente)",
-      "configurations": ["Debug: token server", "Debug: agente LiveKit"],
-      "stopAll": true
     }
   ]
 }

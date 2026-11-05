@@ -27,7 +27,7 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 ENV PATH="/usr/local/go/bin:${PATH}"
 
-# uv: agente + token server + scripts (gestiona sus propios Python)
+# uv: agente + scripts (gestiona sus propios Python)
 RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
 
 # El entrypoint de la imagen ya exporta el entorno IDF, pero los shells del

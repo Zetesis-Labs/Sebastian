@@ -881,56 +881,6 @@
           "wrapLogMessage": true,
           "sortOrder": "Descending"
         }
-      },
-      {
-        "id": 28,
-        "title": "Logs — Token-server",
-        "type": "logs",
-        "datasource": {
-          "type": "loki",
-          "uid": "loki"
-        },
-        "gridPos": {
-          "x": 12,
-          "y": 52,
-          "w": 12,
-          "h": 9
-        },
-        "targets": [
-          {
-            "expr": "{service_name=\"sebastian-token-server\"}"
-          }
-        ],
-        "options": {
-          "showTime": true,
-          "wrapLogMessage": true,
-          "sortOrder": "Descending"
-        }
-      },
-      {
-        "id": 29,
-        "title": "Logs — Control-plane (announce)",
-        "type": "logs",
-        "datasource": {
-          "type": "loki",
-          "uid": "loki"
-        },
-        "gridPos": {
-          "x": 0,
-          "y": 61,
-          "w": 24,
-          "h": 9
-        },
-        "targets": [
-          {
-            "expr": "{service_name=\"sebastian-control-plane\"}"
-          }
-        ],
-        "options": {
-          "showTime": true,
-          "wrapLogMessage": true,
-          "sortOrder": "Descending"
-        }
       }
     ]
   },

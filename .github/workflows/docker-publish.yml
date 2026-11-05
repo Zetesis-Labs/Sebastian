@@ -1,8 +1,7 @@
 name: Build & Publish Backend Images
 
-# Builds the Python Sebastian images from the single agent/Dockerfile
-# (parametrised by the SERVICE build-arg) and pushes them to Harbor. Same shape
-# as ZetesisPortal's backend publish: self-hosted runner, Harbor login,
+# Builds the agent image from agent/Dockerfile and pushes it to Harbor. Same
+# shape as ZetesisPortal's backend publish: self-hosted runner, Harbor login,
 # :v<version> + :latest tags.
 #
 # Trigger manually with a version, or from a release workflow via workflow_call.
@@ -43,7 +42,7 @@ jobs:
     runs-on: ${{ vars.RUNNER || 'herschel-runners' }}
     strategy:
       matrix:
-        service: [agent, control-plane]
+        service: [agent]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -64,7 +63,6 @@ jobs:
           docker build \
             -t "${IMAGE}:${VERSION}" \
             -t "${IMAGE}:latest" \
-            --build-arg "SERVICE=${{ matrix.service }}" \
             -f agent/Dockerfile \
             agent
           docker push "${IMAGE}:${VERSION}"

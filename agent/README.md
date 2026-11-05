@@ -56,8 +56,8 @@ Estos archivos no se registran automáticamente en el catálogo ni reciben la
 retención de reuniones.
 
 OTel exporta logs y métricas si se configura `OTEL_EXPORTER_OTLP_ENDPOINT`.
-`control_plane.py` ofrece anuncios sobre una sala activa; `token_server.py`
-permanece como utilidad antigua y no es el servidor de sesiones vigente.
+Los anuncios llegan desde el servidor Go: por la sala abierta si hay
+conversación, o abriendo una sesión `announce` si el altavoz está en reposo.
 
 ## Pruebas y despliegue
 
@@ -72,6 +72,6 @@ El workflow de Python actual ejecuta Ruff; pytest requiere ejecución explícita
 Las pruebas de reuniones necesitan ffmpeg. El [plan de pruebas](../TESTING.md)
 cubre las comprobaciones de hardware y recuperación.
 
-El chart [helm/sebastian](../helm/sebastian/) despliega el worker y el control
-plane; la API Go es otra imagen. El endpoint permanente de
+El chart [helm/sebastian](../helm/sebastian/) despliega el worker; la API Go es
+otra imagen. El endpoint permanente de
 [#44](https://github.com/Zetesis-Labs/Sebastian/pull/44) sigue en una rama separada.
