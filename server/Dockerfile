@@ -14,9 +14,6 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sebastian-migrate ./cmd/migrate
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sebastian-outbox ./cmd/outbox
 
 FROM gcr.io/distroless/static-debian12:nonroot
 
@@ -24,7 +21,6 @@ FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=mwader/static-ffmpeg:7.1.1 /ffmpeg /usr/local/bin/ffmpeg
 COPY --from=builder /out/sebastian-api /usr/local/bin/sebastian-api
 COPY --from=builder /out/sebastian-migrate /usr/local/bin/sebastian-migrate
-COPY --from=builder /out/sebastian-outbox /usr/local/bin/sebastian-outbox
 
 EXPOSE 8787
 ENTRYPOINT ["/usr/local/bin/sebastian-api"]

@@ -33,29 +33,3 @@ func TestLoadReportsMissingRequiredValues(t *testing.T) {
 		t.Fatalf("Load() error = %v, want missing variables", err)
 	}
 }
-
-func TestLoadOutbox(t *testing.T) {
-	t.Setenv("DATABASE_URL", "postgres://localhost/sebastian")
-	t.Setenv("NATS_URL", "nats://localhost:4222")
-	t.Setenv("SEBASTIAN_OUTBOX_BATCH_SIZE", "25")
-	t.Setenv("SEBASTIAN_OUTBOX_POLL_INTERVAL", "250ms")
-
-	cfg, err := LoadOutbox()
-	if err != nil {
-		t.Fatalf("LoadOutbox() error = %v", err)
-	}
-	if cfg.BatchSize != 25 || cfg.PollInterval != 250*time.Millisecond {
-		t.Fatalf("unexpected outbox config: %#v", cfg)
-	}
-}
-
-func TestLoadOutboxRejectsInvalidBatchSize(t *testing.T) {
-	t.Setenv("DATABASE_URL", "postgres://localhost/sebastian")
-	t.Setenv("NATS_URL", "nats://localhost:4222")
-	t.Setenv("SEBASTIAN_OUTBOX_BATCH_SIZE", "0")
-
-	_, err := LoadOutbox()
-	if err == nil || !strings.Contains(err.Error(), "BATCH_SIZE") {
-		t.Fatalf("LoadOutbox() error = %v, want batch size validation", err)
-	}
-}

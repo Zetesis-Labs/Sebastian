@@ -17,7 +17,7 @@ import (
 )
 
 // Store persists meetings. Update carries the domain event the transition
-// produced ("" = none) so the store can leave it in the outbox atomically.
+// produced ("" = none) so the store can record it atomically.
 type Store interface {
 	Insert(ctx context.Context, m Meeting) error
 	Update(ctx context.Context, m Meeting, event string) error

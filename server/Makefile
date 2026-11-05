@@ -1,7 +1,7 @@
-.PHONY: build check fmt fmt-check generate integration migrate migration migration-validate outbox run test vet vuln
+.PHONY: build check fmt fmt-check generate integration migrate migration migration-validate run test vet vuln
 
 build:
-	go build ./cmd/api ./cmd/migrate ./cmd/outbox
+	go build ./cmd/api ./cmd/migrate
 
 generate:
 	go generate ./internal/api
@@ -17,7 +17,7 @@ test:
 	go test -race ./...
 
 integration:
-	go test -race -tags=integration ./internal/postgres ./internal/messaging
+	go test -race -tags=integration ./internal/postgres
 
 vet:
 	go vet ./...
@@ -39,6 +39,3 @@ migration-validate:
 
 run:
 	go run ./cmd/api
-
-outbox:
-	go run ./cmd/outbox

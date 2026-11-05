@@ -2,9 +2,8 @@
 
 API Go contract-first para dispositivos Sebastian, administración y coordinación
 con LiveKit. PostgreSQL es la fuente de verdad; Bun proporciona un acceso
-SQL-first con escaneos tipados, y cada cambio que deba publicarse se registra de forma atómica
-en `domain_events` y `outbox_events`. Un proceso separado entrega esos eventos
-a NATS JetStream en formato CloudEvents.
+SQL-first con escaneos tipados, y cada cambio de estado deja su evento de forma
+atómica en `domain_events`, el rastro de auditoría.
 
 ## Desarrollo
 
@@ -17,7 +16,6 @@ make generate
 make migrate
 make check
 make run       # API
-make outbox    # publicador JetStream, en otro terminal
 ```
 
 El Compose del devcontainer proporciona `DATABASE_URL`, LiveKit y PostgreSQL. La
@@ -120,18 +118,6 @@ solo con `POST /v1/sessions` y requieren `X-Device-Id` y `X-Device-Secret`.
 | `SEBASTIAN_SYSLOG_IP` / `SEBASTIAN_SYSLOG_PORT` | no | — / `514` (escrito en los devices adoptados) |
 | `SEBASTIAN_DISCOVERY_ENABLED` | no | `true` (escucha mDNS `_sebastian._tcp`; necesita red del host en Kubernetes) |
 
-El worker de outbox utiliza estas variables independientes:
-
-| Variable | Obligatoria | Valor por defecto |
-|---|---:|---|
-| `DATABASE_URL` | sí | — |
-| `NATS_URL` | sí | — |
-| `SEBASTIAN_NATS_STREAM` | no | `SEBASTIAN_EVENTS` |
-| `SEBASTIAN_NATS_SUBJECTS` | no | `evt.sebastian.v1.>` |
-| `SEBASTIAN_OUTBOX_BATCH_SIZE` | no | `50` |
-| `SEBASTIAN_OUTBOX_POLL_INTERVAL` | no | `1s` |
-| `SEBASTIAN_OUTBOX_PUBLISH_TIMEOUT` | no | `5s` |
-
 El esquema deseado se define en `db/schema.sql`. Atlas lo compara con el
 historial SQL y crea una migración versionada y revisable:
 
@@ -148,16 +134,11 @@ es idempotente:
 go run ./cmd/migrate
 ```
 
-## Entrega de eventos
-
-El worker bloquea lotes con `FOR UPDATE SKIP LOCKED`, espera el ACK de JetStream
-y solamente entonces marca el evento como publicado. Los fallos quedan
-registrados con backoff persistente. El `event_id` se usa como identificador de
-deduplicación, de modo que un fallo entre el ACK y el commit no duplica el evento
-dentro de la ventana configurada de JetStream.
+## Eventos de dominio
 
 No usamos event sourcing como fuente de verdad: PostgreSQL guarda el estado
-actual y `domain_events` conserva los hechos que interesa integrar o auditar.
+actual y `domain_events` conserva, en la misma transacción que cada cambio, los
+hechos que interesa auditar. No hay publicación a terceros.
 
 OIDC queda pospuesto. Las rutas administrativas usan temporalmente
 `X-Admin-Secret`; el dashboard lo envía exclusivamente desde sus funciones SSR,
