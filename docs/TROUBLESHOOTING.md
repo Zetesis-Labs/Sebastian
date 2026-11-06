@@ -161,7 +161,7 @@ When something fails, **prioritize the datasheet and direct measurement over gue
 - el flujo de audio de `av_render` (hilo de descodificación, descodificador Opus y el semáforo de lwip de ese hilo), que nadie cerraba al acabar la sesión;
 - los valores TXT de mDNS, en RAM interna porque `sdkconfig.defaults` pisaba la configuración de PSRAM.
 
-**Solución:** `drainAndResetSpeaker` (`main/app.zig`) resetea el reproductor cuando el altavoz se ha vaciado, y mDNS reserva en PSRAM. Tras cada sesión el estado vuelve a ser idéntico byte a byte.
+**Solución:** `drainAndResetSpeaker` (`main/app.zig`) resetea el reproductor cuando el altavoz se ha vaciado, y mDNS reserva en PSRAM. Tras cada sesión el estado vuelve a ser idéntico byte a byte. Desde el 2026-11-06 la cola y la pila del motor también están en PSRAM, así que crear la sala ya no pide esos ~14 KB a la RAM interna.
 
 **Cómo diagnosticarlo otra vez:**
 - Cada línea `heap[...]` lleva `blocks free=` (huecos), `used=`, `min=` (mínimo desde el arranque) y `alloc_fails=`. Huecos que suben con la memoria libre plana es fragmentación; `free` que baja sesión a sesión es una fuga.
