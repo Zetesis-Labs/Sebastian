@@ -18,6 +18,8 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "freertos/event_groups.h"
+#include "freertos/idf_additions.h"
+#include "esp_heap_caps.h"
 #include "media_lib_os.h"
 #include "esp_capture_sink.h"
 #include <inttypes.h>
@@ -1146,11 +1148,12 @@ static void engine_task(void *arg)
     // Discard any remaining events in the queue before exiting.
     flush_event_queue(eng);
 
-    // Signal that the task has finished so `engine_destroy` can join instead of
-    // deleting the task handle itself. Deleting from both sides races: the task
-    // self-deletes here while `engine_destroy` may still hold a now-stale handle.
+    // Signal that the task has finished and wait to be deleted: `engine_destroy`
+    // owns the deletion, because a task cannot free the PSRAM stack it runs on.
     xSemaphoreGive(eng->task_done_sem);
-    vTaskDelete(NULL);
+    while (true) {
+        vTaskSuspend(NULL);
+    }
 }
 
 static engine_err_t enable_capture_sink(engine_t *eng)
@@ -1210,9 +1213,13 @@ engine_handle_t engine_init(const engine_options_t *options)
     eng->state = ENGINE_STATE_DISCONNECTED;
     eng->is_running = true;
 
-    eng->event_queue = xQueueCreate(
+    // The queue and the task's stack live in PSRAM: every room asked internal RAM
+    // for ~14 KB in one piece for them. Nothing the task runs may use the flash
+    // (spi_flash asserts if it does), and that includes callbacks and NVS reads.
+    eng->event_queue = xQueueCreateWithCaps(
         CONFIG_LK_ENGINE_QUEUE_SIZE,
-        sizeof(engine_event_t)
+        sizeof(engine_event_t),
+        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
     );
     if (eng->event_queue == NULL) {
         goto _init_failed;
@@ -1224,13 +1231,14 @@ engine_handle_t engine_init(const engine_options_t *options)
         goto _init_failed;
     }
 
-    if (xTaskCreate(
+    if (xTaskCreateWithCaps(
         engine_task,
         "engine_task",
         CONFIG_LK_ENGINE_TASK_STACK_SIZE,
         (void *)eng,
         5,
-        &eng->task_handle
+        &eng->task_handle,
+        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
     ) != pdPASS) {
         goto _init_failed;
     }
@@ -1279,13 +1287,12 @@ engine_err_t engine_destroy(engine_handle_t handle)
         // to wake it; it will then observe `is_running == false` and exit its loop.
         event_enqueue(eng, &(engine_event_t){ .type = _EV_STOP }, true);
 
-        // Join the task rather than deleting it here: the task self-deletes via
-        // vTaskDelete(NULL), so deleting `task_handle` could act on a stale handle
-        // and crash. Only force deletion if the task fails to exit in time.
+        // Join the task, then delete it: it only suspends itself when it exits, so
+        // the handle is valid here whether or not it exited in time.
         if (xSemaphoreTake(eng->task_done_sem, pdMS_TO_TICKS(ENGINE_TASK_JOIN_TIMEOUT_MS)) != pdTRUE) {
             ESP_LOGW(TAG, "Engine task did not exit in time; forcing deletion");
-            vTaskDelete(eng->task_handle);
         }
+        vTaskDeleteWithCaps(eng->task_handle);
         eng->task_handle = NULL;
     }
     if (eng->task_done_sem != NULL) {
@@ -1314,7 +1321,7 @@ engine_err_t engine_destroy(engine_handle_t handle)
 
     if (eng->event_queue != NULL) {
         flush_event_queue(eng);
-        vQueueDelete(eng->event_queue);
+        vQueueDeleteWithCaps(eng->event_queue);
         eng->event_queue = NULL;
     }
     SAFE_FREE(eng->server_url);
