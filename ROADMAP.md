@@ -2,14 +2,13 @@
 
 ## Próximos pasos (2026-11-04)
 
-1. **Margen de RAM interna en la sesión.** Pasar a PSRAM la pila (8 KB) y la
-   cola de eventos (32 × 184 B) del motor de LiveKit
-   (`components/livekit/core/engine.c`, `xTaskCreateWithCaps` /
-   `xQueueCreateWithCaps`). Con el firmware 1.3.0 la sala aún pide ~14,4 KB
-   seguidos de RAM interna, el bloque libre más grande queda en ~16 KB tras la
-   primera sesión y el mínimo en el pico baja a ~7 KB. Condición: ni esa tarea
-   ni los callbacks que corren en ella pueden escribir en la flash (hoy no lo
-   hacen). Se valida con las líneas `heap[...]` en placa; ver
+1. **Margen de RAM interna en la sesión: hecho (2026-11-06, PR #83).** La pila
+   (8 KB) y la cola de eventos (32 × 184 B) del motor de LiveKit están en PSRAM
+   (`components/livekit/core/engine.c`). Crear la sala gasta 2,6 KB de RAM
+   interna en vez de 16,9 KB, y el mínimo en el pico sube de ~7 KB a ~15 KB.
+   Condición que se mantiene: ni esa tarea ni los callbacks que corren en ella
+   pueden usar la flash, tampoco para leer NVS (`spi_flash` aborta si lo
+   hacen). Se vigila con las líneas `heap[...]`; ver
    [TROUBLESHOOTING §13](docs/TROUBLESHOOTING.md).
 2. **Audio hacia un altavoz en reposo.** Los avisos ya llegan a un altavoz en
    reposo (hecho el 2026-11-04, PR #73: servidor 1.3.0, agente 0.1.13,
@@ -69,7 +68,7 @@
      la pista del agente hasta que termina la conversación; después vuelve a
      la música. Si más adelante se mezcla, se decidirá dónde: en el servidor,
      en una sola pista, o en la placa, con dos pistas, un segundo
-     descodificador Opus y ~7 KB de margen de RAM interna en el pico (punto 1).
+     descodificador Opus y ~15 KB de margen de RAM interna en el pico (punto 1).
    - El agente tiene una herramienta para parar la música cuando se le pide.
    - Sincronizar el mismo audio en varios altavoces (Snapcast) no se contempla
      aún, sin cerrar la puerta.
