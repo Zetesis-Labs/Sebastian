@@ -2,6 +2,28 @@
 
 All notable changes to Sebastian Server will be documented in this file.
 
+## [2.0.0](https://github.com/Zetesis-Labs/Sebastian/compare/server-v1.4.1...server-v2.0.0) (2026-11-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* **server:** drop the recordings catalogue
+* **server:** drop the outbox worker and NATS
+
+### Features
+
+* **server:** drop the outbox worker and NATS ([3bc236d](https://github.com/Zetesis-Labs/Sebastian/commit/3bc236d6edd1f512b2fb61b3e42c0f362326a56f))
+* **server:** drop the recordings catalogue ([5a26119](https://github.com/Zetesis-Labs/Sebastian/commit/5a26119b7daaa0ab8cbe4d701ff6f00a3ba910ef))
+* **server:** play a source on a unit ([eaf303b](https://github.com/Zetesis-Labs/Sebastian/commit/eaf303b548fa80cfb15dc2cc6e2326dd4c9e763e))
+* **server:** the agent can stop its unit's playback ([f76a414](https://github.com/Zetesis-Labs/Sebastian/commit/f76a414e245687dc616c5f3674f88b145f1fc426))
+
+
+### Bug Fixes
+
+* **server:** a unit can rejoin its playback room ([b4c32df](https://github.com/Zetesis-Labs/Sebastian/commit/b4c32dfaab9f9147348d85cb73e18fafd5987953))
+* **server:** playback stops, starts and joins hold under races and errors ([aca9354](https://github.com/Zetesis-Labs/Sebastian/commit/aca93542c33810abee22bc444043e14c1e074ade))
+* **server:** update kin-openapi to clear two reachable vulnerabilities ([39c6413](https://github.com/Zetesis-Labs/Sebastian/commit/39c6413ec77c4803a86308796ecd246b79bbc039))
+
 ## [1.4.1](https://github.com/Zetesis-Labs/Sebastian/compare/server-v1.4.0...server-v1.4.1) (2026-11-04)
 
 

@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.0.0](https://github.com/Zetesis-Labs/Sebastian/compare/firmware-v1.5.0...firmware-v2.0.0) (2026-11-06)
+
+
+### Features
+
+* **firmware:** listen to a playback while idle ([2d35896](https://github.com/Zetesis-Labs/Sebastian/commit/2d35896bcdca48ce571374b5f5484e1a6a8179a7))
+* **firmware:** playback rooms decode stereo ([b124955](https://github.com/Zetesis-Labs/Sebastian/commit/b1249556b9502d78db07c75a092048a84e262948))
+
+
+### Bug Fixes
+
+* **firmware:** a LiveKit room can subscribe without publishing ([98456b4](https://github.com/Zetesis-Labs/Sebastian/commit/98456b4fb049b9159628dc6043c2e92eaac00a88))
+* **firmware:** a room that only listens receives Opus ([e96bed1](https://github.com/Zetesis-Labs/Sebastian/commit/e96bed1165bacf574c29cdf45f8aa77bf84e5aed))
+* **firmware:** music in a playback room plays smoothly ([6ab8462](https://github.com/Zetesis-Labs/Sebastian/commit/6ab8462405a41401c6b8c69d2a3ef516a60613f4))
+* **firmware:** pin esp_muxer to the lock's version ([f9ad920](https://github.com/Zetesis-Labs/Sebastian/commit/f9ad9209a6dee43868a481d32964916802722753))
+* **firmware:** the LiveKit engine's stack and queue live in PSRAM ([5a2cdb4](https://github.com/Zetesis-Labs/Sebastian/commit/5a2cdb46c217c9e15cab3b24be6e03064cfb755f))
+* **firmware:** the poll's playback header is parsed in the core ([752e480](https://github.com/Zetesis-Labs/Sebastian/commit/752e48063056053655a1b2d7b8596469410a07de))
+* **firmware:** the wake word detector runs on core 1 ([2cb7c24](https://github.com/Zetesis-Labs/Sebastian/commit/2cb7c24c2e4e06d8fc754c0e8f1229dd9e18cc36))
+
 ## [1.5.0](https://github.com/Zetesis-Labs/Sebastian/compare/firmware-v1.4.0...firmware-v1.5.0) (2026-11-04)
 
 

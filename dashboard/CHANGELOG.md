@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.0.0](https://github.com/Zetesis-Labs/Sebastian/compare/dashboard-v1.5.0...dashboard-v2.0.0) (2026-11-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* **dashboard:** drop the recordings pages
+* **server:** drop the recordings catalogue
+
+### Features
+
+* **dashboard:** drop the recordings pages ([4377767](https://github.com/Zetesis-Labs/Sebastian/commit/4377767f556b28cba82121a0e9ae13a59debe00d))
+* **dashboard:** show and stop the unit's playback ([0a2ad92](https://github.com/Zetesis-Labs/Sebastian/commit/0a2ad922176aac0b27ca3e93dbeabed070d27e70))
+* **server:** drop the recordings catalogue ([5a26119](https://github.com/Zetesis-Labs/Sebastian/commit/5a26119b7daaa0ab8cbe4d701ff6f00a3ba910ef))
+
+
+### Bug Fixes
+
+* **dashboard:** regenerate the API types for the playback stop's 503 ([d4f782c](https://github.com/Zetesis-Labs/Sebastian/commit/d4f782cac434a8a1b1eef91951eba46014c7e93d))
+
 ## [1.5.0](https://github.com/Zetesis-Labs/Sebastian/compare/dashboard-v1.4.0...dashboard-v1.5.0) (2026-11-04)
 
 
