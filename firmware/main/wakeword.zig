@@ -97,7 +97,9 @@ pub fn start() void {
     detected.store(false, .release);
     ww_exited.store(false, .release);
     ww_running.store(true, .release);
-    _ = c.xTaskCreatePinnedToCore(wwTask, "wakeword", 8 * 1024, null, 2, null, 0);
+    // Core 1: with a playback room open, Adec runs on core 0 above this task
+    // and stretched its feed past the 15 ms it has per frame (cpustats build).
+    _ = c.xTaskCreatePinnedToCore(wwTask, "wakeword", 8 * 1024, null, 2, null, 1);
 }
 
 /// Block until the detection task has exited. Idempotent.
