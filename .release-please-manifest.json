@@ -1,7 +1,7 @@
 {
-  "agent": "0.1.13",
-  "helm/sebastian": "0.1.8",
-  "server": "1.4.1",
-  "dashboard": "1.5.0",
-  "firmware": "1.5.0"
+  "agent": "0.2.0",
+  "helm/sebastian": "0.1.9",
+  "server": "2.0.0",
+  "dashboard": "2.0.0",
+  "firmware": "2.0.0"
 }

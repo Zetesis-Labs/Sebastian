@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.2.0](https://github.com/Zetesis-Labs/Sebastian/compare/agent-v0.1.13...agent-v0.2.0) (2026-11-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* **agent:** drop the control plane and the token server
+
+### Features
+
+* **agent:** drop the control plane and the token server ([3f376e7](https://github.com/Zetesis-Labs/Sebastian/commit/3f376e709a23997cab5616ceb01a05eee25dc411))
+* **agent:** stop the music by voice ([cbe7e81](https://github.com/Zetesis-Labs/Sebastian/commit/cbe7e81aab09c0af0e98df9b09113f9d2eb33d13))
+
+
+### Documentation
+
+* move the September snapshots and the July explorations to docs/history ([f41acb0](https://github.com/Zetesis-Labs/Sebastian/commit/f41acb0a6aa50080710336ecccc753b88a21de03))
+* the recordings catalogue is gone ([43dfd32](https://github.com/Zetesis-Labs/Sebastian/commit/43dfd32f48ba209a8f2fb453326c03f646a2512e))
+
 ## [0.1.13](https://github.com/Zetesis-Labs/Sebastian/compare/agent-v0.1.12...agent-v0.1.13) (2026-11-04)
 
 

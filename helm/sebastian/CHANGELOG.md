@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.9](https://github.com/Zetesis-Labs/Sebastian/compare/helm-v0.1.8...helm-v0.1.9) (2026-11-06)
+
+
+### Bug Fixes
+
+* **helm:** drop NATS, the outbox container and the control plane ([02bb484](https://github.com/Zetesis-Labs/Sebastian/commit/02bb48405271f98e0bcc3354ca9032aaef169513))
+
 ## [0.1.8](https://github.com/Zetesis-Labs/Sebastian/compare/helm-v0.1.7...helm-v0.1.8) (2026-11-03)
 
 
