@@ -36,6 +36,11 @@ livekit:
   # Advertised IP in ICE candidates. Empty ⇒ the pod's node IP (downward API
   # status.hostIP) — correct under hostNetwork on a single-node LAN cluster.
   nodeIP: ""
+  # Node interfaces the SFU binds its media port on; empty = all of them. Under
+  # hostNetwork that includes the CNI's (Cilium's cilium_host): what leaves from
+  # there gets masqueraded to the node's IP with another source port, and an ICE
+  # peer as strict as the unit's discards it. Name the LAN interface.
+  interfaces: []
   ports:
     signal: 7880   # ws signalling + HTTP API
     rtcTcp: 7881   # RTC fallback TCP
