@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.11](https://github.com/Zetesis-Labs/Sebastian/compare/helm-v0.1.10...helm-v0.1.11) (2026-11-07)
+
+
+### Bug Fixes
+
+* **helm:** let LiveKit bind its media port on the LAN interface only ([fa4a932](https://github.com/Zetesis-Labs/Sebastian/commit/fa4a9324a67add277fef3e1b49fad5ea27e869ce))
+
 ## [0.1.10](https://github.com/Zetesis-Labs/Sebastian/compare/helm-v0.1.9...helm-v0.1.10) (2026-11-07)
 
 
