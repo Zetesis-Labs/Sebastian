@@ -1310,14 +1310,11 @@ engine_err_t engine_destroy(engine_handle_t handle)
         signal_destroy(eng->signal_handle);
         eng->signal_handle = NULL;
     }
-    if (eng->pub_peer_handle != NULL) {
-        peer_destroy(eng->pub_peer_handle);
-        eng->pub_peer_handle = NULL;
-    }
-    if (eng->sub_peer_handle != NULL) {
-        peer_destroy(eng->sub_peer_handle);
-        eng->sub_peer_handle = NULL;
-    }
+    // Normally the task already did this on EV_CMD_CLOSE. If it was busy when
+    // is_running went false it left without taking that event, and the peers'
+    // tasks are still alive: they must stop before the queue and `eng` go, or
+    // their next state change writes to freed memory.
+    destroy_peer_connections(eng);
 
     if (eng->event_queue != NULL) {
         flush_event_queue(eng);
