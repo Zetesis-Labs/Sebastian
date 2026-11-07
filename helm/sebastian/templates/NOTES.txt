@@ -10,6 +10,9 @@ Workloads:
 {{- if .Values.agent.enabled }}
   • agent         LiveKit worker (endpoint mode: {{ ternary "ON" "off" .Values.agent.endpointMode }})
 {{- end }}
+{{- if .Values.airplayBridge.enabled }}
+  • airplayBridge {{ len .Values.airplayBridge.speakers }} AirPlay receiver(s) (hostNetwork)
+{{- end }}
 
 Device wiring (same LAN as the cluster node):
   - Provision the ESP32 tokenServerUrl at the server ingress host (or the

@@ -2,11 +2,12 @@
 # Sebastian backend — default values. Mirrors ZetesisPortal's chart shape
 # (per-service blocks, existingSecret env, hardened securityContext, ingress).
 #
-# Four workloads:
-#   - livekit       self-hosted SFU (official image, hostNetwork for LAN media)
-#   - server        Go API + device sessions (:8787)
-#   - dashboard     TanStack Start administration panel (:3001)
-#   - agent         LiveKit agent worker (outbound-only, no service)
+# Five workloads:
+#   - livekit        self-hosted SFU (official image, hostNetwork for LAN media)
+#   - server         Go API + device sessions (:8787)
+#   - dashboard      TanStack Start administration panel (:3001)
+#   - agent          LiveKit agent worker (outbound-only, no service)
+#   - airplayBridge  one AirPlay receiver per speaker (hostNetwork, off by default)
 #
 # The ESP32 device and LiveKit sit on the SAME LAN, so media (UDP) and signalling
 # reach the node IP directly; only the HTTP faces go through the ingress.
@@ -198,6 +199,39 @@ agent:
       memory: 256Mi
     limits:
       memory: 1Gi
+
+# ----------------------------------------------------------------------------
+# AIRPLAY BRIDGE — each speaker as an AirPlay receiver (classic AirPlay)
+# ----------------------------------------------------------------------------
+airplayBridge:
+  enabled: false
+  image:
+    repository: gauss.nexolabs.dev/sebastian/airplay-bridge
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  # existingSecret key: SEBASTIAN_ADMIN_SECRET (opens and ends the playback).
+  existingSecret: ""
+  # The control room; empty = this chart's server service.
+  apiURL: ""
+  # The node's network interface to announce on; empty = its first one.
+  interface: ""
+  # Moves the output from what the source asked for, in seconds. Sources delay
+  # their video by what they asked for, so this is what keeps lips in sync:
+  # tuned by eye, with an iPhone and YouTube. Music only notices it at play and
+  # pause. A speaker can override it with its own latencyOffsetSeconds.
+  latencyOffsetSeconds: 0.5
+  # One receiver per entry. Ports at least 20 apart: each one also takes the 10
+  # UDP ports right after its own.
+  #   - deviceId: e072a1f96ef0
+  #     name: Sebastian       # as listed in the AirPlay menus
+  #     port: 5000
+  speakers: []
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
 
 # ----------------------------------------------------------------------------
 # INGRESS (shared) — HTTP faces only (server, dashboard).

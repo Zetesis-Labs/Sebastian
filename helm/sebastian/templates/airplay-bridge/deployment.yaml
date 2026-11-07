@@ -1,0 +1,78 @@
+{{- if .Values.airplayBridge.enabled }}
+{{- $secret := required "airplayBridge.existingSecret must be set (key: SEBASTIAN_ADMIN_SECRET)" .Values.airplayBridge.existingSecret }}
+{{- range .Values.airplayBridge.speakers }}
+{{- $name := printf "%s-airplay-%s" (include "sebastian.fullname" $) .deviceId }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "sebastian.labels" $ | nindent 4 }}
+    {{- include "sebastian.selectorLabels" (dict "ctx" $ "component" "airplay-bridge") | nindent 4 }}
+    sebastian.zetesis.dev/device: {{ .deviceId | quote }}
+spec:
+  replicas: 1
+  # hostNetwork: the new pod cannot bind the receiver's ports until the old one lets go.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "sebastian.selectorLabels" (dict "ctx" $ "component" "airplay-bridge") | nindent 6 }}
+      sebastian.zetesis.dev/device: {{ .deviceId | quote }}
+  template:
+    metadata:
+      labels:
+        {{- include "sebastian.labels" $ | nindent 8 }}
+        {{- include "sebastian.selectorLabels" (dict "ctx" $ "component" "airplay-bridge") | nindent 8 }}
+        sebastian.zetesis.dev/device: {{ .deviceId | quote }}
+    spec:
+      # An AirPlay receiver announces itself by mDNS and takes UDP from its
+      # sources on the LAN: neither gets through the pod network.
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- with $.Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- include "sebastian.appSecurityContext" $ | nindent 8 }}
+      containers:
+        - name: bridge
+          image: "{{ $.Values.airplayBridge.image.repository }}:{{ $.Values.airplayBridge.image.tag }}"
+          imagePullPolicy: {{ $.Values.airplayBridge.image.pullPolicy }}
+          securityContext:
+            {{- include "sebastian.containerSecurityContext" $ | nindent 12 }}
+          env:
+            - name: SEBASTIAN_API_URL
+              value: {{ $.Values.airplayBridge.apiURL | default (printf "http://%s-server:%d" (include "sebastian.fullname" $) (int $.Values.server.service.port)) | quote }}
+            - name: SEBASTIAN_ADMIN_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secret }}
+                  key: SEBASTIAN_ADMIN_SECRET
+            - name: SEBASTIAN_AIRPLAY_DEVICE_ID
+              value: {{ .deviceId | quote }}
+            - name: SEBASTIAN_AIRPLAY_NAME
+              value: {{ .name | quote }}
+            - name: SEBASTIAN_AIRPLAY_PORT
+              value: {{ .port | quote }}
+            - name: SEBASTIAN_AIRPLAY_LATENCY_OFFSET
+              value: {{ dig "latencyOffsetSeconds" $.Values.airplayBridge.latencyOffsetSeconds . | quote }}
+            {{- with $.Values.airplayBridge.interface }}
+            - name: SEBASTIAN_AIRPLAY_INTERFACE
+              value: {{ . | quote }}
+            {{- end }}
+            - name: TMPDIR
+              value: /tmp
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            {{- toYaml $.Values.airplayBridge.resources | nindent 12 }}
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 1Mi
+{{- end }}
+{{- end }}

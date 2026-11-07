@@ -12,6 +12,7 @@ acredita su despliegue. Estado de integración y release:
 | `server` | API Go y migraciones | Servicio 8787; `hostPort` configurable para la LAN. |
 | `dashboard` | Panel SSR e instalador | Servicio 3001 e ingress configurable. |
 | `agent` | Worker de conversación o captura | Conecta al SFU; sin servicio HTTP propio. |
+| `airplayBridge` | Un receptor AirPlay por altavoz (apagado por defecto) | `hostNetwork`; TCP `port`, los 10 UDP siguientes y mDNS 5353. |
 
 La configuración de producción vive en
 `Mileto-Infra-GitOps/px-platon/cortes/helm/sebastian-values*.yaml` y las versiones
