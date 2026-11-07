@@ -167,3 +167,14 @@ When something fails, **prioritize the datasheet and direct measurement over gue
 - Cada línea `heap[...]` lleva `blocks free=` (huecos), `used=`, `min=` (mínimo desde el arranque) y `alloc_fails=`. Huecos que suben con la memoria libre plana es fragmentación; `free` que baja sesión a sesión es una fuga.
 - Una reserva fallida queda registrada y sale en la siguiente línea `heap[...]` como `alloc failed #N size= caps= task= … bt 0x…`. Se descifra con `xtensa-esp32s3-elf-addr2line -pfiaC -e build/sebastian.elf <bt…>`.
 - Para saber QUIÉN deja bloques vivos: `make fw-build-heaptrace`, `SEBASTIAN_BUILD_DIR=build-heaptrace make flash`, unas cuantas sesiones y `python3 tools/heaptrace_decode.py --loki http://<loki>:3100` en el devcontainer. Cada sesión escribe los bloques de RAM interna que la sobreviven con su pila de llamadas. Cuesta ~2 KB de RAM interna: nunca a producción.
+
+---
+
+## 14. La placa entra en la sala pero no hay sonido y reintenta en bucle (`Not found for bind remote <nodo>:<puerto raro>`)
+
+**Síntoma:** el agente o la música no suenan. En el log de la placa se repiten `Send binding request` y `room state: Reconnecting`, y `Not found for bind remote` trae un puerto que no es el 7882. LiveKit registra `removing participant without connection`. Pasó una vez, el 2026-11-07, tras reiniciarse LiveKit en un despliegue.
+
+**Causa, sin confirmar:** en el nodo no había ningún proceso en ese puerto, así que algo reescribía el origen. Con `hostNetwork`, LiveKit también abre el 7882 en `cilium_host` (10.244.x). La hipótesis es que lo que sale por ahí se enmascara con la IP del nodo y otro puerto, y que la placa, a diferencia de libwebrtc, lo descarta.
+
+**Solución:** se recuperó reiniciando LiveKit y la placa, a la vez, así que no se sabe cuál de los dos lo arregló. `livekit.interfaces: [ens18]` deja el puerto solo en la red de casa. Si reaparece con eso puesto, la hipótesis es falsa.
+
