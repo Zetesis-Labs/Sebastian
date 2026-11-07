@@ -18,6 +18,11 @@ make check
 make run       # API
 ```
 
+`cmd/airplay-bridge` es el único binario con cgo (Opus): necesita `libopus` y
+`libopusfile` para compilar, y `shairport-sync` para correr. Tiene su propia
+imagen (`Dockerfile.airplay-bridge`), que se publica con la misma versión que la
+del servidor.
+
 El Compose del devcontainer proporciona `DATABASE_URL`, LiveKit y PostgreSQL. La
 API escucha en `:8787` y el puerto ya está publicado al host.
 
