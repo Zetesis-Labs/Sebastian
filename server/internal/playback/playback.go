@@ -1,5 +1,5 @@
 // Package playback makes a speaker play audio that is not its agent: a source
-// (a test script today, the AirPlay bridge later) publishes into a room the
+// (the AirPlay bridge, or tools/play.py to test) publishes into a room the
 // unit joins only to listen. The unit is ordered, like a meeting, over the
 // LAN and by its next poll; it keeps the room open while it idles, leaves it
 // to attend the wake word, an announcement or a meeting, and comes back while

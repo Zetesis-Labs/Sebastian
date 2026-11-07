@@ -1,7 +1,7 @@
 .PHONY: build check fmt fmt-check generate integration migrate migration migration-validate run test vet vuln
 
 build:
-	go build ./cmd/api ./cmd/migrate
+	go build ./cmd/api ./cmd/migrate ./cmd/airplay-bridge
 
 generate:
 	go generate ./internal/api
