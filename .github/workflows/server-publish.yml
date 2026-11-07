@@ -30,6 +30,7 @@ on:
 env:
   REGISTRY: ${{ vars.REGISTRY || 'gauss.nexolabs.dev' }}
   IMAGE: sebastian/server
+  BRIDGE_IMAGE: sebastian/airplay-bridge
 
 jobs:
   build:
@@ -53,3 +54,13 @@ jobs:
             server
           docker push "${REGISTRY}/${IMAGE}:${VERSION}"
           docker push "${REGISTRY}/${IMAGE}:latest"
+      - name: Build and push the AirPlay bridge
+        run: |
+          VERSION="v${{ inputs.version }}"
+          docker build \
+            -f server/Dockerfile.airplay-bridge \
+            -t "${REGISTRY}/${BRIDGE_IMAGE}:${VERSION}" \
+            -t "${REGISTRY}/${BRIDGE_IMAGE}:latest" \
+            server
+          docker push "${REGISTRY}/${BRIDGE_IMAGE}:${VERSION}"
+          docker push "${REGISTRY}/${BRIDGE_IMAGE}:latest"

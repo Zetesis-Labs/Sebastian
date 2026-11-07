@@ -45,6 +45,9 @@ jobs:
           go-version: "1.26.x"
           cache-dependency-path: server/go.sum
       - uses: ariga/setup-atlas@v0
+      # cmd/airplay-bridge encodes Opus through cgo.
+      - name: Install libopus
+        run: sudo apt-get update && sudo apt-get install -y libopus-dev libopusfile-dev
       - run: go mod download
       - name: Verify generated OpenAPI bindings
         run: |
