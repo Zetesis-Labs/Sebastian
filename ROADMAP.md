@@ -44,12 +44,18 @@
      Bluetooth clásico (A2DP). Un receptor DLNA en el mismo puente, solo si se
      echa en falta el botón de enviar de alguna app.
 
-     AirPlay se descubre por mDNS, que no pasa de la red de casa (10.0.0.x) a
-     cortes (10.0.100.x). Decidido (Rubén, 2026-11-04): repetidor de mDNS en
-     el router de casa (VyOS, `service mdns repeater`) y el puente con
-     `hostNetwork`, como LiveKit, porque desde la red de pods la multidifusión
-     no sale del nodo. De paso, prod podría ver las placas por mDNS
-     (`discovery: true`).
+     AirPlay se descubre por mDNS. El puente va con `hostNetwork`, como
+     LiveKit, porque desde la red de pods la multidifusión no sale del nodo.
+     El repetidor de mDNS en el router que se decidió el 2026-11-04 sobra: casa
+     y cortes comparten segmento (Rubén, 2026-11-05).
+
+     Implementado en `server/internal/airplay`, con una instancia fija por
+     altavoz en el chart (`airplayBridge`). Usa AirPlay clásico, sin NQPTP, así
+     que varios receptores caben en un nodo; a cambio, no agrupa con altavoces
+     AirPlay 2. Medido en placa el 2026-11-07: del puente al altavoz tarda
+     0,53–0,60 s, y con `latencyOffsetSeconds: 0.5` los labios van a la par
+     con YouTube en un iPhone. Ese ajuste se hizo a ojo y con una sola app. Sin
+     medir: si el retraso se desvía en una película entera.
 
    En el firmware: las órdenes `play-start`/`play-stop` por la LAN firmada y
    la cabecera `X-Playback` de la consulta, con su propio hueco en el buzón

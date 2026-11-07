@@ -136,6 +136,30 @@ Fuentes: [device](../server/internal/device/), [adoption](../server/internal/ado
 [control.zig](../firmware/main/control.zig) y
 [especificación funcional](implementation/12-fleet-adoption-functional-spec.md).
 
+## Reproducción y AirPlay
+
+Una reproducción es una sala de LiveKit a la que la placa entra solo a escuchar
+mientras está en reposo, ordenada desde `server/internal/playback`. La palabra,
+un aviso o una reunión la sacan de la sala, y vuelve si la reproducción sigue.
+El estado vive en la memoria del servidor.
+
+La fuente habitual es el puente AirPlay (`cmd/airplay-bridge`), un proceso por
+altavoz. Lanza `shairport-sync` en AirPlay clásico como hijo, lee su audio y lo
+publica en la sala con Opus estéreo a 128 kbps sin DTX. Abre la reproducción al
+llegar audio y la termina tras 15 s sin él. Mientras emite consulta cada 5 s si
+sigue activa, porque el servidor no avisa a la fuente: si alguien la paró, por
+voz o desde el panel, calla hasta que acabe la emisión de AirPlay para no
+deshacer esa orden.
+
+Un reinicio del servidor también acaba la reproducción, y desde el puente no se
+distingue de una parada: el altavoz calla hasta que la fuente pause más de 15 s.
+
+Corre con `hostNetwork` porque el receptor se anuncia por mDNS y recibe UDP de
+sus fuentes en la LAN. `latencyOffsetSeconds` ajusta cuándo sale el audio
+respecto a lo que pidió la fuente: es lo que mantiene los labios a la par, ya
+que el iPhone retrasa el vídeo según lo que acuerda con el receptor. Desde Music
+Assistant no hay vídeo que compensar.
+
 ## Reuniones
 
 El servidor gobierna la entidad `meetings`.
