@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.10](https://github.com/Zetesis-Labs/Sebastian/compare/helm-v0.1.9...helm-v0.1.10) (2026-11-07)
+
+
+### Bug Fixes
+
+* **helm:** add the AirPlay bridge, one receiver per speaker ([774e522](https://github.com/Zetesis-Labs/Sebastian/commit/774e5228703425c94af3f1cc89efedc693c0ba4d))
+
 ## [0.1.9](https://github.com/Zetesis-Labs/Sebastian/compare/helm-v0.1.8...helm-v0.1.9) (2026-11-06)
 
 

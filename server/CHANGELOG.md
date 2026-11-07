@@ -2,6 +2,13 @@
 
 All notable changes to Sebastian Server will be documented in this file.
 
+## [2.1.0](https://github.com/Zetesis-Labs/Sebastian/compare/server-v2.0.0...server-v2.1.0) (2026-11-07)
+
+
+### Features
+
+* **server:** expose a speaker as an AirPlay receiver ([34c9c37](https://github.com/Zetesis-Labs/Sebastian/commit/34c9c37a239bc6359b8a0d7de9b03238b7ead636))
+
 ## [2.0.0](https://github.com/Zetesis-Labs/Sebastian/compare/server-v1.4.1...server-v2.0.0) (2026-11-06)
 
 
