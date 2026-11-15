@@ -178,3 +178,14 @@ When something fails, **prioritize the datasheet and direct measurement over gue
 
 **Solución:** se recuperó reiniciando LiveKit y la placa, a la vez, así que no se sabe cuál de los dos lo arregló. `livekit.interfaces: [ens18]` deja el puerto solo en la red de casa. Si reaparece con eso puesto, la hipótesis es falsa.
 
+---
+
+## 15. El anillo se pone azul al oír la palabra pero nunca verde, y la placa no consulta al servidor
+
+**Síntoma:** la placa oye «Okay Nabu» (anillo azul, «conectando») pero la sesión no llega a abrirse. En el servidor no aparece ninguna petición de esa placa (`/v1/devices/<id>/desired-profile` cada 30 s), su syslog en Loki se corta de golpe sin pánico ni reinicio, y no responde al ping. Pasó el 2026-11-08 a las 13:50 y duró una semana.
+
+**Causa raíz:** hasta el firmware que corrige esto, tras una caída de la wifi la placa reintentaba 20 veces seguidas y se rendía para siempre: el aviso de «sin red» solo lo escucha el arranque. Bastaba con que el punto de acceso tardara más de un minuto en volver para dejarla sin red, mientras el detector de la palabra seguía funcionando. Al arrancar pasaba lo mismo: tras un corte de luz, si el router tardaba más que la placa, esta se rendía y se quedaba parada.
+
+**Solución:** `main/core/wifi_core.zig` decide los reintentos. Solo la prueba de una wifi nueva se rinde tras 20 intentos seguidos, porque la necesita para volver a la anterior. En cualquier otro caso, al arrancar o tras una caída, la placa no se rinde nunca y espera entre intentos 1 s, 2 s, 4 s… hasta un máximo de 3 minutos. Un intento que falla sin llegar a desconectar (`esp_wifi_connect` con error) cuenta como uno más, así que la cadena no se corta.
+
+**Cómo diagnosticarlo:** mientras no hay red, el syslog pierde lo que escribe la placa, así que las líneas `No WiFi (reason=N): retry in M ms` no llegan a Loki. Tras una caída con la placa ya en marcha, al recuperar la IP escribe `Back online after S s offline (N failed attempts, last reason=R)`, que sí llega: `{job="device-syslog"} |= "Back online"`. `reason` es el código de desconexión de ESP-IDF (`wifi_err_reason_t`; 201 = no encuentra el punto de acceso) o -1 si falló la llamada a conectar. Con un firmware anterior, quitarle la corriente la recupera.
