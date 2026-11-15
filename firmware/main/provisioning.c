@@ -134,51 +134,73 @@ int32_t sebastian_cfg_get_i32(const char *key, int32_t def) {
 }
 
 // ── Station bring-up (mirrors livekit_example_net.c, creds from load above) ──
+#define CONNECT_FAILED_REASON (-1)
+
+static int64_t offline_since_us;
+static uint32_t offline_attempts;
+static int last_offline_reason;
+
+static void note_offline(int reason) {
+    if (offline_since_us == 0) offline_since_us = esp_timer_get_time();
+    offline_attempts++;
+    last_offline_reason = reason;
+}
+
+static void report_back_online(void) {
+    if (offline_since_us == 0) return;
+    ESP_LOGW(TAG, "Back online after %lld s offline (%lu failed attempts, last reason=%d)",
+             (long long)((esp_timer_get_time() - offline_since_us) / 1000000),
+             (unsigned long)offline_attempts, last_offline_reason);
+    offline_since_us = 0;
+    offline_attempts = 0;
+}
+
 static void ip_event_handler(void *arg, esp_event_base_t base, int32_t id, void *data) {
     (void)arg; (void)base; (void)id;
     ip_event_got_ip_t *event = (ip_event_got_ip_t *)data;
     ESP_LOGI(TAG, "Connected: ip=" IPSTR ", gw=" IPSTR,
              IP2STR(&event->ip_info.ip), IP2STR(&event->ip_info.gw));
+    report_back_online();
     sebastian_wifi_got_ip();
     xEventGroupSetBits(net_events, NET_CONNECTED);
 }
 
-static void reconnect(void *arg) {
-    (void)arg;
-    esp_wifi_connect();
-}
-
-static void schedule_reconnect(int32_t pause_ms) {
-    if (pause_ms == 0) {
-        esp_wifi_connect();
+static void schedule_next_attempt(int reason) {
+    note_offline(reason);
+    const int32_t pause_ms = sebastian_wifi_next_attempt_ms();
+    if (pause_ms < 0) {
+        ESP_LOGE(TAG, "Unable to establish connection (reason=%d)", reason);
+        xEventGroupSetBits(net_events, NET_FAILED);
         return;
     }
+    ESP_LOGI(TAG, "No WiFi (reason=%d): retry in %ld ms", reason, (long)pause_ms);
     esp_timer_stop(reconnect_timer);
     const esp_err_t err = esp_timer_start_once(reconnect_timer, (uint64_t)pause_ms * 1000);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "reconnect timer: %s — retrying now", esp_err_to_name(err));
-        esp_wifi_connect();
-    }
+    if (err != ESP_OK) ESP_LOGE(TAG, "reconnect timer: %s — WiFi retries stopped", esp_err_to_name(err));
+}
+
+// A connect that fails up front raises no STA_DISCONNECTED, so it must count as an attempt.
+static void connect_or_schedule(void) {
+    const esp_err_t err = esp_wifi_connect();
+    if (err == ESP_OK) return;
+    ESP_LOGE(TAG, "esp_wifi_connect: %s", esp_err_to_name(err));
+    schedule_next_attempt(CONNECT_FAILED_REASON);
+}
+
+static void reconnect(void *arg) {
+    (void)arg;
+    connect_or_schedule();
 }
 
 static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, void *data) {
     (void)arg; (void)base;
     switch (id) {
     case WIFI_EVENT_STA_START:
-        esp_wifi_connect();
+        connect_or_schedule();
         break;
-    case WIFI_EVENT_STA_DISCONNECTED: {
-        const wifi_event_sta_disconnected_t *event = (const wifi_event_sta_disconnected_t *)data;
-        const int32_t pause_ms = sebastian_wifi_next_attempt_ms();
-        if (pause_ms < 0) {
-            ESP_LOGE(TAG, "Unable to establish connection (reason=%d)", event->reason);
-            xEventGroupSetBits(net_events, NET_FAILED);
-            break;
-        }
-        ESP_LOGI(TAG, "Disconnected (reason=%d): retry in %ld ms", event->reason, (long)pause_ms);
-        schedule_reconnect(pause_ms);
-        return;
-    }
+    case WIFI_EVENT_STA_DISCONNECTED:
+        schedule_next_attempt(((const wifi_event_sta_disconnected_t *)data)->reason);
+        break;
     default:
         break;
     }
