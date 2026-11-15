@@ -9,6 +9,7 @@ const pre_roll = @import("main/core/pre_roll_core.zig");
 const reducer = @import("main/core/session_reducer.zig");
 const selector = @import("main/core/selector_core.zig");
 const session = @import("main/core/session_core.zig");
+const wifi = @import("main/core/wifi_core.zig");
 
 fn rawSample(sample: i32) i32 {
     const scale: i32 = @as(i32, 1) << pcm.SHIFT;
@@ -1616,4 +1617,52 @@ test "playback: the poll header is start or stop of a UUID, nothing else" {
     }) |bad| {
         try std.testing.expect(playback.parseOrder(bad) == null);
     }
+}
+
+fn dropFor(st: *wifi.State, attempts: usize) wifi.Next {
+    var last: wifi.Next = .give_up;
+    for (0..attempts) |_| last = st.disconnected();
+    return last;
+}
+
+test "wifi: joining at boot retries at once and gives up after JOIN_ATTEMPTS" {
+    var st = wifi.State{};
+    for (0..wifi.JOIN_ATTEMPTS) |_| {
+        try std.testing.expectEqualDeep(wifi.Next{ .retry_in_ms = 0 }, st.disconnected());
+    }
+    try std.testing.expectEqual(wifi.Next.give_up, st.disconnected());
+}
+
+test "wifi: once online, a network that stays down is retried forever" {
+    var st = wifi.State{};
+    st.gotIp();
+    for (0..10_000) |_| {
+        try std.testing.expect(st.disconnected() != .give_up);
+    }
+}
+
+test "wifi: once online, the pause doubles from one second up to three minutes" {
+    var st = wifi.State{};
+    st.gotIp();
+    const expected = [_]u32{ 1_000, 2_000, 4_000, 8_000, 16_000, 32_000, 64_000, 128_000, 180_000, 180_000 };
+    for (expected) |ms| {
+        try std.testing.expectEqualDeep(wifi.Next{ .retry_in_ms = ms }, st.disconnected());
+    }
+    try std.testing.expectEqual(@as(u32, 180_000), wifi.MAX_PAUSE_MS);
+    try std.testing.expectEqualDeep(wifi.Next{ .retry_in_ms = wifi.MAX_PAUSE_MS }, dropFor(&st, 100_000));
+}
+
+test "wifi: a reconnection starts the next outage from the shortest pause" {
+    var st = wifi.State{};
+    st.gotIp();
+    _ = dropFor(&st, 50);
+    st.gotIp();
+    try std.testing.expectEqualDeep(wifi.Next{ .retry_in_ms = wifi.FIRST_PAUSE_MS }, st.disconnected());
+}
+
+test "wifi: attempts spent joining at boot do not count once online" {
+    var st = wifi.State{};
+    _ = dropFor(&st, wifi.JOIN_ATTEMPTS);
+    st.gotIp();
+    try std.testing.expectEqualDeep(wifi.Next{ .retry_in_ms = wifi.FIRST_PAUSE_MS }, st.disconnected());
 }

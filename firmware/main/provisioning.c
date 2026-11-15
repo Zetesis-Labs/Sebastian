@@ -34,6 +34,9 @@
 
 static const char *TAG = "provisioning";
 
+void sebastian_wifi_got_ip(void);
+int32_t sebastian_wifi_next_attempt_ms(void);
+
 #define NVS_NS "sebastian"
 #define PROV_PREFIX "sebastian.config.v1 "
 #define PROV_SCHEMA "sebastian.config.v1"
@@ -47,10 +50,9 @@ static const char *TAG = "provisioning";
 
 #define NET_CONNECTED (1 << 0)
 #define NET_FAILED (1 << 1)
-#define MAX_RETRIES 20
 
 static EventGroupHandle_t net_events;
-static int retry_attempt;
+static esp_timer_handle_t reconnect_timer;
 static bool usj_ready; // usb_serial_jtag driver installed (also used for replies)
 static int64_t hold_until_us;
 
@@ -136,26 +138,46 @@ static void ip_event_handler(void *arg, esp_event_base_t base, int32_t id, void 
     ip_event_got_ip_t *event = (ip_event_got_ip_t *)data;
     ESP_LOGI(TAG, "Connected: ip=" IPSTR ", gw=" IPSTR,
              IP2STR(&event->ip_info.ip), IP2STR(&event->ip_info.gw));
-    retry_attempt = 0;
+    sebastian_wifi_got_ip();
     xEventGroupSetBits(net_events, NET_CONNECTED);
 }
 
+static void reconnect(void *arg) {
+    (void)arg;
+    esp_wifi_connect();
+}
+
+static void schedule_reconnect(int32_t pause_ms) {
+    if (pause_ms == 0) {
+        esp_wifi_connect();
+        return;
+    }
+    esp_timer_stop(reconnect_timer);
+    const esp_err_t err = esp_timer_start_once(reconnect_timer, (uint64_t)pause_ms * 1000);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "reconnect timer: %s — retrying now", esp_err_to_name(err));
+        esp_wifi_connect();
+    }
+}
+
 static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, void *data) {
-    (void)arg; (void)base; (void)data;
+    (void)arg; (void)base;
     switch (id) {
     case WIFI_EVENT_STA_START:
         esp_wifi_connect();
         break;
-    case WIFI_EVENT_STA_DISCONNECTED:
-        if (retry_attempt < MAX_RETRIES) {
-            ESP_LOGI(TAG, "Retry: attempt=%d", retry_attempt + 1);
-            esp_wifi_connect();
-            retry_attempt++;
-            return;
+    case WIFI_EVENT_STA_DISCONNECTED: {
+        const wifi_event_sta_disconnected_t *event = (const wifi_event_sta_disconnected_t *)data;
+        const int32_t pause_ms = sebastian_wifi_next_attempt_ms();
+        if (pause_ms < 0) {
+            ESP_LOGE(TAG, "Unable to establish connection (reason=%d)", event->reason);
+            xEventGroupSetBits(net_events, NET_FAILED);
+            break;
         }
-        ESP_LOGE(TAG, "Unable to establish connection");
-        xEventGroupSetBits(net_events, NET_FAILED);
-        break;
+        ESP_LOGI(TAG, "Disconnected (reason=%d): retry in %ld ms", event->reason, (long)pause_ms);
+        schedule_reconnect(pause_ms);
+        return;
+    }
     default:
         break;
     }
@@ -206,6 +228,8 @@ bool sebastian_net_connect(void) {
     if (trial) ESP_LOGW(TAG, "wifi trial: %s must obtain an IP within %d s or the previous network is restored", ssid, WIFI_TRIAL_MS / 1000);
 
     if (!net_events) net_events = xEventGroupCreate();
+    const esp_timer_create_args_t reconnect_args = {.callback = reconnect, .name = "wifi_reconnect"};
+    ESP_ERROR_CHECK(esp_timer_create(&reconnect_args, &reconnect_timer));
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     esp_netif_create_default_wifi_sta();

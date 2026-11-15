@@ -38,6 +38,10 @@ const reducer = @import("core/session_reducer.zig");
 const token = @import("token.zig");
 const c = @import("csdk.zig");
 
+comptime {
+    _ = @import("wifi.zig");
+}
+
 const log = std.log.scoped(.sebastian);
 
 // Session timing constants + the pure keepalive/silence logic live in
