@@ -34,6 +34,7 @@
 
 static const char *TAG = "provisioning";
 
+void sebastian_wifi_begin(bool trial);
 void sebastian_wifi_got_ip(void);
 int32_t sebastian_wifi_next_attempt_ms(void);
 
@@ -230,6 +231,7 @@ bool sebastian_net_connect(void) {
     if (!net_events) net_events = xEventGroupCreate();
     const esp_timer_create_args_t reconnect_args = {.callback = reconnect, .name = "wifi_reconnect"};
     ESP_ERROR_CHECK(esp_timer_create(&reconnect_args, &reconnect_timer));
+    sebastian_wifi_begin(trial);
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     esp_netif_create_default_wifi_sta();

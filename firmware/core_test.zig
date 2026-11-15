@@ -1625,8 +1625,8 @@ fn dropFor(st: *wifi.State, attempts: usize) wifi.Next {
     return last;
 }
 
-test "wifi: joining at boot retries at once and gives up after JOIN_ATTEMPTS" {
-    var st = wifi.State{};
+test "wifi: a new network on trial retries at once and gives up after JOIN_ATTEMPTS" {
+    var st = wifi.State{ .trial = true };
     for (0..wifi.JOIN_ATTEMPTS) |_| {
         try std.testing.expectEqualDeep(wifi.Next{ .retry_in_ms = 0 }, st.disconnected());
     }
@@ -1660,9 +1660,23 @@ test "wifi: a reconnection starts the next outage from the shortest pause" {
     try std.testing.expectEqualDeep(wifi.Next{ .retry_in_ms = wifi.FIRST_PAUSE_MS }, st.disconnected());
 }
 
-test "wifi: attempts spent joining at boot do not count once online" {
+test "wifi: joining at boot without a trial never gives up, so a router slower than the unit is waited for" {
     var st = wifi.State{};
-    _ = dropFor(&st, wifi.JOIN_ATTEMPTS);
+    try std.testing.expectEqualDeep(wifi.Next{ .retry_in_ms = wifi.FIRST_PAUSE_MS }, st.disconnected());
+    try std.testing.expectEqualDeep(wifi.Next{ .retry_in_ms = wifi.MAX_PAUSE_MS }, dropFor(&st, 10_000));
+}
+
+test "wifi: a trial network that got an IP is retried forever like any other" {
+    var st = wifi.State{ .trial = true };
+    st.gotIp();
+    for (0..10_000) |_| {
+        try std.testing.expect(st.disconnected() != .give_up);
+    }
+}
+
+test "wifi: attempts spent joining at boot do not count once online" {
+    var st = wifi.State{ .trial = true };
+    _ = dropFor(&st, wifi.JOIN_ATTEMPTS - 1);
     st.gotIp();
     try std.testing.expectEqualDeep(wifi.Next{ .retry_in_ms = wifi.FIRST_PAUSE_MS }, st.disconnected());
 }

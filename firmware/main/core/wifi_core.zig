@@ -1,7 +1,7 @@
-//! When to retry the WiFi after a disconnection. Joining at boot gives up so
-//! the boot path can restore a trial network or report the failure; a unit
-//! that already had an IP never gives up, or one outage leaves it offline
-//! until someone pulls the plug.
+//! When to retry the WiFi after a disconnection. Only a new network on trial
+//! gives up, so the boot path can restore the previous one; any other unit
+//! retries forever, or one outage (or a router slower than the unit after a
+//! power cut) leaves it offline until someone pulls the plug.
 
 const std = @import("std");
 
@@ -15,6 +15,7 @@ pub const Next = union(enum) {
 };
 
 pub const State = struct {
+    trial: bool = false,
     online: bool = false,
     failures: u32 = 0,
 
@@ -25,7 +26,7 @@ pub const State = struct {
 
     pub fn disconnected(self: *State) Next {
         defer self.failures +|= 1;
-        if (self.online) return .{ .retry_in_ms = pauseAfter(self.failures) };
+        if (!self.trial or self.online) return .{ .retry_in_ms = pauseAfter(self.failures) };
         if (self.failures >= JOIN_ATTEMPTS) return .give_up;
         return .{ .retry_in_ms = 0 };
     }
